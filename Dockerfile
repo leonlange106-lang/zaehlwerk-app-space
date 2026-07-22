@@ -56,6 +56,18 @@ COPY --from=builder /repo/apps/main-portal/.next/static ./apps/main-portal/.next
 COPY --from=builder /repo/apps/main-portal/public ./apps/main-portal/public
 COPY --from=builder /repo/scripts ./scripts
 
+# Prisma's runtime searches a handful of __dirname-relative locations for its
+# query engine binary, and both bundlers we tried (Turbopack, then webpack —
+# see PR history) rewrite/relocate the code that computes those enough that
+# none of the candidates end up correct at runtime, even though the binary
+# genuinely is present at packages/database/generated/client/. Sidestep the
+# search entirely by pointing straight at the file. The filename is tied to
+# this base image's OpenSSL version (Alpine 3.x → openssl-3.0.x); if the
+# node:20-alpine tag ever moves to a different OpenSSL major, `prisma
+# generate`'s output filename changes too and this needs updating to match
+# (check with: docker compose exec main-portal ls /app/packages/database/generated/client).
+ENV PRISMA_QUERY_ENGINE_LIBRARY=/app/packages/database/generated/client/libquery_engine-linux-musl-openssl-3.0.x.so.node
+
 RUN mkdir -p /data
 
 EXPOSE 3000
