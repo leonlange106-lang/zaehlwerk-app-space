@@ -1,14 +1,11 @@
 import {
   Badge,
-  Button,
   Card,
   Grid,
   GridCol,
   Group,
   List,
   ListItem,
-  Progress,
-  RingProgress,
   SimpleGrid,
   Stack,
   Text,
@@ -16,48 +13,77 @@ import {
 } from "@mantine/core";
 import {
   IconArrowUpRight,
+  IconCalendarStats,
   IconClipboardList,
-  IconServer2,
+  IconMapPin,
   IconStack2,
-  IconUsers,
 } from "@tabler/icons-react";
+import { LinkButton } from "./LinkButton";
+import {
+  getConsumptionSummary,
+  listLocations,
+  listRecentAblesungen,
+  listZaehler,
+} from "./lib/zaehler-actions";
 import classes from "./page.module.css";
 
-const STATS = [
-  {
-    label: "Aktive Zählungen",
-    value: "128",
-    diff: "+12 diese Woche",
-    icon: IconStack2,
-  },
-  {
-    label: "Offene Aufgaben",
-    value: "7",
-    diff: "-3 seit gestern",
-    icon: IconClipboardList,
-  },
-  {
-    label: "Team Mitglieder",
-    value: "16",
-    diff: "+1 diesen Monat",
-    icon: IconUsers,
-  },
-  {
-    label: "Systemstatus",
-    value: "Betriebsbereit",
-    diff: "99.98% Uptime",
-    icon: IconServer2,
-  },
-];
+const dateFormatter = new Intl.DateTimeFormat("de-DE", {
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+});
+const numberFormatter = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 });
 
-const RECENT_ACTIVITY = [
-  { title: "Zählung „Halle 3“ abgeschlossen", meta: "vor 12 Minuten" },
-  { title: "Neuer Nutzer eingeladen: j.schmidt@zaehlwerk.de", meta: "vor 48 Minuten" },
-  { title: "Export „Q3 Bericht“ erstellt", meta: "vor 2 Stunden" },
-  { title: "Wartungsfenster geplant für Sa. 02:00 Uhr", meta: "vor 5 Stunden" },
-];
+function formatRelative(date: Date): string {
+  const diffMs = Date.now() - date.getTime();
+  const minutes = Math.round(diffMs / 60_000);
+  if (minutes < 1) return "gerade eben";
+  if (minutes < 60) return `vor ${minutes} Min.`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `vor ${hours} Std.`;
+  const days = Math.round(hours / 24);
+  if (days < 30) return `vor ${days} Tag${days === 1 ? "" : "en"}`;
+  return dateFormatter.format(date);
+}
 
-export default function DashboardPage() {
+export default async function DashboardPage() {
+  const [zaehlerList, locations, recentAblesungen, consumptionSummary] = await Promise.all([
+    listZaehler(),
+    listLocations(),
+    listRecentAblesungen(6),
+    getConsumptionSummary(),
+  ]);
+
+  const totalAblesungen = zaehlerList.reduce((sum, zaehler) => sum + zaehler.ablesungen.length, 0);
+  const lastReadingDate = recentAblesungen[0]?.datum ?? null;
+
+  const stats = [
+    {
+      label: "Aktive Zähler",
+      value: String(zaehlerList.length),
+      diff: "Strom, Gas, Wasser & mehr",
+      icon: IconStack2,
+    },
+    {
+      label: "Standorte",
+      value: String(locations.length),
+      diff: "erfasste Gebäude/Einheiten",
+      icon: IconMapPin,
+    },
+    {
+      label: "Ablesungen erfasst",
+      value: String(totalAblesungen),
+      diff: "über alle Zähler",
+      icon: IconClipboardList,
+    },
+    {
+      label: "Letzte Ablesung",
+      value: lastReadingDate ? dateFormatter.format(lastReadingDate) : "–",
+      diff: lastReadingDate ? formatRelative(lastReadingDate) : "noch keine Daten",
+      icon: IconCalendarStats,
+    },
+  ];
+
   return (
     <Stack gap="lg">
       <div>
@@ -68,7 +94,7 @@ export default function DashboardPage() {
       </div>
 
       <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }} spacing="md">
-        {STATS.map((stat) => (
+        {stats.map((stat) => (
           <Card key={stat.label} className={classes.statCard}>
             <Group justify="space-between" align="flex-start">
               <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
@@ -91,27 +117,37 @@ export default function DashboardPage() {
           <Card className={classes.panel} h="100%">
             <Group justify="space-between" mb="sm">
               <Title order={4}>Letzte Aktivität</Title>
-              <Button
+              <LinkButton
+                href="/zaehler"
                 variant="subtle"
                 color="slate"
                 size="xs"
                 rightSection={<IconArrowUpRight size={14} />}
               >
                 Alle anzeigen
-              </Button>
+              </LinkButton>
             </Group>
-            <List spacing="sm" size="sm" listStyleType="none">
-              {RECENT_ACTIVITY.map((entry) => (
-                <ListItem key={entry.title} className={classes.activityItem}>
-                  <Group justify="space-between" wrap="nowrap">
-                    <Text size="sm">{entry.title}</Text>
-                    <Text size="xs" c="dimmed" style={{ whiteSpace: "nowrap" }}>
-                      {entry.meta}
-                    </Text>
-                  </Group>
-                </ListItem>
-              ))}
-            </List>
+            {recentAblesungen.length === 0 ? (
+              <Text size="sm" c="dimmed">
+                Noch keine Ablesungen erfasst.
+              </Text>
+            ) : (
+              <List spacing="sm" size="sm" listStyleType="none">
+                {recentAblesungen.map((ablesung) => (
+                  <ListItem key={ablesung.id} className={classes.activityItem}>
+                    <Group justify="space-between" wrap="nowrap">
+                      <Text size="sm">
+                        {ablesung.zaehler.name}: {numberFormatter.format(ablesung.wert)}{" "}
+                        {ablesung.zaehler.einheit}
+                      </Text>
+                      <Text size="xs" c="dimmed" style={{ whiteSpace: "nowrap" }}>
+                        {formatRelative(ablesung.datum)}
+                      </Text>
+                    </Group>
+                  </ListItem>
+                ))}
+              </List>
+            )}
           </Card>
         </GridCol>
 
@@ -119,41 +155,27 @@ export default function DashboardPage() {
           <Stack gap="md">
             <Card className={classes.panel}>
               <Title order={4} mb="sm">
-                Systemauslastung
+                Verbrauch je Zähler
               </Title>
-              <Group>
-                <RingProgress
-                  size={90}
-                  thickness={9}
-                  roundCaps
-                  sections={[{ value: 62, color: "slate" }]}
-                  label={
-                    <Text ta="center" fw={600} size="sm">
-                      62%
-                    </Text>
-                  }
-                />
-                <Stack gap={6} style={{ flex: 1 }}>
-                  <div>
-                    <Group justify="space-between" mb={2}>
-                      <Text size="xs">CPU</Text>
-                      <Text size="xs" c="dimmed">
-                        41%
+              {consumptionSummary.length === 0 ? (
+                <Text size="sm" c="dimmed">
+                  Noch keine Zähler angelegt.
+                </Text>
+              ) : (
+                <Stack gap="xs">
+                  {consumptionSummary.map((entry) => (
+                    <Group key={entry.zaehlerId} justify="space-between" wrap="nowrap">
+                      <Group gap="xs" wrap="nowrap">
+                        <span className={classes.colorDot} style={{ background: entry.farbe }} />
+                        <Text size="sm">{entry.name}</Text>
+                      </Group>
+                      <Text size="sm" fw={600} style={{ whiteSpace: "nowrap" }}>
+                        {numberFormatter.format(entry.totalConsumption)} {entry.einheit}
                       </Text>
                     </Group>
-                    <Progress value={41} size="xs" color="slate" />
-                  </div>
-                  <div>
-                    <Group justify="space-between" mb={2}>
-                      <Text size="xs">Speicher</Text>
-                      <Text size="xs" c="dimmed">
-                        68%
-                      </Text>
-                    </Group>
-                    <Progress value={68} size="xs" color="slate" />
-                  </div>
+                  ))}
                 </Stack>
-              </Group>
+              )}
             </Card>
 
             <Card className={classes.panel}>
@@ -164,15 +186,15 @@ export default function DashboardPage() {
                 </Badge>
               </Group>
               <Stack gap="xs">
-                <Button variant="light" color="slate" justify="start" fullWidth>
-                  Neue Zählung starten
-                </Button>
-                <Button variant="light" color="slate" justify="start" fullWidth>
-                  Bericht exportieren
-                </Button>
-                <Button variant="light" color="slate" justify="start" fullWidth>
-                  Team einladen
-                </Button>
+                <LinkButton href="/zaehler" variant="light" color="slate" justify="start" fullWidth>
+                  Neuen Zähler anlegen
+                </LinkButton>
+                <LinkButton href="/zaehler" variant="light" color="slate" justify="start" fullWidth>
+                  Zählerstand erfassen
+                </LinkButton>
+                <LinkButton href="/zaehler" variant="light" color="slate" justify="start" fullWidth>
+                  Alle Zähler anzeigen
+                </LinkButton>
               </Stack>
             </Card>
           </Stack>
