@@ -1,0 +1,87 @@
+// Pinned to the last Prisma 6.x release deliberately: Prisma 7 made driver
+// adapters mandatory (no more plain `new PrismaClient()`) and switched to a
+// WASM query engine + new config file. None of that buys us anything here,
+// so we stay on the simpler, battle-tested classic engine.
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/client"
+}
+
+// SQLite locally (matches the reference `zaehlwerk` project and needs zero
+// setup). For production, point DATABASE_URL at Postgres and change the
+// provider below to "postgresql" (Prisma's SQL generation differs slightly
+// per provider, so the provider itself isn't swappable at runtime) — then
+// rerun `pnpm db:generate`.
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// Energieträger / Kategorie eines Zählers.
+enum EnergyCategory {
+  STROM
+  GAS
+  WASSER
+  PV_ERZEUGUNG
+  PV_EINSPEISUNG
+  CUSTOM
+}
+
+/// Standort, dem Zähler zugeordnet werden können (z.B. Gebäude, Wohnung).
+model Location {
+  id        String    @id @default(uuid())
+  name      String
+  address   String?
+  note      String?
+  createdAt DateTime  @default(now())
+  zaehler   Zaehler[]
+
+  @@map("locations")
+}
+
+/// Ein Zähler (z.B. "Strom Hauptzähler"). Entspricht `System` im
+/// Referenzprojekt: überlebt Zählertausche, die Historie steckt in
+/// `Ablesung`, nicht hier.
+model Zaehler {
+  id         String         @id @default(uuid())
+  name       String
+  kategorie  EnergyCategory
+  einheit    String
+  farbe      String         @default("#495a6c")
+  icon       String         @default("bolt")
+  aktiv      Boolean        @default(true)
+  sortIndex  Int            @default(0)
+  locationId String?
+  location   Location?      @relation(fields: [locationId], references: [id])
+  ablesungen Ablesung[]
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  @@index([locationId])
+  @@map("zaehler")
+}
+
+/// Ein Zählerstand / eine Ablesung. Verbrauch wird daraus abgeleitet
+/// (Differenz zweier Ablesungen), nicht separat gespeichert — siehe
+/// `src/consumption.ts`.
+model Ablesung {
+  id               String   @id @default(uuid())
+  zaehlerId        String
+  zaehler          Zaehler  @relation(fields: [zaehlerId], references: [id], onDelete: Cascade)
+  datum            DateTime
+  wert             Float
+  kosten           Float?
+  /// Markiert die erste Ablesung nach einem Zählertausch. Der Verbrauch bis
+  /// hierhin berechnet sich dann aus `startwertNeu` statt aus der vorherigen
+  /// Ablesung (die gehörte zum alten physischen Zähler).
+  zaehlerGetauscht Boolean  @default(false)
+  startwertNeu     Float?
+  notiz            String?
+  quelle           String   @default("manual")
+  istAbgerechnet   Boolean  @default(false)
+  createdAt        DateTime @default(now())
+
+  @@index([zaehlerId])
+  @@index([datum])
+  @@map("ablesungen")
+}

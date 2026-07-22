@@ -26,7 +26,7 @@ import classes from "./PortalShell.module.css";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/", icon: IconLayoutDashboard, disabled: false },
-  { label: "Zählwerk", href: "/zaehlwerk", icon: IconStack2, disabled: true },
+  { label: "Zählwerk", href: "/zaehler", icon: IconStack2, disabled: false },
   { label: "Berichte", href: "/reports", icon: IconChartBar, disabled: true },
   { label: "Team", href: "/team", icon: IconUsers, disabled: true },
   { label: "Einstellungen", href: "/settings", icon: IconSettings, disabled: true },
