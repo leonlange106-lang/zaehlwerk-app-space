@@ -126,16 +126,47 @@ docker compose -f docker-compose.prod.yml up -d --build
 docker compose -f docker-compose.prod.yml logs -f main-portal
 ```
 
-The app listens on port `3000`. First run seeds nothing automatically — if
-you want the demo data, run once:
+The app listens on port `3000`, but the database is still **empty** on the
+first run — you'll see `PrismaClientKnownRequestError: The table
+main.zaehler does not exist` in the logs and every page 500s until you
+create the schema.
+
+The slim runtime image deliberately has no `pnpm`/`prisma` CLI, so the
+schema is created from the **builder** stage instead (which does). Build a
+one-off image from that stage and run `db:push` against the database volume:
 
 ```sh
-docker compose -f docker-compose.prod.yml exec main-portal \
-  node -e "process.chdir('/repo/packages/database'); require('child_process').execSync('pnpm db:push && pnpm db:seed', {stdio:'inherit'})"
+docker build --target=builder -t zaehlwerk-builder .
+
+# Confirm the volume name first (compose prefixes it with the project name,
+# which defaults to the directory name — usually zaehlwerk_zaehlwerk-db):
+docker volume ls | grep zaehlwerk
+
+docker run --rm \
+  -v zaehlwerk_zaehlwerk-db:/data \
+  -e DATABASE_URL="file:/data/zaehlwerk.db" \
+  zaehlwerk-builder \
+  sh -c "cd packages/database && pnpm db:push"
 ```
 
-(or simpler, run `pnpm db:push && pnpm db:seed` on the host if you have
-Node/pnpm installed there against the same `DATABASE_URL`.)
+`db:push` is safe and idempotent — it only creates/updates tables, never
+touches existing rows. Reload the app and the pages should work (no
+container restart needed; the tables simply exist now).
+
+### Optional: load demo data
+
+There's also a seed script that inserts example Strom/Gas/Wasser meters with
+a few months of readings. **It is destructive** — `prisma/seed.ts` starts by
+`deleteMany()`-ing every location, meter and reading, so only ever run it on
+a fresh/empty database, **never** on one that already holds real data:
+
+```sh
+docker run --rm \
+  -v zaehlwerk_zaehlwerk-db:/data \
+  -e DATABASE_URL="file:/data/zaehlwerk.db" \
+  zaehlwerk-builder \
+  sh -c "cd packages/database && pnpm db:seed"
+```
 
 ## 7. Put it behind a reverse proxy (recommended)
 
@@ -211,9 +242,21 @@ Run that on a cron schedule and copy the backups off the LXC.
   `docker compose -f docker-compose.prod.yml exec main-portal ls
   /app/packages/database/generated/client` and update the `ENV
   PRISMA_QUERY_ENGINE_LIBRARY=...` line in the Dockerfile to match.
+- **Every page 500s with `PrismaClientKnownRequestError: The table
+  main.zaehler does not exist`** (code `P2021`): the database volume exists
+  but its schema was never created. Run the `db:push` step from section 6.
 - **`/api/update/check` returns a GitHub 404**: `GITHUB_TOKEN` is missing or
   lacks access — the repo is private, so unauthenticated requests 404
   instead of 403.
+- **`/api/update/check` returns a GitHub 401 Unauthorized**: GitHub received
+  a token but rejected it as invalid (as opposed to the 404 above, which
+  means *no* usable token). The token is expired, revoked, or malformed —
+  a common cause is a doubled prefix (`github_pat_github_pat_…`) from typing
+  `github_pat_` before pasting a token that already includes it. Check the
+  length (a valid fine-grained PAT is ~93 chars): `awk -F=
+  '/^GITHUB_TOKEN=/{print length($2)}' .env`. Fix the value, then recreate
+  the container with `docker compose -f docker-compose.prod.yml up -d`
+  (a plain `restart` does **not** re-read `.env`).
 - **`/api/update/trigger` returns 503**: `UPDATE_TRIGGER_TOKEN` isn't set in
   `.env`.
 - **Update trigger runs but nothing changes**: check
