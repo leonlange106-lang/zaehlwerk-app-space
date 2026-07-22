@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useEffect, useRef } from "react";
+import Link from "next/link";
 import {
   Alert,
   Badge,
@@ -76,7 +77,15 @@ export function ZaehlerManager({
               const lastReading = zaehler.ablesungen.at(-1);
 
               return (
-                <Card key={zaehler.id} withBorder radius="md" p="lg">
+                <Card
+                  key={zaehler.id}
+                  component={Link}
+                  href={`/zaehler/${zaehler.id}`}
+                  withBorder
+                  radius="md"
+                  p="lg"
+                  className={classes.zaehlerCard}
+                >
                   <Group justify="space-between" align="flex-start">
                     <Group gap="sm">
                       <span className={classes.colorDot} style={{ background: zaehler.farbe }} />
