@@ -30,8 +30,12 @@ COPY . .
 # time instead of trying (and failing) to prerender them against a database
 # that doesn't exist yet at build time.
 ENV DATABASE_URL="file:./build-placeholder.db"
-RUN pnpm db:generate
-RUN pnpm --filter main-portal build
+# Root `build` script (turbo run build) builds every package in dependency
+# order — @zaehlwerk/database and @zaehlwerk/updater compile to dist/ first
+# (via their own "build" scripts), then main-portal. Building main-portal
+# alone via `pnpm --filter main-portal build` would skip that and leave it
+# importing packages that were never compiled.
+RUN pnpm build
 
 # ---- runner: minimal production image
 #

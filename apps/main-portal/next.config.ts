@@ -1,14 +1,18 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  transpilePackages: ["@zaehlwerk/database", "@zaehlwerk/updater"],
+  // @zaehlwerk/database and @zaehlwerk/updater ship compiled CJS (see their
+  // "build" scripts) specifically so they DON'T need transpilePackages.
+  // transpilePackages would pull the Prisma-generated client into Next's own
+  // server bundle, which breaks Prisma's __dirname-relative lookup of its
+  // native query engine binary at runtime (it ends up searching relative to
+  // a .next/server/chunks/*.js file instead of its real directory) —
+  // see https://pris.ly/d/engine-not-found-nextjs and PR history on this repo.
   // Lean, self-contained server bundle for the production Docker image.
   output: "standalone",
-  // Prisma resolves its query engine binary (e.g.
-  // libquery_engine-linux-musl-openssl-3.0.x.so.node) by building the
-  // filename at runtime from the detected platform — that's invisible to
-  // Next's static file tracer, so the binary silently doesn't make it into
-  // `.next/standalone` without this. Documented Prisma+Next.js fix:
+  // Belt-and-suspenders: the native engine binary isn't a static import, so
+  // Next's file tracer can miss it when copying `.next/standalone` even when
+  // the module itself is left external. Documented Prisma+Next.js fix:
   // https://pris.ly/d/engine-not-found-nextjs
   outputFileTracingIncludes: {
     "/**": ["../../packages/database/generated/client/**/*"],
