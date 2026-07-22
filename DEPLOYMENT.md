@@ -201,6 +201,16 @@ Run that on a cron schedule and copy the backups off the LXC.
 - **`prisma generate` fails during build with a permissions/rename error**:
   usually a stale file lock from a previous failed build; `docker compose
   build --no-cache` clears it.
+- **Every page 500s with `PrismaClientInitializationError: ... could not
+  locate the Query Engine for runtime "linux-musl-openssl-3.0.x"`**: the
+  Dockerfile sets `PRISMA_QUERY_ENGINE_LIBRARY` explicitly to work around
+  this (Next's bundlers don't reliably preserve Prisma's own `__dirname`-based
+  search for the binary — see the fix/prisma-* PRs on this repo for the full
+  saga). If you still hit this, the binary's filename likely no longer
+  matches what's hardcoded in the Dockerfile — check the real filename with
+  `docker compose -f docker-compose.prod.yml exec main-portal ls
+  /app/packages/database/generated/client` and update the `ENV
+  PRISMA_QUERY_ENGINE_LIBRARY=...` line in the Dockerfile to match.
 - **`/api/update/check` returns a GitHub 404**: `GITHUB_TOKEN` is missing or
   lacks access — the repo is private, so unauthenticated requests 404
   instead of 403.
