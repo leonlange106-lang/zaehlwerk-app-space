@@ -56,26 +56,60 @@ If `hello-world` fails with a cgroup/overlay error, double-check that
 **Nesting** is actually enabled on the LXC (Proxmox → container → Options →
 Features) and reboot the container.
 
-## 3. Clone the repository
+## 3. Generate a GitHub access token
+
+This repo is **private**, and GitHub has not accepted plain account passwords
+for git operations since 2021 — cloning with just a username/password (as
+the `git clone` prompt below suggests) fails with `Invalid username or
+token. Password authentication is not supported`. You need a token instead,
+and — because `scripts/update.sh` later runs `git pull` **unattended**, with
+no terminal to type a password into — that token needs to be wired up so git
+never has to ask.
+
+1. GitHub → Settings → Developer settings → **Fine-grained tokens** → Generate
+   new token.
+2. Repository access: **Only select repositories** → `zaehlwerk-app-space`.
+3. Permissions: **Contents → Read-only** (that's all `git clone`/`pull` and
+   the GitHub API check need).
+4. Generate and copy the token (`github_pat_…`) — you'll use it twice: once
+   for the clone below, once for `GITHUB_TOKEN` in step 5.
+
+## 4. Clone the repository
 
 ```sh
 mkdir -p /opt/zaehlwerk
 git clone https://github.com/leonlange106-lang/zaehlwerk-app-space.git /opt/zaehlwerk
-cd /opt/zaehlwerk
 ```
+
+When prompted for a username, enter your GitHub username; when prompted for
+a **password, paste the token from step 3** (not your actual GitHub
+password — that's what the error message is telling you).
+
+Then make the credential permanent, so the unattended `git pull` inside
+`scripts/update.sh` doesn't hang waiting for a prompt that will never come:
+
+```sh
+cd /opt/zaehlwerk
+git remote set-url origin "https://<token>@github.com/leonlange106-lang/zaehlwerk-app-space.git"
+git pull   # should now run with no prompt at all
+```
+
+(`.git/config` now contains the token in plain text — that's consistent with
+this whole setup already trusting root on the LXC; just don't `git remote -v`
+that output into a bug report or screenshot.)
 
 This checkout is what gets bind-mounted into the container and is what
 `git pull` operates on during a self-update — keep it on the branch you want
 running in production (typically `main`).
 
-## 4. Configure environment variables
+## 5. Configure environment variables
 
 Create `/opt/zaehlwerk/.env` (read by `docker compose`, **not** committed):
 
 ```sh
 cat > .env <<'EOF'
-# Fine-grained GitHub PAT, read-only "Contents" access to this repo — needed
-# because the repo is private and /api/update/check hits GitHub's API.
+# Same fine-grained PAT from step 3 — needed here too because the repo is
+# private and /api/update/check hits GitHub's API.
 GITHUB_TOKEN=github_pat_xxxxxxxxxxxxxxxxxxxxxxxx
 
 # Shared secret required to POST /api/update/trigger. Generate a random one:
@@ -85,7 +119,7 @@ EOF
 chmod 600 .env
 ```
 
-## 5. Build and start
+## 6. Build and start
 
 ```sh
 docker compose -f docker-compose.prod.yml up -d --build
@@ -103,7 +137,7 @@ docker compose -f docker-compose.prod.yml exec main-portal \
 (or simpler, run `pnpm db:push && pnpm db:seed` on the host if you have
 Node/pnpm installed there against the same `DATABASE_URL`.)
 
-## 6. Put it behind a reverse proxy (recommended)
+## 7. Put it behind a reverse proxy (recommended)
 
 Don't expose port 3000 directly to the internet. Put a reverse proxy in
 front (Caddy, Traefik, or nginx — on the Proxmox host, in another LXC, or on
@@ -157,6 +191,13 @@ Run that on a cron schedule and copy the backups off the LXC.
 
 ## Troubleshooting
 
+- **`git clone`/`git pull` fails with `Invalid username or token. Password
+  authentication is not supported for Git operations.`**: you typed your
+  actual GitHub account password at the prompt. Use a fine-grained PAT
+  instead — see step 3. If this happens during an automated update (not an
+  interactive clone), it means `git remote set-url` from step 4 was never
+  run, or the token in it expired/was revoked; regenerate the token and
+  rerun `git remote set-url origin "https://<token>@github.com/..."`.
 - **`prisma generate` fails during build with a permissions/rename error**:
   usually a stale file lock from a previous failed build; `docker compose
   build --no-cache` clears it.
