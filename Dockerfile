@@ -25,6 +25,10 @@ COPY --from=deps /repo/packages/updater/node_modules ./packages/updater/node_mod
 COPY . .
 # `prisma generate` only reads the schema, but still needs DATABASE_URL to be
 # set for its config loader — this placeholder is never actually connected to.
+# It's also never queried during `next build`: every DB-backed route is
+# `export const dynamic = "force-dynamic"`, so Next renders them at request
+# time instead of trying (and failing) to prerender them against a database
+# that doesn't exist yet at build time.
 ENV DATABASE_URL="file:./build-placeholder.db"
 RUN pnpm db:generate
 RUN pnpm --filter main-portal build

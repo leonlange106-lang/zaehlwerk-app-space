@@ -17,6 +17,8 @@ import { IconDownload } from "@tabler/icons-react";
 import { ENERGY_CATEGORY_LABELS } from "@zaehlwerk/database/shared";
 import { getConsumptionSummary } from "../lib/zaehler-actions";
 
+export const dynamic = "force-dynamic";
+
 const numberFormatter = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 });
 
 export default async function BerichtePage() {

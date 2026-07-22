@@ -27,6 +27,11 @@ import {
 } from "./lib/zaehler-actions";
 import classes from "./page.module.css";
 
+// Reads live data from the database on every request — must not be
+// statically prerendered at build time (there's no reachable DB then, and a
+// static snapshot would go stale the moment someone adds a reading).
+export const dynamic = "force-dynamic";
+
 const dateFormatter = new Intl.DateTimeFormat("de-DE", {
   day: "2-digit",
   month: "2-digit",
