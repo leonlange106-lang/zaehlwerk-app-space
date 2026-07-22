@@ -1,0 +1,10 @@
+node_modules/
+.turbo/
+.next/
+dist/
+build/
+coverage/
+*.log
+
+# Local machine-specific settings, not shared with the team
+.claude/settings.local.json
