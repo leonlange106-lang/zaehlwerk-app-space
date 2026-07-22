@@ -7,6 +7,7 @@ import {
   prisma,
   sumConsumption,
   zaehlerCreateSchema,
+  zaehlerUpdateSchema,
 } from "@zaehlwerk/database";
 
 export type ActionState = {
@@ -21,6 +22,16 @@ export async function listZaehler() {
     include: {
       location: true,
       ablesungen: { orderBy: { datum: "asc" } },
+    },
+  });
+}
+
+export async function getZaehlerById(id: string) {
+  return prisma.zaehler.findUnique({
+    where: { id },
+    include: {
+      location: true,
+      ablesungen: { orderBy: { datum: "desc" } },
     },
   });
 }
@@ -75,6 +86,31 @@ export async function createZaehlerAction(
 
   await prisma.zaehler.create({ data: parsed.data });
 
+  revalidatePath("/zaehler");
+  revalidatePath("/");
+  return { success: true };
+}
+
+export async function updateZaehlerAction(
+  _prevState: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const parsed = zaehlerUpdateSchema.safeParse({
+    id: formData.get("id"),
+    name: formData.get("name"),
+    kategorie: formData.get("kategorie"),
+    einheit: formData.get("einheit"),
+    locationId: formData.get("locationId"),
+  });
+
+  if (!parsed.success) {
+    return { success: false, error: parsed.error.issues[0]?.message ?? "Ungültige Eingabe" };
+  }
+
+  const { id, ...data } = parsed.data;
+  await prisma.zaehler.update({ where: { id }, data });
+
+  revalidatePath(`/zaehler/${id}`);
   revalidatePath("/zaehler");
   revalidatePath("/");
   return { success: true };

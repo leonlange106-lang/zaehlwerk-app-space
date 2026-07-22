@@ -1,0 +1,10 @@
+**/node_modules
+**/.next
+**/.turbo
+**/generated
+**/*.db
+**/*.db-journal
+**/.env
+**/.env.local
+.git
+.claude

@@ -1,0 +1,51 @@
+# Production compose file for a Proxmox LXC + Docker deployment.
+# See DEPLOYMENT.md for the full setup walkthrough, including the security
+# tradeoffs of the docker.sock + repo bind mounts used by the self-update
+# feature below.
+services:
+  main-portal:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: zaehlwerk-main-portal:latest
+    container_name: zaehlwerk-main-portal
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: file:/data/zaehlwerk.db
+      # Required for /api/update/check — this repo is private, so an
+      # unauthenticated GitHub API call to it 404s. Fine-grained PAT with
+      # read-only "Contents" access to this repo is enough.
+      GITHUB_TOKEN: ${GITHUB_TOKEN:?set GITHUB_TOKEN in .env}
+      # Shared secret required by POST /api/update/trigger. Generate with
+      # e.g. `openssl rand -hex 32`.
+      UPDATE_TRIGGER_TOKEN: ${UPDATE_TRIGGER_TOKEN:?set UPDATE_TRIGGER_TOKEN in .env}
+      UPDATE_BRANCH: main
+      # Where the live git checkout is bind-mounted inside the container —
+      # both the version check (git rev-parse) and the update trigger
+      # (git pull + docker compose) operate on this path.
+      REPO_ROOT: /repo
+      UPDATE_SCRIPT_PATH: /repo/scripts/update.sh
+      COMPOSE_FILE: docker-compose.prod.yml
+    volumes:
+      # Persists the SQLite database across container recreations.
+      - zaehlwerk-db:/data
+      # Live repo checkout, so git pull / git rev-parse operate on real
+      # history rather than a snapshot baked into the image.
+      - .:/repo
+      # Lets the update trigger run `docker compose up -d --build` against
+      # the HOST's Docker daemon (docker-outside-of-docker). This grants the
+      # container root-equivalent access to the host — see DEPLOYMENT.md
+      # before exposing this service beyond a trusted network.
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  zaehlwerk-db:

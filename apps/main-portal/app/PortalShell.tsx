@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { usePathname } from "next/navigation";
 import {
+  ActionIcon,
   AppShell,
   Avatar,
   Group,
@@ -12,14 +13,17 @@ import {
   TextInput,
   ThemeIcon,
   UnstyledButton,
+  useMantineColorScheme,
 } from "@mantine/core";
 import {
   IconBell,
   IconChartBar,
   IconLayoutDashboard,
+  IconMoon,
   IconSearch,
   IconSettings,
   IconStack2,
+  IconSun,
   IconUsers,
 } from "@tabler/icons-react";
 import classes from "./PortalShell.module.css";
@@ -27,14 +31,20 @@ import classes from "./PortalShell.module.css";
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/", icon: IconLayoutDashboard, disabled: false },
   { label: "Zählwerk", href: "/zaehler", icon: IconStack2, disabled: false },
-  { label: "Berichte", href: "/reports", icon: IconChartBar, disabled: true },
+  { label: "Berichte", href: "/berichte", icon: IconChartBar, disabled: false },
   { label: "Team", href: "/team", icon: IconUsers, disabled: true },
-  { label: "Einstellungen", href: "/settings", icon: IconSettings, disabled: true },
+  { label: "Einstellungen", href: "/einstellungen", icon: IconSettings, disabled: false },
 ];
+
+function isActiveHref(pathname: string, href: string): boolean {
+  if (href === "/") return pathname === "/";
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
 
 export function PortalShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [query, setQuery] = useState("");
+  const { colorScheme, toggleColorScheme } = useMantineColorScheme();
 
   return (
     <AppShell
@@ -65,6 +75,16 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
           />
 
           <Group gap="sm" wrap="nowrap">
+            <ActionIcon
+              variant="subtle"
+              color="slate"
+              size="lg"
+              radius="sm"
+              onClick={() => toggleColorScheme()}
+              aria-label="Theme wechseln"
+            >
+              {colorScheme === "dark" ? <IconSun size={18} stroke={1.6} /> : <IconMoon size={18} stroke={1.6} />}
+            </ActionIcon>
             <UnstyledButton className={classes.iconButton} aria-label="Benachrichtigungen">
               <IconBell size={18} stroke={1.6} />
             </UnstyledButton>
@@ -83,7 +103,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
               href={item.disabled ? undefined : item.href}
               label={item.label}
               leftSection={<item.icon size={17} stroke={1.6} />}
-              active={pathname === item.href}
+              active={isActiveHref(pathname, item.href)}
               disabled={item.disabled}
               variant="light"
               color="slate"

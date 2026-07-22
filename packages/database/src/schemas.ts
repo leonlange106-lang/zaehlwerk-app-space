@@ -12,6 +12,16 @@ export const zaehlerCreateSchema = z.object({
 
 export type ZaehlerCreateInput = z.infer<typeof zaehlerCreateSchema>;
 
+export const zaehlerUpdateSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().trim().min(1, "Name ist erforderlich").max(120),
+  kategorie: z.enum(ENERGY_CATEGORIES),
+  einheit: z.string().trim().min(1, "Einheit ist erforderlich").max(20),
+  locationId: z.string().uuid().optional().or(z.literal("")).transform((v) => (v ? v : undefined)),
+});
+
+export type ZaehlerUpdateInput = z.infer<typeof zaehlerUpdateSchema>;
+
 export const ablesungCreateSchema = z.object({
   zaehlerId: z.string().uuid(),
   datum: z.coerce.date(),

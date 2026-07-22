@@ -5,3 +5,14 @@
   border-radius: 50%;
   flex-shrink: 0;
 }
+
+.zaehlerCard {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 100ms ease;
+}
+
+.zaehlerCard:hover {
+  border-color: light-dark(var(--mantine-color-gray-5), var(--mantine-color-dark-3));
+}
