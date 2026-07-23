@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   ActionIcon,
@@ -18,6 +19,7 @@ import {
 import {
   IconBell,
   IconChartBar,
+  IconGitCommit,
   IconLayoutDashboard,
   IconMoon,
   IconSearch,
@@ -41,7 +43,13 @@ function isActiveHref(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-export function PortalShell({ children }: { children: React.ReactNode }) {
+export function PortalShell({
+  children,
+  version,
+}: {
+  children: React.ReactNode;
+  version: { shortSha: string; branch: string } | null;
+}) {
   const pathname = usePathname();
   const [query, setQuery] = useState("");
   const { colorScheme, toggleColorScheme } = useMantineColorScheme();
@@ -96,27 +104,49 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
       </AppShell.Header>
 
       <AppShell.Navbar className={classes.navbar} p="sm">
-        <Stack gap={2}>
-          {NAV_ITEMS.map((item) => (
-            <NavLink
-              key={item.href}
-              href={item.disabled ? undefined : item.href}
-              label={item.label}
-              leftSection={<item.icon size={17} stroke={1.6} />}
-              active={isActiveHref(pathname, item.href)}
-              disabled={item.disabled}
-              variant="light"
-              color="slate"
-              className={classes.navLink}
-              rightSection={
-                item.disabled ? (
-                  <Text size="xs" c="dimmed">
-                    bald
-                  </Text>
-                ) : undefined
-              }
-            />
-          ))}
+        <Stack h="100%" justify="space-between" gap="sm">
+          <Stack gap={2}>
+            {NAV_ITEMS.map((item) => (
+              <NavLink
+                key={item.href}
+                href={item.disabled ? undefined : item.href}
+                label={item.label}
+                leftSection={<item.icon size={17} stroke={1.6} />}
+                active={isActiveHref(pathname, item.href)}
+                disabled={item.disabled}
+                variant="light"
+                color="slate"
+                className={classes.navLink}
+                rightSection={
+                  item.disabled ? (
+                    <Text size="xs" c="dimmed">
+                      bald
+                    </Text>
+                  ) : undefined
+                }
+              />
+            ))}
+          </Stack>
+
+          <UnstyledButton
+            component={Link}
+            href="/changelog"
+            className={classes.versionButton}
+            data-active={isActiveHref(pathname, "/changelog") || undefined}
+            title="Changelog öffnen"
+          >
+            <Group gap={7} wrap="nowrap">
+              <IconGitCommit size={15} stroke={1.6} />
+              <div>
+                <Text size="xs" fw={600} lh={1.2}>
+                  Version {version?.shortSha ?? "dev"}
+                </Text>
+                <Text size="10px" c="dimmed" lh={1.2}>
+                  {version?.branch ?? "lokal"} · Changelog ansehen
+                </Text>
+              </div>
+            </Group>
+          </UnstyledButton>
         </Stack>
       </AppShell.Navbar>
 
