@@ -35,9 +35,11 @@ services:
       # unauthenticated GitHub API call to it 404s. Fine-grained PAT with
       # read-only "Contents" access to this repo is enough.
       GITHUB_TOKEN: ${GITHUB_TOKEN:?set GITHUB_TOKEN in .env}
-      # Shared secret required by POST /api/update/trigger. Generate with
-      # e.g. `openssl rand -hex 32`.
-      UPDATE_TRIGGER_TOKEN: ${UPDATE_TRIGGER_TOKEN:?set UPDATE_TRIGGER_TOKEN in .env}
+      # Optional shared secret for POST /api/update/trigger. If set, the update
+      # button requires it; if left empty, the update runs without a token
+      # (fine on a trusted/VPN-only network — the app has no other auth either).
+      # Generate one with `openssl rand -hex 32` if you want the gate.
+      UPDATE_TRIGGER_TOKEN: ${UPDATE_TRIGGER_TOKEN:-}
       UPDATE_BRANCH: main
       # Where the live git checkout is bind-mounted inside the container —
       # both the version check (git rev-parse) and the update trigger
