@@ -54,6 +54,16 @@ export GIT_SHA
 echo "[update] rebuilding at GIT_SHA=$GIT_SHA"
 write_status building true false "Neue Version wird gebaut" "" "$GIT_SHA"
 
+# Free disk BEFORE building so accumulated images + build cache don't fill the
+# disk and fail the rebuild with ENOSPC. This is what lets the in-app update
+# run repeatedly without a manual `docker system prune`. `image prune` only
+# removes dangling (old, now-untagged) images; `builder prune --keep-storage`
+# trims old build cache but keeps a working set. Neither touches NAMED volumes,
+# so the database volume is safe. Non-fatal (|| true) if a flag is unsupported.
+echo "[update] pruning dangling images + old build cache to free disk"
+docker image prune -f || true
+docker builder prune -f --keep-storage=2GB || docker builder prune -f || true
+
 echo "[update] docker compose -f $COMPOSE_FILE up -d --build"
 # On SUCCESS this command recreates (and thus tears down) THIS very container
 # mid-run, so the lines below usually never execute — the UI detects success
