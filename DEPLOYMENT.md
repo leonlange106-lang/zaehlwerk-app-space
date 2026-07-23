@@ -127,7 +127,13 @@ chmod 600 .env
 
 ## 6. Build and start
 
+The Dockerfile uses BuildKit cache mounts (persistent pnpm store + Next build
+cache) to keep rebuilds fast, so **BuildKit must be enabled** — export
+`DOCKER_BUILDKIT=1` for any manual build. `scripts/update.sh` (the in-app
+update) already sets it. If a build errors on `--mount`, BuildKit isn't active.
+
 ```sh
+export DOCKER_BUILDKIT=1
 GIT_SHA=$(git rev-parse HEAD) docker compose -f docker-compose.prod.yml up -d --build
 docker compose -f docker-compose.prod.yml logs -f main-portal
 ```
@@ -148,7 +154,7 @@ schema is created from the **builder** stage instead (which does). Build a
 one-off image from that stage and run `db:push` against the database volume:
 
 ```sh
-docker build --target=builder -t zaehlwerk-builder .
+DOCKER_BUILDKIT=1 docker build --target=builder -t zaehlwerk-builder .
 
 # Confirm the volume name first (compose prefixes it with the project name,
 # which defaults to the directory name — usually zaehlwerk_zaehlwerk-db):
@@ -284,7 +290,7 @@ with ~12–16 GB.
   deploy (run the `db:push` step from section 6) or a **manual** `docker
   compose up` that skipped migration. Recover manually with:
   ```sh
-  docker build --target=builder -t zaehlwerk-builder .
+  DOCKER_BUILDKIT=1 docker build --target=builder -t zaehlwerk-builder .
   docker run --rm -v zaehlwerk_zaehlwerk-db:/data \
     -e DATABASE_URL="file:/data/zaehlwerk.db" \
     zaehlwerk-builder sh -c "cd packages/database && pnpm db:push"

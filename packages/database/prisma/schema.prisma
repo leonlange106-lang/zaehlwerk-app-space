@@ -31,10 +31,31 @@ model User {
   passwordHash String
   name         String?
   role         Role     @default(USER)
+  /// TOTP-Secret (Base32), AES-GCM-verschlüsselt gespeichert — nie im Klartext.
+  twoFactorSecret  String?
+  twoFactorEnabled Boolean @default(false)
+  apiTokens        ApiToken[]
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   @@map("users")
+}
+
+/// Persönlicher API-Token (PAT) für Zugriffe ohne Web-Session (Skripte, Smart
+/// Home). Der Klartext-Token (`zw_pat_…`) wird nur bei Erstellung angezeigt;
+/// gespeichert wird ausschließlich der SHA-256-Hash.
+model ApiToken {
+  id         String    @id @default(uuid())
+  name       String
+  tokenHash  String    @unique
+  lastUsedAt DateTime?
+  expiresAt  DateTime?
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt  DateTime  @default(now())
+
+  @@index([userId])
+  @@map("api_tokens")
 }
 
 /// Energieträger / Kategorie eines Zählers.

@@ -1,9 +1,12 @@
 import { BACKUP_APP_ID, BACKUP_SCHEMA_VERSION, prisma } from "@zaehlwerk/database";
+import { authenticateApiRequest, unauthorizedResponse } from "../../../lib/api-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: Request) {
+  if (!(await authenticateApiRequest(request))) return unauthorizedResponse();
+
   const [locations, zaehler, ablesungen, tarife] = await Promise.all([
     prisma.location.findMany({ orderBy: { createdAt: "asc" } }),
     prisma.zaehler.findMany({ orderBy: { createdAt: "asc" } }),

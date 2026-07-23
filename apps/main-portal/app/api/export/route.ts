@@ -1,6 +1,8 @@
 import type { NextRequest } from "next/server";
 import { prisma } from "@zaehlwerk/database";
+import { authenticateApiRequest, unauthorizedResponse } from "../../lib/api-auth";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 function csvEscape(value: string): string {
@@ -21,6 +23,8 @@ function slugify(value: string): string {
 }
 
 export async function GET(request: NextRequest) {
+  if (!(await authenticateApiRequest(request))) return unauthorizedResponse();
+
   const zaehlerId = request.nextUrl.searchParams.get("zaehlerId");
 
   const ablesungen = await prisma.ablesung.findMany({

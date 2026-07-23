@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { BACKUP_APP_ID, BACKUP_SCHEMA_VERSION, prisma } from "@zaehlwerk/database";
+import { authenticateApiRequest, unauthorizedResponse } from "../../../lib/api-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,6 +16,8 @@ function slugify(value: string): string {
 }
 
 export async function GET(request: NextRequest) {
+  if (!(await authenticateApiRequest(request))) return unauthorizedResponse();
+
   const id = request.nextUrl.searchParams.get("id");
   if (!id) {
     return NextResponse.json({ error: "Parameter „id“ fehlt." }, { status: 400 });
