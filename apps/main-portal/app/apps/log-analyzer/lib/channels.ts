@@ -32,7 +32,18 @@ const ROLE_MATCHERS: Record<ChannelRole, RegExp[]> = {
   throttle: [/pedal/i, /accel/i, /gaspedal/i, /throttle/i, /drossel/i, /\btps\b/i],
   gear: [/\bgear\b/i, /\bgang\b/i, /transmission.*gear/i],
   boostTarget: [/boost.*(target|soll|desired|req)/i, /(target|soll|desired).*boost/i, /ladedruck.*soll/i],
-  boostActual: [/boost.*(actual|ist|current)/i, /(actual|ist).*boost/i, /ladedruck.*ist/i, /^boost\b/i, /^ladedruck\b/i],
+  // Prefer the intake-manifold (charge) pressure — the true boost the engine
+  // sees — over ambient/pre-throttle taps that also start with "Boost".
+  boostActual: [
+    /boost.*(actual|ist|current)/i,
+    /(actual|ist).*boost/i,
+    /intake\s*manifold/i,
+    /manifold.*(press|druck)/i,
+    /charge.*(press|druck)/i,
+    /ladedruck.*ist/i,
+    /^ladedruck\b/i,
+    /^boost\b/i,
+  ],
   stft: [/\bstft\b/i, /short.*term.*(fuel.*)?trim/i, /fuel.*trim.*short/i],
   ltft: [/\bltft\b/i, /long.*term.*(fuel.*)?trim/i, /fuel.*trim.*long/i],
   hpfpTarget: [/hpfp.*(target|soll|desired)/i, /(rail|fuel).*press.*(target|soll|desired)/i, /(target|soll).*(rail|hpfp)/i],

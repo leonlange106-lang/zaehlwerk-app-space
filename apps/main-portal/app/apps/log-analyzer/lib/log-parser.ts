@@ -91,6 +91,16 @@ function splitHeaderUnit(raw: string): { label: string; unit: string | null } {
   return { label: trimmed, unit: null };
 }
 
+/** Factor that converts a time column's unit into seconds (defaults to 1). */
+function timeUnitScale(unit: string | null): number {
+  if (!unit) return 1;
+  const u = unit.trim().toLowerCase();
+  if (u === "ms" || u.includes("milli")) return 1e-3;
+  if (u === "us" || u === "µs" || u.includes("micro")) return 1e-6;
+  if (u === "min" || u.includes("minute")) return 60;
+  return 1; // s / sec / seconds / unknown
+}
+
 /** Parse a numeric cell, accepting both `1.23` and German `1,23`; else null. */
 function parseNumber(cell: string): number | null {
   const trimmed = cell.trim();
@@ -166,6 +176,11 @@ export function parseLog(input: string): ParsedLog {
   // Locate the time column (first header matching a known time name).
   const timeCol = headerCells.findIndex((c) => TIME_HEADER.test(c.label));
 
+  // Normalize the time axis to SECONDS regardless of the logged unit (MGflasher
+  // exports "Time [ms]"). This keeps durations correct and lets time-based logic
+  // (e.g. the post-shift exclusion zone) reason in real seconds.
+  const timeScale = timeCol >= 0 ? timeUnitScale(headerCells[timeCol].unit) : 1;
+
   const columnCount = headerCells.length;
   const dataLines = bodyLines.slice(headerLineIndex + 1);
 
@@ -191,7 +206,7 @@ export function parseLog(input: string): ParsedLog {
         skippedRows += 1;
         continue;
       }
-      x = parsed;
+      x = parsed * timeScale;
     } else {
       x = rowCount;
     }

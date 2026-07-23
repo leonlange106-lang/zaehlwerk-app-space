@@ -246,13 +246,13 @@ test.describe("Log Analyzer: vehicle & hardware profile", () => {
     await expect(page.getByText(ERROR_BOUNDARY_TEXT)).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "Fahrzeug- & Motor-Profil" })).toBeVisible();
 
-    // Default OEM cat → 900 °C ceiling.
-    await expect(page.getByText("900 °C")).toBeVisible();
+    // Default OEM cat → 960 °C ceiling.
+    await expect(page.getByText("960 °C")).toBeVisible();
 
-    // Switch to catless → looser ceiling (980 °C).
+    // Switch to catless → looser ceiling (1010 °C).
     await page.getByTestId("spec-cat").click();
     await page.getByRole("option", { name: "Catless (kein Kat)" }).click();
-    await expect(page.getByText("980 °C")).toBeVisible();
+    await expect(page.getByText("1010 °C")).toBeVisible();
 
     await page.getByTestId("spec-save").click();
     await expect(page.getByTestId("spec-saved")).toBeVisible();

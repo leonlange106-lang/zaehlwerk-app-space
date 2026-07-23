@@ -35,11 +35,13 @@ interface Props {
   pullRange: PullRange | null;
   pullVerified: boolean;
   violations: Violation[];
+  exclusionRanges: PullRange[];
 }
 
 const GREEN = "#22c55e";
 const CRITICAL = "#e03131";
 const WARNING = "#f08c00";
+const SHIFT_GREY = "#868e96";
 
 function formatX(value: number, unit: "s" | "#"): string {
   if (unit === "#") return String(Math.round(value));
@@ -55,6 +57,7 @@ export function LogCharts({
   pullRange,
   pullVerified,
   violations,
+  exclusionRanges,
 }: Props) {
   const selectedSet = useMemo(() => new Set(selectedKeys), [selectedKeys]);
 
@@ -142,6 +145,23 @@ export function LogCharts({
                         width={44}
                       />
                     )}
+
+                    {/* Gear-shift zones — grey, not safety-evaluated (transient spikes). */}
+                    {exclusionRanges.map((z, i) => (
+                      <ReferenceArea
+                        key={`shift-${i}`}
+                        yAxisId="left"
+                        x1={z.start}
+                        x2={z.end}
+                        fill={SHIFT_GREY}
+                        fillOpacity={0.18}
+                        ifOverflow="hidden"
+                      >
+                        {showOverlayLabels && i === 0 && (
+                          <Label value="Schaltzone" position="insideTop" fontSize={10} fill={SHIFT_GREY} />
+                        )}
+                      </ReferenceArea>
+                    ))}
 
                     {/* Verified / detected pull range — soft green (or amber) zone. */}
                     {pullRange && (

@@ -91,9 +91,27 @@ describe("limitsForSpec — engine-driven baselines", () => {
     expect(s55.rpmEndMin).toBeGreaterThan(b58.rpmEndMin);
   });
 
-  it("lifts the boost ceiling by the turbo-upgrade bonus", () => {
+  it("lifts the boost ceiling (in bar) by the turbo-upgrade bonus", () => {
     const stock = limitsForSpec({ ...DEFAULT_VEHICLE_SPEC, turbo: "stock" });
     const up = limitsForSpec({ ...DEFAULT_VEHICLE_SPEC, turbo: "upgraded" });
-    expect(up.maxBoost).toBe(stock.maxBoost + 10);
+    expect(up.maxBoost).toBeCloseTo(stock.maxBoost + 0.7, 5);
+    // Metric: a stock BMW boost ceiling is ~1–2 bar, never a psi-scale number.
+    expect(stock.maxBoost).toBeLessThan(3);
+  });
+
+  it("raises the boost ceiling with the tune stage", () => {
+    const oem = limitsForSpec({ ...DEFAULT_VEHICLE_SPEC, stage: "oem" });
+    const s1 = limitsForSpec({ ...DEFAULT_VEHICLE_SPEC, stage: "stage1" });
+    const s2 = limitsForSpec({ ...DEFAULT_VEHICLE_SPEC, stage: "stage2" });
+    expect(s1.maxBoost).toBeGreaterThan(oem.maxBoost);
+    expect(s2.maxBoost).toBeGreaterThan(s1.maxBoost);
+  });
+
+  it("raises the EGT ceiling with the tune stage and keeps a realistic OEM value", () => {
+    const oem = limitsForSpec({ ...DEFAULT_VEHICLE_SPEC, stage: "oem" });
+    const s2 = limitsForSpec({ ...DEFAULT_VEHICLE_SPEC, stage: "stage2" });
+    expect(s2.maxEgt).toBeGreaterThan(oem.maxEgt);
+    // OEM-cat ceiling must clear typical WOT EGTs (the reference log peaks ~997 °C).
+    expect(oem.maxEgt).toBeGreaterThanOrEqual(950);
   });
 });

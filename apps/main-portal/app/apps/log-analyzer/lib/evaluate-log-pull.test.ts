@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { evaluateLogPull } from "./evaluate-log-pull";
+import { evaluateLogPull, toBar } from "./evaluate-log-pull";
 import { DEFAULT_VEHICLE_SPEC, type VehicleSpec } from "./vehicle-spec";
 import { makeLog, verifiedPullColumns } from "./test-helpers";
 
@@ -229,7 +229,7 @@ describe("evaluateLogPull — safety alerts", () => {
     const cols = verifiedPullColumns();
     const n = cols[0].values.length;
     const egt = new Array(n).fill(500);
-    egt[50] = 930; // over OEM (900), under catless (980)
+    egt[50] = 1000; // over OEM (960), under catless (1010)
     cols.push({ label: "EGT", unit: "°C", values: egt });
 
     const oem = evaluateLogPull(makeLog(cols), { ...SPEC, catType: "oem" });
@@ -251,6 +251,42 @@ describe("evaluateLogPull — safety alerts", () => {
   it("keeps a clean verified pull free of safety alerts", () => {
     const { alerts } = evaluateLogPull(makeLog(verifiedPullColumns()), SPEC);
     expect(alerts).toHaveLength(0);
+  });
+});
+
+describe("evaluateLogPull — gear-shift exclusion zone", () => {
+  it("suppresses an EGT spike that lands inside the post-shift zone", () => {
+    const cols = verifiedPullColumns();
+    const gear = cols.find((c) => c.label === "Gear")!;
+    gear.values = gear.values.map((_, i) => (i < 30 ? 3 : 4)); // shift at i = 30
+    const egt = new Array(60).fill(600);
+    egt[31] = 1000; // right after the shift → excluded from evaluation
+    cols.push({ label: "EGT", unit: "°C", values: egt });
+    const { alerts, exclusionRanges } = evaluateLogPull(makeLog(cols), SPEC);
+    expect(exclusionRanges.length).toBeGreaterThan(0);
+    expect(alerts.find((a) => a.id === "egt-limit")).toBeUndefined();
+  });
+
+  it("still flags an EGT spike well away from any gear shift", () => {
+    const cols = verifiedPullColumns();
+    const gear = cols.find((c) => c.label === "Gear")!;
+    gear.values = gear.values.map((_, i) => (i < 30 ? 3 : 4)); // shift at i = 30
+    const egt = new Array(60).fill(600);
+    egt[52] = 1000; // clear of the shift zone → evaluated
+    cols.push({ label: "EGT", unit: "°C", values: egt });
+    const { alerts } = evaluateLogPull(makeLog(cols), SPEC);
+    expect(alerts.find((a) => a.id === "egt-limit")).toBeDefined();
+  });
+});
+
+describe("toBar — metric pressure normalization", () => {
+  it("converts common logged units to bar", () => {
+    expect(toBar(1000, "hPa")).toBeCloseTo(1.0, 5);
+    expect(toBar(20, "MPa")).toBeCloseTo(200, 5);
+    expect(toBar(100, "kPa")).toBeCloseTo(1.0, 5);
+    expect(toBar(14.5038, "psi")).toBeCloseTo(1.0, 3);
+    expect(toBar(1.5, "bar")).toBeCloseTo(1.5, 5);
+    expect(toBar(1.5, null)).toBeCloseTo(1.5, 5);
   });
 });
 
