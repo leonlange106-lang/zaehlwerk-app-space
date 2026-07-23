@@ -4,6 +4,8 @@ import { Alert, Badge, Group, SimpleGrid, Stack, Text } from "@mantine/core";
 import { IconInfoCircle, IconPlus } from "@tabler/icons-react";
 import { APPS } from "./lib/apps";
 import { getAllowedAppIds } from "./lib/app-access";
+import { getSessionUser } from "./lib/auth-helpers";
+import { AdminPanel } from "./AdminPanel";
 import classes from "./launcher.module.css";
 
 // App Space hub (hub-and-spoke root). Lists only the apps assigned to the
@@ -15,8 +17,9 @@ export const metadata = {
 };
 
 export default async function LauncherPage() {
-  const allowedAppIds = await getAllowedAppIds();
+  const [allowedAppIds, user] = await Promise.all([getAllowedAppIds(), getSessionUser()]);
   const apps = APPS.filter((app) => allowedAppIds.includes(app.id));
+  const isAdmin = user?.role === "ADMIN";
 
   return (
     <Stack gap="xl" className={classes.wrap}>
@@ -91,6 +94,8 @@ export default async function LauncherPage() {
           </Text>
         </div>
       </SimpleGrid>
+
+      {isAdmin && <AdminPanel />}
     </Stack>
   );
 }
