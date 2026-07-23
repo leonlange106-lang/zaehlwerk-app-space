@@ -244,7 +244,7 @@ test.describe("Log Analyzer: vehicle & hardware profile", () => {
   test("changing the catalyst updates the derived EGT limit and saves", async ({ page }) => {
     await page.goto("/apps/log-analyzer/specs");
     await expect(page.getByText(ERROR_BOUNDARY_TEXT)).toHaveCount(0);
-    await expect(page.getByRole("heading", { name: "Fahrzeug & Hardware-Profil" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Fahrzeug- & Motor-Profil" })).toBeVisible();
 
     // Default OEM cat → 900 °C ceiling.
     await expect(page.getByText("900 °C")).toBeVisible();

@@ -5,6 +5,7 @@ import {
   Badge,
   Button,
   Card,
+  Divider,
   Group,
   SimpleGrid,
   Stack,
@@ -13,8 +14,17 @@ import {
   Title,
   Select,
 } from "@mantine/core";
-import { IconDeviceFloppy, IconEngine, IconGauge } from "@tabler/icons-react";
+import { IconCar, IconDeviceFloppy, IconEngine, IconGauge } from "@tabler/icons-react";
 import { loadVehicleSpec, saveVehicleSpec } from "./lib/spec-store";
+import {
+  ENGINES,
+  ENGINE_CODES,
+  TRANSMISSIONS,
+  TRANSMISSION_CODES,
+  type EngineCode,
+  type TransmissionCode,
+} from "./lib/engines";
+import { VEHICLE_CATALOG, findModel } from "./lib/catalog";
 import {
   CAT_TYPE_LABELS,
   FUEL_LABELS,
@@ -29,12 +39,21 @@ import {
 } from "./lib/vehicle-spec";
 
 // The vehicle & hardware setup profile form. Everything persists to
-// localStorage (spec-store) — no server round trip. The derived, hardware-
-// contextual limits are shown live so the user sees how each choice changes the
-// plausibility/safety thresholds the evaluation engine will apply.
+// localStorage (spec-store) — no server round trip. The exact engine
+// designation drives the baseline thresholds; the hardware modifiers shift them.
+// The derived, contextual limits are shown live so the user sees how each choice
+// changes the plausibility/safety thresholds the evaluation engine will apply.
 
 function options<T extends string>(labels: Record<T, string>): { value: T; label: string }[] {
   return (Object.keys(labels) as T[]).map((value) => ({ value, label: labels[value] }));
+}
+
+function engineOptions(codes: readonly EngineCode[]) {
+  return codes.map((code) => ({ value: code, label: ENGINES[code].label }));
+}
+
+function transmissionOptions(codes: readonly TransmissionCode[]) {
+  return codes.map((code) => ({ value: code, label: TRANSMISSIONS[code] }));
 }
 
 export function VehicleSpecForm() {
@@ -54,6 +73,42 @@ export function VehicleSpecForm() {
     setSaved(false);
   };
 
+  const brand = VEHICLE_CATALOG.find((b) => b.id === spec.brand) ?? null;
+  const series = brand?.series.find((s) => s.id === spec.series) ?? null;
+  const model = series?.models.find((m) => m.id === spec.model) ?? null;
+
+  // Selecting a brand/series/model cascades: narrower fields reset, and picking a
+  // model auto-selects a plausible engine + gearbox (still overridable below).
+  const onBrand = (brandId: string | null) => {
+    setSpec((prev) => (prev ? { ...prev, brand: brandId, series: null, model: null } : prev));
+    setSaved(false);
+  };
+  const onSeries = (seriesId: string | null) => {
+    setSpec((prev) => (prev ? { ...prev, series: seriesId, model: null } : prev));
+    setSaved(false);
+  };
+  const onModel = (modelId: string | null) => {
+    const loc = findModel(modelId);
+    setSpec((prev) => {
+      if (!prev) return prev;
+      if (!loc) return { ...prev, model: modelId };
+      return {
+        ...prev,
+        brand: loc.brand.id,
+        series: loc.series.id,
+        model: loc.model.id,
+        engineCode: loc.model.engines[0] ?? prev.engineCode,
+        transmission: loc.model.transmissions[0] ?? prev.transmission,
+      };
+    });
+    setSaved(false);
+  };
+
+  const engineChoices = model ? engineOptions(model.engines) : engineOptions(ENGINE_CODES);
+  const transmissionChoices = model
+    ? transmissionOptions(model.transmissions)
+    : transmissionOptions(TRANSMISSION_CODES);
+
   const limits = limitsForSpec(spec);
 
   function save() {
@@ -63,20 +118,86 @@ export function VehicleSpecForm() {
   }
 
   return (
-    <Stack gap="lg" maw={760} mx="auto">
+    <Stack gap="lg" maw={820} mx="auto">
       <Group gap="md">
         <ThemeIcon variant="light" color="orange" radius="md" size={44}>
           <IconEngine size={24} stroke={1.5} />
         </ThemeIcon>
         <div>
-          <Title order={2}>Fahrzeug &amp; Hardware-Profil</Title>
+          <Title order={2}>Fahrzeug- &amp; Motor-Profil</Title>
           <Text c="dimmed" size="sm">
-            Definiert die kontextuellen Grenzwerte für die automatische Log-Bewertung.
+            Exakte Motorbezeichnung + Hardware bestimmen die kontextuellen Grenzwerte der
+            automatischen Log-Bewertung.
           </Text>
         </div>
       </Group>
 
       <Card withBorder radius="md" p="lg">
+        <Group gap="xs" mb="md">
+          <ThemeIcon variant="light" color="orange" radius="md" size={28}>
+            <IconCar size={16} stroke={1.6} />
+          </ThemeIcon>
+          <Title order={5}>Fahrzeug &amp; Antrieb</Title>
+        </Group>
+        <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }} spacing="md">
+          <Select
+            label="Marke"
+            data={VEHICLE_CATALOG.map((b) => ({ value: b.id, label: b.label }))}
+            value={spec.brand}
+            onChange={onBrand}
+            placeholder="Marke wählen"
+            clearable
+            data-testid="spec-brand"
+          />
+          <Select
+            label="Baureihe"
+            data={(brand?.series ?? []).map((s) => ({ value: s.id, label: s.label }))}
+            value={spec.series}
+            onChange={onSeries}
+            placeholder={brand ? "Baureihe wählen" : "erst Marke wählen"}
+            disabled={!brand}
+            clearable
+            data-testid="spec-series"
+          />
+          <Select
+            label="Modell"
+            data={(series?.models ?? []).map((m) => ({ value: m.id, label: m.label }))}
+            value={spec.model}
+            onChange={onModel}
+            placeholder={series ? "Modell wählen" : "erst Baureihe wählen"}
+            disabled={!series}
+            clearable
+            data-testid="spec-model"
+          />
+          <Select
+            label="Motor (exakte Bezeichnung)"
+            data={engineChoices}
+            value={spec.engineCode}
+            onChange={(v) => v && update("engineCode", v as EngineCode)}
+            allowDeselect={false}
+            searchable
+            data-testid="spec-engine"
+          />
+          <Select
+            label="Getriebe"
+            data={transmissionChoices}
+            value={spec.transmission}
+            onChange={(v) => v && update("transmission", v as TransmissionCode)}
+            allowDeselect={false}
+            searchable
+            data-testid="spec-transmission"
+          />
+        </SimpleGrid>
+        <Text size="xs" c="dimmed" mt="sm">
+          {ENGINES[spec.engineCode].displacement} · Redline-Bezug{" "}
+          {ENGINES[spec.engineCode].thresholds.redlineRpm} RPM
+        </Text>
+      </Card>
+
+      <Card withBorder radius="md" p="lg">
+        <Title order={5} mb="md">
+          Hardware-Setup
+        </Title>
         <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
           <Select
             label="Katalysator"
@@ -136,13 +257,19 @@ export function VehicleSpecForm() {
           </ThemeIcon>
           <Title order={5}>Abgeleitete Grenzwerte</Title>
         </Group>
-        <SimpleGrid cols={{ base: 2, sm: 3 }} spacing="md">
+        <SimpleGrid cols={{ base: 2, sm: 3, md: 4 }} spacing="md">
           <Limit label="EGT-Limit" value={`${limits.maxEgt} °C`} />
           <Limit label="Max. Boost (plausibel)" value={`${limits.maxBoost} psi`} />
           <Limit label="Min. HPFP-Druck" value={`${limits.minHpfpPressure} bar`} />
+          <Limit label="Boost-Abweichung" value={`± ${limits.boostDeviation} psi`} />
+          <Limit label="Fuel-Trim-Limit" value={`± ${limits.fuelTrimLimit} %`} />
+          <Limit label="HPFP-Einbruch" value={`${limits.hpfpDrop} bar`} />
+          <Limit label="Knock-Korrektur" value={`${limits.knockCorrection}°`} />
+          <Limit label="Pull-Fenster" value={`≤ ${limits.rpmStartMax} → ≥ ${limits.rpmEndMin}`} />
         </SimpleGrid>
-        <Text size="xs" c="dimmed" mt="md">
-          {limits.egtRationale}
+        <Divider my="md" />
+        <Text size="xs" c="dimmed">
+          Basis: {limits.engineLabel}. {limits.egtRationale}
         </Text>
       </Card>
     </Stack>
