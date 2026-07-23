@@ -37,7 +37,10 @@ import type { LocalCommitInfo, UpdateCheckResult } from "@zaehlwerk/updater";
 import type { listLocations } from "../lib/zaehler-actions";
 import { createLocationAction } from "../lib/location-actions";
 import { initialActionState } from "../lib/action-state";
+import type { SessionUser } from "../lib/auth-helpers";
+import type { AppUser } from "../lib/user-actions";
 import { SystemBackupCard } from "./SystemBackupCard";
+import { UserManagementCard } from "./UserManagementCard";
 
 type LocationList = Awaited<ReturnType<typeof listLocations>>;
 
@@ -52,10 +55,16 @@ const dateFormatter = new Intl.DateTimeFormat("de-DE", {
 export function EinstellungenView({
   locations,
   versionInfo,
+  currentUser,
+  users,
 }: {
   locations: LocationList;
   versionInfo: LocalCommitInfo | null;
+  currentUser: SessionUser | null;
+  users: AppUser[];
 }) {
+  const isAdmin = currentUser?.role === "ADMIN";
+
   return (
     <Stack gap="lg">
       <div>
@@ -66,6 +75,7 @@ export function EinstellungenView({
       </div>
 
       <LocationsCard locations={locations} />
+      {isAdmin && currentUser && <UserManagementCard users={users} currentUserId={currentUser.id} />}
       <SystemBackupCard />
       <UpdateSettingsCard versionInfo={versionInfo} />
     </Stack>

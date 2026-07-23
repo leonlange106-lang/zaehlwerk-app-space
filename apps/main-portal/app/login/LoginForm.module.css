@@ -1,0 +1,11 @@
+.screen {
+  min-height: 100vh;
+  padding: var(--mantine-spacing-md);
+  background: light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-8));
+}
+
+.card {
+  width: 100%;
+  max-width: 400px;
+  background: light-dark(var(--mantine-color-white), var(--mantine-color-dark-7));
+}
