@@ -1,17 +1,10 @@
 import { Document, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
-import type { ReportMeterRow, YearlyReportData } from "./report-model";
+import type { ReportRow, UtilityCell, YearlyReportData } from "./report-model";
 
 // react-pdf rendert serverseitig in Node — Intl ist verfügbar.
+const num0 = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 0 });
 const num1 = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 });
-const num2 = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 2 });
-const eur = new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" });
-const eurPerUnit = new Intl.NumberFormat("de-DE", {
-  style: "currency",
-  currency: "EUR",
-  minimumFractionDigits: 4,
-  maximumFractionDigits: 4,
-});
-const dateFmt = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
+const num2 = new Intl.NumberFormat("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const dateTimeFmt = new Intl.DateTimeFormat("de-DE", {
   day: "2-digit",
   month: "2-digit",
@@ -20,290 +13,342 @@ const dateTimeFmt = new Intl.DateTimeFormat("de-DE", {
   minute: "2-digit",
 });
 
-const DASH = "–";
+function fmtDate(iso: string): string {
+  const [y, m, d] = iso.split("-");
+  return `${d}.${m}.${y}`;
+}
 
-function fmtDate(iso: string | null): string {
-  return iso ? dateFmt.format(new Date(iso)) : DASH;
+function currency(value: number, dm: boolean): string {
+  return `${num2.format(value)} ${dm ? "DM" : "€"}`;
 }
 
 const styles = StyleSheet.create({
-  page: {
-    paddingVertical: 28,
-    paddingHorizontal: 30,
-    fontSize: 9,
-    fontFamily: "Helvetica",
-    color: "#1a2733",
-  },
-  header: {
-    marginBottom: 14,
-    borderBottomWidth: 2,
-    borderColor: "#495a6c",
-    paddingBottom: 8,
-  },
-  title: { fontSize: 16, fontFamily: "Helvetica-Bold", color: "#2c3a47" },
-  subtitle: { fontSize: 9, color: "#65788d", marginTop: 3 },
-  section: { marginTop: 14 },
-  sectionTitle: {
-    fontSize: 11,
-    fontFamily: "Helvetica-Bold",
-    color: "#2c3a47",
-    marginBottom: 5,
-  },
-  table: { borderWidth: 1, borderColor: "#c9d1d9", borderRadius: 2 },
-  row: { flexDirection: "row", borderBottomWidth: 1, borderColor: "#e5e9ed" },
-  lastRow: { borderBottomWidth: 0 },
-  headerRow: { backgroundColor: "#495a6c" },
-  cell: { paddingVertical: 4, paddingHorizontal: 6 },
-  headerCell: { color: "#ffffff", fontFamily: "Helvetica-Bold", fontSize: 8.5 },
-  totalRow: { backgroundColor: "#f0f3f6" },
-  totalCell: { fontFamily: "Helvetica-Bold" },
-  bannerRow: { backgroundColor: "#fbe7d2", borderBottomWidth: 1, borderColor: "#e8a04c" },
-  bannerText: {
-    paddingVertical: 3,
-    paddingHorizontal: 6,
-    fontSize: 8,
-    fontFamily: "Helvetica-Bold",
-    color: "#a85a12",
-  },
-  // Leerer Stil für die "falsy"-Verzweigung bedingter Style-Arrays —
-  // react-pdf akzeptiert (anders als React-DOM) kein `false` im style-Array.
+  page: { paddingVertical: 28, paddingHorizontal: 34, fontSize: 9, fontFamily: "Helvetica", color: "#1a1a1a" },
+  header: { marginBottom: 12 },
+  title: { fontSize: 20, fontFamily: "Helvetica-Bold" },
+  subtitle: { fontSize: 10, textAlign: "right", marginTop: 2, color: "#333333" },
+  sectionTitle: { fontSize: 12, fontFamily: "Helvetica-Bold", marginTop: 14, marginBottom: 5 },
+  table: {},
+  row: { flexDirection: "row", borderBottomWidth: 1, borderColor: "#e8e8e8" },
+  headerRow: { backgroundColor: "#dcdcdc", borderBottomWidth: 0 },
+  cell: { paddingVertical: 3, paddingHorizontal: 5, flexBasis: 0 },
+  headerCell: { fontFamily: "Helvetica-Bold", fontSize: 9 },
+  dateCell: { fontFamily: "Helvetica-Bold" },
+  cellText: { fontSize: 9 },
+  cellSub: { fontSize: 6.5, color: "#b0b0b0", marginTop: 1 },
+  red: { color: "#ff0000" },
+  bold: { fontFamily: "Helvetica-Bold" },
+  muted: { color: "#e8940c" },
   empty: {},
-  alignLeft: { textAlign: "left" },
-  alignRight: { textAlign: "right" },
-  footnote: { marginTop: 4, fontSize: 7.5, color: "#8a97a3" },
+  footnote: { marginTop: 6, fontSize: 7, color: "#8a8a8a" },
   pageFooter: {
     position: "absolute",
     bottom: 16,
-    left: 30,
-    right: 30,
-    fontSize: 7.5,
-    color: "#a0adb8",
+    left: 34,
+    right: 34,
+    fontSize: 7,
+    color: "#a0a0a0",
     flexDirection: "row",
     justifyContent: "space-between",
   },
+  extraTitle: { fontSize: 11, fontFamily: "Helvetica-Bold", marginBottom: 4 },
 });
+
+interface CellDesc {
+  text: string;
+  sub?: string;
+  red?: boolean;
+  bold?: boolean;
+  muted?: boolean;
+}
 
 interface Column {
   label: string;
   width: number;
-  align?: "left" | "right";
 }
 
-type TableRow = { cells: string[]; total?: boolean } | { banner: string };
-
-function alignStyle(align: Column["align"]) {
-  return align === "right" ? styles.alignRight : styles.alignLeft;
+interface TableRow {
+  date: string;
+  cells: CellDesc[];
 }
 
-function Table({ columns, rows }: { columns: Column[]; rows: TableRow[] }) {
+function DateTable({ columns, rows }: { columns: Column[]; rows: TableRow[] }) {
   return (
     <View style={styles.table}>
       <View style={[styles.row, styles.headerRow]}>
         {columns.map((column, index) => (
-          <Text
-            key={index}
-            style={[styles.cell, styles.headerCell, alignStyle(column.align), { flexGrow: column.width, flexBasis: 0 }]}
-          >
+          <Text key={index} style={[styles.cell, styles.headerCell, { flexGrow: column.width }]}>
             {column.label}
           </Text>
         ))}
       </View>
-      {rows.map((row, rowIndex) => {
-        const isLast = rowIndex === rows.length - 1;
-        if ("banner" in row) {
-          return (
-            <View key={rowIndex} style={[styles.bannerRow, isLast ? styles.lastRow : styles.empty]}>
-              <Text style={styles.bannerText}>{row.banner}</Text>
-            </View>
-          );
-        }
-        return (
-          <View
-            key={rowIndex}
-            style={[
-              styles.row,
-              row.total ? styles.totalRow : styles.empty,
-              isLast ? styles.lastRow : styles.empty,
-            ]}
-          >
-            {row.cells.map((cell, cellIndex) => (
+      {rows.map((row) => (
+        <View key={row.date} style={styles.row} wrap={false}>
+          <Text style={[styles.cell, styles.dateCell, { flexGrow: columns[0].width }]}>
+            {fmtDate(row.date)}
+          </Text>
+          {row.cells.map((cell, index) => (
+            <View key={index} style={[styles.cell, { flexGrow: columns[index + 1]?.width ?? 1 }]}>
               <Text
-                key={cellIndex}
                 style={[
-                  styles.cell,
-                  alignStyle(columns[cellIndex]?.align),
-                  row.total ? styles.totalCell : styles.empty,
-                  { flexGrow: columns[cellIndex]?.width ?? 1, flexBasis: 0 },
+                  styles.cellText,
+                  cell.red ? styles.red : styles.empty,
+                  cell.bold ? styles.bold : styles.empty,
+                  cell.muted ? styles.muted : styles.empty,
                 ]}
               >
-                {cell}
+                {cell.text}
               </Text>
-            ))}
-          </View>
-        );
-      })}
+              {cell.sub ? <Text style={styles.cellSub}>{cell.sub}</Text> : null}
+            </View>
+          ))}
+        </View>
+      ))}
     </View>
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <View style={styles.section} wrap={false}>
-      <Text style={styles.sectionTitle}>{title}</Text>
-      {children}
-    </View>
-  );
+// ---- Zell-Erzeuger je Sektion ----
+// Gemeinsame Sonderfälle: keine Ablesung → leer, Zählertausch → rot,
+// unplausibler (negativer) Verbrauch → markiert.
+
+function verbrauchCell(cell: UtilityCell | null, gas: boolean): CellDesc {
+  if (!cell) return { text: "" };
+  if (cell.swap) return { text: "Zählertausch", red: true };
+  if (cell.consumption === null) return { text: "unplausibel", muted: true };
+  return {
+    text: num1.format(cell.consumption),
+    sub: gas && cell.consumptionKwh !== null ? `${num0.format(cell.consumptionKwh)} kWh` : undefined,
+  };
 }
 
-// ---------- Sektions-Zeilenbau ----------
+function proTagCell(cell: UtilityCell | null, gas: boolean): CellDesc {
+  if (!cell) return { text: "" };
+  if (cell.swap) return { text: "Zählertausch", red: true };
+  if (cell.consumption === null) return { text: "unplausibel", muted: true };
+  const perDay = cell.days > 0 ? cell.consumption / cell.days : 0;
+  const kwhPerDay =
+    gas && cell.consumptionKwh !== null && cell.days > 0 ? cell.consumptionKwh / cell.days : null;
+  return {
+    text: num2.format(perDay),
+    sub: `${cell.days} T${kwhPerDay !== null ? ` · ${num2.format(kwhPerDay)} kWh` : ""}`,
+  };
+}
 
-function jahresverbrauchRows(rows: ReportMeterRow[]): TableRow[] {
-  const out: TableRow[] = [];
-  for (const row of rows) {
-    out.push({
-      cells: [
-        row.name,
-        row.sparte,
-        `${fmtDate(row.periodFrom)} – ${fmtDate(row.periodTo)}`,
-        row.firstValue !== null ? num1.format(row.firstValue) : DASH,
-        row.lastValue !== null ? num1.format(row.lastValue) : DASH,
-        `${num1.format(row.totalConsumption)} ${row.einheit}${row.hasImplausible ? " *" : ""}`,
-        row.totalConsumptionKwh !== null ? `${num1.format(row.totalConsumptionKwh)} kWh` : DASH,
-      ],
-    });
-    // Zählertausch als hervorgehobene Trennzeile über die volle Tabellenbreite.
-    if (row.meterSwaps.length > 0) {
-      out.push({
-        banner: `Zählertausch – ${row.name}: ${row.meterSwaps.map((iso) => fmtDate(iso)).join(", ")}`,
-      });
+function kostenProTagCell(cell: UtilityCell | null, dm: boolean): CellDesc {
+  if (!cell) return { text: "" };
+  if (cell.swap) return { text: "Zählertausch", red: true };
+  if (cell.cost === null || cell.days <= 0) return { text: "" };
+  return { text: currency(cell.cost / cell.days, dm), sub: `${cell.days} T` };
+}
+
+function kostenProEinheitCell(cell: UtilityCell | null, dm: boolean): CellDesc {
+  if (!cell) return { text: "" };
+  if (cell.swap) return { text: "Zählertausch", red: true };
+  if (cell.cost === null || cell.consumption === null || cell.consumption <= 0) return { text: "" };
+  return { text: currency(cell.cost / cell.consumption, dm) };
+}
+
+function kostenJahrCell(cell: UtilityCell | null, dm: boolean): CellDesc {
+  if (!cell) return { text: "" };
+  if (cell.swap) return { text: "Zählertausch", red: true };
+  if (cell.cost === null) return { text: "" };
+  return { text: currency(cell.cost, dm) };
+}
+
+function rowHasSwap(row: ReportRow): boolean {
+  return Boolean(row.strom?.swap || row.gas?.swap || row.wasser?.swap);
+}
+
+function gesamtCell(row: ReportRow, perDay: boolean): CellDesc {
+  if (rowHasSwap(row)) return { text: "-", red: true, bold: true };
+  let sum = 0;
+  let any = false;
+  for (const cell of [row.strom, row.gas, row.wasser]) {
+    if (!cell || cell.cost === null) continue;
+    if (perDay) {
+      if (cell.days > 0) {
+        sum += cell.cost / cell.days;
+        any = true;
+      }
+    } else {
+      sum += cell.cost;
+      any = true;
     }
   }
-  return out;
+  if (!any) return { text: "" };
+  return { text: currency(sum, row.dm), bold: true };
 }
+
+function Section({
+  title,
+  columns,
+  rows,
+  breakBefore,
+}: {
+  title: string;
+  columns: Column[];
+  rows: TableRow[];
+  breakBefore?: boolean;
+}) {
+  return (
+    <View break={breakBefore}>
+      <Text style={styles.sectionTitle}>{title}</Text>
+      <DateTable columns={columns} rows={rows} />
+    </View>
+  );
+}
+
+const U3 = 26;
+const D3 = 22;
+const U4 = 20.5;
+const D4 = 18;
 
 export function YearlyOverviewReport({ data }: { data: YearlyReportData }) {
   const { rows } = data;
-  const hasImplausible = rows.some((row) => row.hasImplausible);
+  const hasRows = rows.length > 0;
 
   return (
     <Document
-      title="Zählwerk Jahresübersicht"
+      title="Strom/Gas/Wasser Übersicht"
       author="Zählwerk App-Space"
       subject="Strom / Gas / Wasser Übersicht - Jahresverbrauch"
     >
-      <Page size="A4" orientation="landscape" style={styles.page}>
+      <Page size="A4" style={styles.page}>
         <View style={styles.header}>
-          <Text style={styles.title}>Strom / Gas / Wasser Übersicht – Jahresverbrauch</Text>
+          <Text style={styles.title}>Strom/Gas/Wasser Übersicht</Text>
           <Text style={styles.subtitle}>Stand: {dateTimeFmt.format(new Date(data.generatedAt))} Uhr</Text>
         </View>
 
-        {rows.length === 0 ? (
-          <Text style={{ color: "#65788d" }}>Keine Zähler vorhanden.</Text>
+        {!hasRows ? (
+          <Text style={{ color: "#666666" }}>
+            Keine Ablesungen für Strom, Gas oder Wasser vorhanden.
+          </Text>
         ) : (
           <>
-            {/* 1. Jahresverbrauch */}
-            <Section title="1. Jahresverbrauch">
-              <Table
-                columns={[
-                  { label: "Zähler", width: 3, align: "left" },
-                  { label: "Sparte", width: 1.4, align: "left" },
-                  { label: "Zeitraum", width: 2.6, align: "left" },
-                  { label: "Erste Ablesung", width: 1.6, align: "right" },
-                  { label: "Letzte Ablesung", width: 1.6, align: "right" },
-                  { label: "Verbrauch", width: 2, align: "right" },
-                  { label: "≈ kWh (Gas)", width: 1.8, align: "right" },
-                ]}
-                rows={jahresverbrauchRows(rows)}
-              />
-              {hasImplausible && (
-                <Text style={styles.footnote}>* enthält unplausible Intervalle (negativer Verbrauch, nicht in der Summe)</Text>
-              )}
-              <Text style={styles.footnote}>
-                Gas-kWh sind eine Näherung (m³ × {num2.format(data.gasKwhFactor)}); ohne
-                zählerspezifischen Brennwert.
-              </Text>
-            </Section>
+            <Section
+              title="Jahresverbrauch"
+              columns={[
+                { label: "Datum", width: D3 },
+                { label: "Strom in kW", width: U3 },
+                { label: "Gas in m³", width: U3 },
+                { label: "Wasser in m³", width: U3 },
+              ]}
+              rows={rows.map((r) => ({
+                date: r.date,
+                cells: [verbrauchCell(r.strom, false), verbrauchCell(r.gas, true), verbrauchCell(r.wasser, false)],
+              }))}
+            />
 
-            {/* 2. Verbrauch pro Tag */}
-            <Section title="2. Verbrauch pro Tag">
-              <Table
-                columns={[
-                  { label: "Zähler", width: 3, align: "left" },
-                  { label: "Sparte", width: 1.5, align: "left" },
-                  { label: "Ø Verbrauch / Tag", width: 2.5, align: "right" },
-                ]}
-                rows={rows.map((row) => ({
-                  cells: [
-                    row.name,
-                    row.sparte,
-                    row.avgPerDay !== null ? `${num2.format(row.avgPerDay)} ${row.einheit}/Tag` : DASH,
-                  ],
-                }))}
-              />
-            </Section>
+            <Section
+              title="Verbrauch pro Tag"
+              breakBefore
+              columns={[
+                { label: "Datum", width: D3 },
+                { label: "Strom kW/Tag", width: U3 },
+                { label: "Gas m³/Tag", width: U3 },
+                { label: "Wasser m³/Tag", width: U3 },
+              ]}
+              rows={rows.map((r) => ({
+                date: r.date,
+                cells: [proTagCell(r.strom, false), proTagCell(r.gas, true), proTagCell(r.wasser, false)],
+              }))}
+            />
 
-            {/* 3. Kosten pro Tag */}
-            <Section title="3. Kosten pro Tag">
-              <Table
-                columns={[
-                  { label: "Zähler", width: 3, align: "left" },
-                  { label: "Sparte", width: 1.5, align: "left" },
-                  { label: "Kosten / Tag", width: 2.5, align: "right" },
-                ]}
-                rows={[
-                  ...rows.map((row) => ({
-                    cells: [
-                      row.name,
-                      row.sparte,
-                      row.costPerDay !== null ? eur.format(row.costPerDay) : DASH,
-                    ],
-                  })),
-                  {
-                    cells: ["Gesamtkosten / Tag", "", eur.format(data.totalCostPerDay)],
-                    total: true,
-                  },
-                ]}
-              />
-            </Section>
+            <Section
+              title="Kosten pro Tag"
+              breakBefore
+              columns={[
+                { label: "Datum", width: D4 },
+                { label: "Strom K/Tag", width: U4 },
+                { label: "Gas K/Tag", width: U4 },
+                { label: "Wasser K/Tag", width: U4 },
+                { label: "Gesamt K/Tag", width: U4 },
+              ]}
+              rows={rows.map((r) => ({
+                date: r.date,
+                cells: [
+                  kostenProTagCell(r.strom, r.dm),
+                  kostenProTagCell(r.gas, r.dm),
+                  kostenProTagCell(r.wasser, r.dm),
+                  gesamtCell(r, true),
+                ],
+              }))}
+            />
 
-            {/* 4. Kosten pro Einheit */}
-            <Section title="4. Kosten pro Einheit">
-              <Table
-                columns={[
-                  { label: "Zähler", width: 3, align: "left" },
-                  { label: "Sparte", width: 1.5, align: "left" },
-                  { label: "Arbeitspreis", width: 2.5, align: "right" },
-                ]}
-                rows={rows.map((row) => ({
-                  cells: [
-                    row.name,
-                    row.sparte,
-                    row.costPerUnit !== null ? `${eurPerUnit.format(row.costPerUnit)} / ${row.einheit}` : DASH,
-                  ],
-                }))}
-              />
-            </Section>
+            <Section
+              title="Kosten pro Einheit"
+              breakBefore
+              columns={[
+                { label: "Datum", width: D3 },
+                { label: "Strom K/kW", width: U3 },
+                { label: "Gas K/m³", width: U3 },
+                { label: "Wasser K/m³", width: U3 },
+              ]}
+              rows={rows.map((r) => ({
+                date: r.date,
+                cells: [
+                  kostenProEinheitCell(r.strom, r.dm),
+                  kostenProEinheitCell(r.gas, r.dm),
+                  kostenProEinheitCell(r.wasser, r.dm),
+                ],
+              }))}
+            />
 
-            {/* 5. Kosten im Jahr */}
-            <Section title="5. Kosten im Jahr">
-              <Table
-                columns={[
-                  { label: "Zähler", width: 3, align: "left" },
-                  { label: "Sparte", width: 1.5, align: "left" },
-                  { label: "Kosten gesamt", width: 2.5, align: "right" },
-                ]}
-                rows={[
-                  ...rows.map((row) => ({
-                    cells: [row.name, row.sparte, eur.format(row.totalCost)],
-                  })),
-                  {
-                    cells: ["Jahres-Gesamtsumme", "", eur.format(data.grandTotalCost)],
-                    total: true,
-                  },
-                ]}
-              />
-            </Section>
+            <Section
+              title="Kosten im Jahr"
+              breakBefore
+              columns={[
+                { label: "Datum", width: D4 },
+                { label: "Strom", width: U4 },
+                { label: "Gas", width: U4 },
+                { label: "Wasser", width: U4 },
+                { label: "Gesamt", width: U4 },
+              ]}
+              rows={rows.map((r) => ({
+                date: r.date,
+                cells: [
+                  kostenJahrCell(r.strom, r.dm),
+                  kostenJahrCell(r.gas, r.dm),
+                  kostenJahrCell(r.wasser, r.dm),
+                  gesamtCell(r, false),
+                ],
+              }))}
+            />
+
+            <Text style={styles.footnote}>
+              Gas-kWh = m³ × Brennwert ({num2.format(data.gasBrennwert)}) × Zustandszahl (
+              {num2.format(data.gasZustandszahl)}). Kosten vor dem 18.09.2001 in DM.
+              {data.columns.strom || data.columns.gas || data.columns.wasser
+                ? ` Zähler: Strom „${data.columns.strom ?? "–"}“, Gas „${data.columns.gas ?? "–"}“, Wasser „${data.columns.wasser ?? "–"}“.`
+                : ""}
+            </Text>
           </>
+        )}
+
+        {data.extras.length > 0 && (
+          <View break>
+            <Text style={styles.extraTitle}>Weitere Zähler</Text>
+            <View style={styles.table}>
+              <View style={[styles.row, styles.headerRow]}>
+                <Text style={[styles.cell, styles.headerCell, { flexGrow: 3 }]}>Zähler</Text>
+                <Text style={[styles.cell, styles.headerCell, { flexGrow: 1.5 }]}>Sparte</Text>
+                <Text style={[styles.cell, styles.headerCell, { flexGrow: 2 }]}>Verbrauch gesamt</Text>
+                <Text style={[styles.cell, styles.headerCell, { flexGrow: 2 }]}>Kosten gesamt</Text>
+              </View>
+              {data.extras.map((meter) => (
+                <View key={meter.id} style={styles.row} wrap={false}>
+                  <Text style={[styles.cell, styles.cellText, { flexGrow: 3 }]}>{meter.name}</Text>
+                  <Text style={[styles.cell, styles.cellText, { flexGrow: 1.5 }]}>{meter.sparte}</Text>
+                  <Text style={[styles.cell, styles.cellText, { flexGrow: 2 }]}>
+                    {num1.format(meter.totalConsumption)} {meter.einheit}
+                    {meter.totalConsumptionKwh !== null ? ` (${num0.format(meter.totalConsumptionKwh)} kWh)` : ""}
+                  </Text>
+                  <Text style={[styles.cell, styles.cellText, { flexGrow: 2 }]}>{num2.format(meter.totalCost)} €</Text>
+                </View>
+              ))}
+            </View>
+          </View>
         )}
 
         <View style={styles.pageFooter} fixed>
