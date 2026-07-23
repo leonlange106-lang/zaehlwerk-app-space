@@ -338,6 +338,7 @@ export function AnalyzerView() {
             pullRange={evaluation?.pullRange ?? null}
             pullVerified={evaluation?.validity.status === "verified"}
             violations={evaluation?.violations ?? []}
+            exclusionRanges={evaluation?.exclusionRanges ?? []}
           />
         </GridCol>
       </Grid>

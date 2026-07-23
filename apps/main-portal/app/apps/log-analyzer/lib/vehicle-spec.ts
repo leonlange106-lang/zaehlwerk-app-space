@@ -21,6 +21,8 @@ export type CatType = "oem" | "cat200" | "catless";
 export type FuelType = "ron95" | "ron98" | "ron102" | "e30" | "e85";
 export type TurboType = "stock" | "upgraded";
 export type HpfpType = "oem" | "upgraded";
+/** Tune / map stage — a stronger map runs more boost and hotter, so it shifts limits. */
+export type TuneStage = "oem" | "stage1" | "stage2" | "custom";
 
 export interface VehicleSpec {
   /** Catalogue brand id (e.g. "bmw"), or null when set manually. */
@@ -33,11 +35,13 @@ export interface VehicleSpec {
   engineCode: EngineCode;
   /** Exact gearbox model (display / context only). */
   transmission: TransmissionCode;
-  // Hardware modifiers layered on top of the engine baseline:
+  // Hardware & tune modifiers layered on top of the engine baseline:
   catType: CatType;
   fuel: FuelType;
   turbo: TurboType;
   hpfp: HpfpType;
+  /** Tune stage (OEM / Stage 1 / Stage 2 / Custom map). */
+  stage: TuneStage;
 }
 
 export const DEFAULT_VEHICLE_SPEC: VehicleSpec = {
@@ -50,6 +54,7 @@ export const DEFAULT_VEHICLE_SPEC: VehicleSpec = {
   fuel: "ron98",
   turbo: "stock",
   hpfp: "oem",
+  stage: "oem",
 };
 
 /** Human-readable option labels (German UI). */
@@ -77,6 +82,13 @@ export const HPFP_LABELS: Record<HpfpType, string> = {
   upgraded: "HPFP TU / Upgrade",
 };
 
+export const STAGE_LABELS: Record<TuneStage, string> = {
+  oem: "OEM / Serie",
+  stage1: "Stage 1",
+  stage2: "Stage 2",
+  custom: "Custom Map",
+};
+
 /** Contextual plausibility / safety limits derived from a {@link VehicleSpec}. */
 export interface SpecLimits {
   /**
@@ -85,14 +97,14 @@ export interface SpecLimits {
    * more, and a catless setup more still (nothing downstream to cook).
    */
   maxEgt: number;
-  /** Plausible peak boost (psi) — the engine's stock ceiling, raised for an upgraded turbo. */
+  /** Plausible peak (relative) boost (bar) — engine stock ceiling + turbo + stage. */
   maxBoost: number;
   /**
    * Minimum acceptable HPFP rail pressure (bar) under load. An OEM pump on a
    * high-demand tune drops pressure sooner than an upgraded one.
    */
   minHpfpPressure: number;
-  /** Boost target↔actual gap (psi) beyond which a deviation is flagged. */
+  /** Boost target↔actual gap (bar) beyond which a deviation is flagged. */
   boostDeviation: number;
   /** Fuel-trim (STFT/LTFT) magnitude (%) beyond which a lean/rich is flagged. */
   fuelTrimLimit: number;
@@ -112,13 +124,16 @@ export interface SpecLimits {
   engineLabel: string;
 }
 
+// EGT ceilings (°C). Modern turbo BMWs routinely see 950–1000 °C at WOT on a
+// tune (the reference Stage-1 log peaks ~997 °C), so the ceiling protects the
+// heat-sensitive component (the catalyst) rather than flagging normal operation.
 const EGT_BY_CAT: Record<CatType, number> = {
-  // Serienkat: protect the substrate — flag earlier.
-  oem: 900,
+  // Serienkat: protect the substrate — the strictest ceiling.
+  oem: 960,
   // 200-Zeller Metallkat: more thermally robust.
-  cat200: 950,
+  cat200: 990,
   // Catless: highest tolerance, limited by turbine/manifold rather than a cat.
-  catless: 980,
+  catless: 1010,
 };
 
 const HPFP_MIN_BY_PUMP: Record<HpfpType, number> = {
@@ -132,13 +147,39 @@ const EGT_RATIONALE: Record<CatType, string> = {
   catless: "Catless: höchste EGT-Toleranz (kein Kat zu schützen).",
 };
 
-/** Extra plausible boost (psi) an upgraded turbo can make over the stock ceiling. */
-const TURBO_UPGRADE_BONUS_PSI = 10;
+// A stronger map runs more boost and hotter EGTs by design, so both ceilings
+// rise with stage. A custom map is treated as at least as aggressive as Stage 2.
+const STAGE_BOOST_BONUS_BAR: Record<TuneStage, number> = {
+  oem: 0,
+  stage1: 0.3,
+  stage2: 0.6,
+  custom: 0.6,
+};
+const STAGE_EGT_BONUS_C: Record<TuneStage, number> = {
+  oem: 0,
+  stage1: 20,
+  stage2: 40,
+  custom: 40,
+};
+// A stronger map runs more aggressive boost control (bigger transient target↔
+// actual swings on boost), so the deviation tolerance widens a little by stage.
+const STAGE_BOOST_DEV_BONUS_BAR: Record<TuneStage, number> = {
+  oem: 0,
+  stage1: 0.05,
+  stage2: 0.1,
+  custom: 0.1,
+};
+
+/** Extra plausible boost (bar) an upgraded turbo can make over the stock ceiling. */
+const TURBO_UPGRADE_BONUS_BAR = 0.7;
 
 /** Throttle/pedal % threshold for Wide-Open-Throttle (WOT). */
 export const WOT_THRESHOLD_PCT = 99;
 
-/** Derive the contextual limits for a given vehicle & hardware setup. */
+/**
+ * Derive the contextual limits from ALL factors: engine baseline + catalyst +
+ * fuel + turbo + HPFP pump + tune stage. Pressures are metric (bar).
+ */
 export function limitsForSpec(spec: VehicleSpec): SpecLimits {
   const engine = engineProfile(spec.engineCode);
   const t = engine.thresholds;
@@ -148,13 +189,18 @@ export function limitsForSpec(spec: VehicleSpec): SpecLimits {
   const fuelEgtBonus = spec.fuel === "e85" ? 30 : spec.fuel === "e30" ? 15 : 0;
 
   return {
-    // EGT stays cat-contextual (the catalyst, not the engine, is the heat-
-    // sensitive component we protect), with a small high-ethanol allowance.
-    maxEgt: EGT_BY_CAT[spec.catType] + fuelEgtBonus,
-    // Boost baseline is the engine's stock ceiling; an upgraded turbo lifts it.
-    maxBoost: t.stockBoostPsi + (spec.turbo === "upgraded" ? TURBO_UPGRADE_BONUS_PSI : 0),
+    // EGT: cat-contextual base (the catalyst is the heat-sensitive component),
+    // plus a high-ethanol allowance and a stage allowance (a stronger map runs
+    // hotter by design).
+    maxEgt: EGT_BY_CAT[spec.catType] + fuelEgtBonus + STAGE_EGT_BONUS_C[spec.stage],
+    // Boost: engine stock ceiling, raised by an upgraded turbo and by the map
+    // stage (a Stage 2 map commands materially more boost than OEM).
+    maxBoost:
+      t.stockBoostBar +
+      (spec.turbo === "upgraded" ? TURBO_UPGRADE_BONUS_BAR : 0) +
+      STAGE_BOOST_BONUS_BAR[spec.stage],
     minHpfpPressure: HPFP_MIN_BY_PUMP[spec.hpfp],
-    boostDeviation: t.boostDeviationPsi,
+    boostDeviation: t.boostDeviationBar + STAGE_BOOST_DEV_BONUS_BAR[spec.stage],
     fuelTrimLimit: t.fuelTrimLimitPct,
     hpfpDrop: t.hpfpDropBar,
     knockCorrection: t.knockCorrectionDeg,
@@ -171,6 +217,7 @@ export function summarizeSpec(spec: VehicleSpec): string {
   const engine = ENGINES[spec.engineCode]?.label ?? spec.engineCode;
   return [
     engine,
+    STAGE_LABELS[spec.stage],
     CAT_TYPE_LABELS[spec.catType],
     FUEL_LABELS[spec.fuel],
     TURBO_LABELS[spec.turbo],

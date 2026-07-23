@@ -29,12 +29,14 @@ import {
   CAT_TYPE_LABELS,
   FUEL_LABELS,
   HPFP_LABELS,
+  STAGE_LABELS,
   TURBO_LABELS,
   limitsForSpec,
   type CatType,
   type FuelType,
   type HpfpType,
   type TurboType,
+  type TuneStage,
   type VehicleSpec,
 } from "./lib/vehicle-spec";
 
@@ -231,6 +233,14 @@ export function VehicleSpecForm() {
             allowDeselect={false}
             data-testid="spec-hpfp"
           />
+          <Select
+            label="Tuning-Stufe (Map)"
+            data={options<TuneStage>(STAGE_LABELS)}
+            value={spec.stage}
+            onChange={(v) => v && update("stage", v as TuneStage)}
+            allowDeselect={false}
+            data-testid="spec-stage"
+          />
         </SimpleGrid>
 
         <Group justify="flex-end" mt="lg">
@@ -259,9 +269,9 @@ export function VehicleSpecForm() {
         </Group>
         <SimpleGrid cols={{ base: 2, sm: 3, md: 4 }} spacing="md">
           <Limit label="EGT-Limit" value={`${limits.maxEgt} °C`} />
-          <Limit label="Max. Boost (plausibel)" value={`${limits.maxBoost} psi`} />
+          <Limit label="Max. Boost (plausibel)" value={`${limits.maxBoost.toFixed(2)} bar`} />
           <Limit label="Min. HPFP-Druck" value={`${limits.minHpfpPressure} bar`} />
-          <Limit label="Boost-Abweichung" value={`± ${limits.boostDeviation} psi`} />
+          <Limit label="Boost-Abweichung" value={`± ${limits.boostDeviation.toFixed(2)} bar`} />
           <Limit label="Fuel-Trim-Limit" value={`± ${limits.fuelTrimLimit} %`} />
           <Limit label="HPFP-Einbruch" value={`${limits.hpfpDrop} bar`} />
           <Limit label="Knock-Korrektur" value={`${limits.knockCorrection}°`} />

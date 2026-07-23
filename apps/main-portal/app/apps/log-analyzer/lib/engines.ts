@@ -26,12 +26,15 @@ export type EngineCode =
   | "S58B30T0"
   | "S63B44";
 
-/** Per-engine baseline thresholds the evaluation engine reasons against. */
+/**
+ * Per-engine baseline thresholds the evaluation engine reasons against. All
+ * pressures are METRIC (bar) — relative boost / rail-pressure drop in bar.
+ */
 export interface EngineThresholds {
-  /** Plausible peak boost on the *stock* turbo (psi); overboost above this. */
-  stockBoostPsi: number;
-  /** Boost target↔actual gap (psi) at/beyond which we flag a deviation. */
-  boostDeviationPsi: number;
+  /** Plausible peak (relative) boost on the *stock* turbo (bar); overboost above this. */
+  stockBoostBar: number;
+  /** Boost target↔actual gap (bar) at/beyond which we flag a deviation. */
+  boostDeviationBar: number;
   /** Fuel-trim (STFT/LTFT) magnitude (%) at/beyond which we flag a lean/rich. */
   fuelTrimLimitPct: number;
   /** HPFP target↔actual rail-pressure drop (bar) that reads as fuel starvation. */
@@ -58,67 +61,67 @@ export const ENGINES: Record<EngineCode, EngineProfile> = {
     code: "B38B15M0",
     label: "B38B15M0 (1.5T R3 — 116i / 118i)",
     displacement: "1.5L R3 Turbo",
-    thresholds: { stockBoostPsi: 18, boostDeviationPsi: 2, fuelTrimLimitPct: 10, hpfpDropBar: 12, knockCorrectionDeg: -3, redlineRpm: 6500 },
+    thresholds: { stockBoostBar: 1.2, boostDeviationBar: 0.15, fuelTrimLimitPct: 10, hpfpDropBar: 12, knockCorrectionDeg: -3, redlineRpm: 6500 },
   },
   N20B20: {
     code: "N20B20",
     label: "N20B20 (2.0T — 328i / 428i / 528i)",
     displacement: "2.0L R4 Turbo",
-    thresholds: { stockBoostPsi: 20, boostDeviationPsi: 2, fuelTrimLimitPct: 10, hpfpDropBar: 15, knockCorrectionDeg: -3, redlineRpm: 7000 },
+    thresholds: { stockBoostBar: 1.3, boostDeviationBar: 0.15, fuelTrimLimitPct: 10, hpfpDropBar: 15, knockCorrectionDeg: -3, redlineRpm: 7000 },
   },
   B48B20M0: {
     code: "B48B20M0",
     label: "B48B20M0 (2.0T, mittlere Leistung — 120i / 320i / 420i)",
     displacement: "2.0L R4 Turbo (Ausbaustufe M)",
-    thresholds: { stockBoostPsi: 22, boostDeviationPsi: 2, fuelTrimLimitPct: 10, hpfpDropBar: 15, knockCorrectionDeg: -3, redlineRpm: 7000 },
+    thresholds: { stockBoostBar: 1.4, boostDeviationBar: 0.15, fuelTrimLimitPct: 10, hpfpDropBar: 15, knockCorrectionDeg: -3, redlineRpm: 7000 },
   },
   B48B20O0: {
     code: "B48B20O0",
     label: "B48B20O0 (2.0T, hohe Leistung — 125i / 230i / 330i / 30i)",
     displacement: "2.0L R4 Turbo (Ausbaustufe O)",
-    thresholds: { stockBoostPsi: 24, boostDeviationPsi: 2, fuelTrimLimitPct: 10, hpfpDropBar: 15, knockCorrectionDeg: -3, redlineRpm: 7000 },
+    thresholds: { stockBoostBar: 1.5, boostDeviationBar: 0.15, fuelTrimLimitPct: 10, hpfpDropBar: 15, knockCorrectionDeg: -3, redlineRpm: 7000 },
   },
   N55B30M0: {
     code: "N55B30M0",
     label: "N55B30M0 (135i / 335i / M2)",
     displacement: "3.0L R6 Single-Turbo",
-    thresholds: { stockBoostPsi: 20, boostDeviationPsi: 2, fuelTrimLimitPct: 10, hpfpDropBar: 15, knockCorrectionDeg: -3, redlineRpm: 7000 },
+    thresholds: { stockBoostBar: 1.3, boostDeviationBar: 0.15, fuelTrimLimitPct: 10, hpfpDropBar: 15, knockCorrectionDeg: -3, redlineRpm: 7000 },
   },
   N54B30: {
     code: "N54B30",
     label: "N54B30 (135i / 335i / 1M)",
     displacement: "3.0L R6 Twin-Turbo",
-    thresholds: { stockBoostPsi: 20, boostDeviationPsi: 2.5, fuelTrimLimitPct: 12, hpfpDropBar: 18, knockCorrectionDeg: -3, redlineRpm: 7000 },
+    thresholds: { stockBoostBar: 1.3, boostDeviationBar: 0.18, fuelTrimLimitPct: 12, hpfpDropBar: 18, knockCorrectionDeg: -3, redlineRpm: 7000 },
   },
   B58B30M0: {
     code: "B58B30M0",
     label: "B58B30M0 (140i / 240i / 340i / 440i)",
     displacement: "3.0L R6 Single-Turbo",
-    thresholds: { stockBoostPsi: 24, boostDeviationPsi: 2, fuelTrimLimitPct: 10, hpfpDropBar: 15, knockCorrectionDeg: -3, redlineRpm: 7000 },
+    thresholds: { stockBoostBar: 1.5, boostDeviationBar: 0.15, fuelTrimLimitPct: 10, hpfpDropBar: 15, knockCorrectionDeg: -3, redlineRpm: 7000 },
   },
   B58B30O1: {
     code: "B58B30O1",
     label: "B58B30O1 (G-Serie 40i / GR Supra)",
     displacement: "3.0L R6 Single-Turbo (Ausbaustufe O)",
-    thresholds: { stockBoostPsi: 26, boostDeviationPsi: 2, fuelTrimLimitPct: 10, hpfpDropBar: 15, knockCorrectionDeg: -3, redlineRpm: 7000 },
+    thresholds: { stockBoostBar: 1.7, boostDeviationBar: 0.15, fuelTrimLimitPct: 10, hpfpDropBar: 15, knockCorrectionDeg: -3, redlineRpm: 7000 },
   },
   S55B30T0: {
     code: "S55B30T0",
     label: "S55B30T0 (M2 Comp / M3 / M4 F8x)",
     displacement: "3.0L R6 Twin-Turbo (M)",
-    thresholds: { stockBoostPsi: 26, boostDeviationPsi: 3, fuelTrimLimitPct: 10, hpfpDropBar: 20, knockCorrectionDeg: -3, redlineRpm: 7600 },
+    thresholds: { stockBoostBar: 1.7, boostDeviationBar: 0.2, fuelTrimLimitPct: 10, hpfpDropBar: 20, knockCorrectionDeg: -3, redlineRpm: 7600 },
   },
   S58B30T0: {
     code: "S58B30T0",
     label: "S58B30T0 (G8x M2 / M3 / M4)",
     displacement: "3.0L R6 Twin-Turbo (M)",
-    thresholds: { stockBoostPsi: 28, boostDeviationPsi: 3, fuelTrimLimitPct: 10, hpfpDropBar: 22, knockCorrectionDeg: -3, redlineRpm: 7200 },
+    thresholds: { stockBoostBar: 1.9, boostDeviationBar: 0.2, fuelTrimLimitPct: 10, hpfpDropBar: 22, knockCorrectionDeg: -3, redlineRpm: 7200 },
   },
   S63B44: {
     code: "S63B44",
     label: "S63B44 (M5 / M6 / X5 M / X6 M)",
     displacement: "4.4L V8 Twin-Turbo (M)",
-    thresholds: { stockBoostPsi: 22, boostDeviationPsi: 3, fuelTrimLimitPct: 10, hpfpDropBar: 20, knockCorrectionDeg: -3, redlineRpm: 7200 },
+    thresholds: { stockBoostBar: 1.5, boostDeviationBar: 0.2, fuelTrimLimitPct: 10, hpfpDropBar: 20, knockCorrectionDeg: -3, redlineRpm: 7200 },
   },
 };
 

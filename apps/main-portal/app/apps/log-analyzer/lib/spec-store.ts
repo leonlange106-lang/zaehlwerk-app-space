@@ -16,6 +16,7 @@ const CAT_VALUES = new Set(["oem", "cat200", "catless"]);
 const FUEL_VALUES = new Set(["ron95", "ron98", "ron102", "e30", "e85"]);
 const TURBO_VALUES = new Set(["stock", "upgraded"]);
 const HPFP_VALUES = new Set(["oem", "upgraded"]);
+const STAGE_VALUES = new Set(["oem", "stage1", "stage2", "custom"]);
 const ENGINE_VALUES = new Set(Object.keys(ENGINES));
 const TRANSMISSION_VALUES = new Set(Object.keys(TRANSMISSIONS));
 
@@ -51,6 +52,9 @@ export function coerceSpec(raw: unknown): VehicleSpec {
     hpfp: HPFP_VALUES.has(r.hpfp as string)
       ? (r.hpfp as VehicleSpec["hpfp"])
       : DEFAULT_VEHICLE_SPEC.hpfp,
+    stage: STAGE_VALUES.has(r.stage as string)
+      ? (r.stage as VehicleSpec["stage"])
+      : DEFAULT_VEHICLE_SPEC.stage,
   };
 }
 

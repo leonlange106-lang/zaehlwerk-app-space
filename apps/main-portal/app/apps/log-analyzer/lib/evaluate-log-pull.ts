@@ -24,6 +24,16 @@ const WOT_COVERAGE_MIN = 0.5;
 /** A valid WOT pull must start in at least this gear (1st/2nd-gear pulls are ignored). */
 const MIN_PULL_GEAR = 3;
 
+// Gear-shift exclusion zone: from just before a shift until the driveline has
+// re-settled. Sized from the reference logs — after a 5→6 shift the boost
+// overshoots (~+0.14 bar) and EGT spikes for ~0.5–1.0 s before settling — so we
+// suppress evaluation across [shift − PRE, shift + POST]. Time-based when a real
+// seconds axis exists, else a sample-count fallback.
+const SHIFT_ZONE_PRE_S = 0.2;
+const SHIFT_ZONE_POST_S = 1.0;
+const SHIFT_ZONE_PRE_SAMPLES = 1;
+const SHIFT_ZONE_POST_SAMPLES = 8;
+
 export type PullStatus = "verified" | "partial" | "invalid";
 
 export interface PullValidity {
@@ -84,7 +94,7 @@ export interface Violation {
   detail: string;
 }
 
-/** The verified-pull window expressed on the chart's X axis. */
+/** A time-axis range (verified-pull window, or a shift-exclusion zone). */
 export interface PullRange {
   start: number;
   end: number;
@@ -98,6 +108,8 @@ export interface LogPullEvaluation {
   violations: Violation[];
   /** The detected pull window on the X axis, or null when not resolvable. */
   pullRange: PullRange | null;
+  /** Gear-shift zones (X-axis ranges) excluded from safety evaluation. */
+  exclusionRanges: PullRange[];
   /** The hardware-contextual limits the alerts were judged against. */
   limits: SpecLimits;
   /** The [start, end] sample indices of the detected pull window. */
@@ -297,6 +309,46 @@ function detectPull(log: ParsedLog, ch: ResolvedChannels): DetectedPull {
   return best ?? rpmFallback();
 }
 
+/**
+ * Compute the gear-shift exclusion zones within the pull window: for every gear
+ * change, the samples spanning [shift − PRE, shift + POST]. Returns both the
+ * excluded sample indices (for the safety pass) and the X-axis ranges (for the
+ * chart's grey "Schaltzone" bands).
+ */
+function computeShiftZones(
+  log: ParsedLog,
+  gear: LogSeries | null,
+  window: [number, number],
+): { excluded: Set<number>; ranges: PullRange[] } {
+  const [lo, hi] = window;
+  const excluded = new Set<number>();
+  const ranges: PullRange[] = [];
+  if (!gear || hi <= lo) return { excluded, ranges };
+
+  const seconds = log.timeUnit === "s";
+  const pre = seconds ? SHIFT_ZONE_PRE_S : SHIFT_ZONE_PRE_SAMPLES;
+  const post = seconds ? SHIFT_ZONE_POST_S : SHIFT_ZONE_POST_SAMPLES;
+
+  for (let i = lo + 1; i <= hi; i += 1) {
+    const g = gear.values[i];
+    const gp = gear.values[i - 1];
+    if (g === null || gp === null || g === gp) continue;
+    const t0 = log.time[i];
+    let rStart = t0;
+    let rEnd = t0;
+    for (let j = lo; j <= hi; j += 1) {
+      const d = log.time[j] - t0;
+      if (d >= -pre && d <= post) {
+        excluded.add(j);
+        if (log.time[j] < rStart) rStart = log.time[j];
+        if (log.time[j] > rEnd) rEnd = log.time[j];
+      }
+    }
+    ranges.push({ start: rStart, end: rEnd });
+  }
+  return { excluded, ranges };
+}
+
 function evaluateValidity(
   ch: ResolvedChannels,
   pull: DetectedPull,
@@ -458,23 +510,47 @@ interface AlertResult {
   violations: Violation[];
 }
 
+/** Convert a pressure reading to METRIC bar based on its logged unit. */
+export function toBar(value: number, unit: string | null): number {
+  const u = (unit ?? "").toLowerCase();
+  if (u.includes("mpa")) return value * 10; // 1 MPa = 10 bar
+  if (u.includes("kpa")) return value / 100; // 100 kPa = 1 bar
+  if (u.includes("hpa") || u.includes("mbar")) return value / 1000; // 1000 hPa = 1 bar
+  if (u.includes("psi")) return value * 0.0689476;
+  return value; // already bar (or unknown → assume bar)
+}
+
 function findAlerts(
   ch: ResolvedChannels,
   window: [number, number],
   limits: SpecLimits,
   time: number[],
+  excluded: Set<number>,
 ): AlertResult {
   const [lo, hi] = window;
   const alerts: SafetyAlert[] = [];
   const violations: Violation[] = [];
   const at = (i: number): number => time[i] ?? i;
+  // Gear-shift zones are excluded from safety evaluation: right after a shift the
+  // boost overshoots, EGT spikes and timing pulls momentarily — all normal and
+  // not a fault, so judging there would raise false alarms.
+  const evaluable = (i: number): boolean => !excluded.has(i);
 
   // 1. Knock / timing pulls beyond threshold, on however many cylinders.
   if (ch.timingCorrections.length > 0) {
     const offenders: { label: string; worst: number; at: number }[] = [];
     for (const s of ch.timingCorrections) {
-      const idx = argMin(s.values, lo, hi); // most-negative correction
-      const worst = idx >= 0 ? s.values[idx] : null;
+      let idx = -1;
+      let worst: number | null = null;
+      for (let i = lo; i <= hi; i += 1) {
+        if (!evaluable(i)) continue;
+        const v = s.values[i];
+        if (v === null) continue;
+        if (worst === null || v < worst) {
+          worst = v;
+          idx = i;
+        }
+      }
       if (worst !== null && worst <= limits.knockCorrection) {
         offenders.push({ label: s.label, worst, at: idx });
         violations.push({
@@ -503,29 +579,47 @@ function findAlerts(
     }
   }
 
-  // 2. Boost target vs. actual deviation (leak / overboost indicator).
+  // 2. Boost target vs. actual deviation (leak / overboost indicator) — in bar.
   if (ch.boostTarget && ch.boostActual) {
+    const tUnit = ch.boostTarget.unit;
+    const aUnit = ch.boostActual.unit;
+    // Deviation is only meaningful once boost has substantially built: during the
+    // initial spool-up the target commands full boost while the turbo is still
+    // spinning up, so the large transient gap there is normal lag, not a fault.
+    // Restrict evaluation to the "on-boost" region (≥ 70 % of peak actual boost).
+    let peakActBar = 0;
+    for (let i = lo; i <= hi; i += 1) {
+      if (!evaluable(i)) continue;
+      const a = ch.boostActual.values[i];
+      if (a === null) continue;
+      const ab = toBar(a, aUnit);
+      if (ab > peakActBar) peakActBar = ab;
+    }
+    const onBoost = 0.7 * peakActBar;
     let worstGap = 0;
     let worstSigned = 0;
     let worstAt = -1;
     for (let i = lo; i <= hi; i += 1) {
+      if (!evaluable(i)) continue;
       const t = ch.boostTarget.values[i];
       const a = ch.boostActual.values[i];
       if (t === null || a === null) continue;
-      const gap = Math.abs(t - a);
+      const tb = toBar(t, tUnit);
+      const ab = toBar(a, aUnit);
+      if (ab < onBoost) continue; // still spooling — skip
+      const gap = Math.abs(tb - ab);
       if (gap > worstGap) {
         worstGap = gap;
-        worstSigned = a < t ? -gap : gap;
+        worstSigned = ab < tb ? -gap : gap;
         worstAt = i;
       }
     }
     if (worstGap >= limits.boostDeviation && worstAt >= 0) {
       const under = worstSigned < 0;
-      const unit = ch.boostActual.unit ?? "psi";
       alerts.push({
         id: "boost-deviation",
         severity: "warning",
-        title: `Ladedruck-Abweichung ${worstGap.toFixed(1)} ${unit}`,
+        title: `Ladedruck-Abweichung ${worstGap.toFixed(2)} bar`,
         detail: under
           ? "Ist-Ladedruck bleibt hinter dem Ziel zurück – möglicher Leck-/Underboost-Indikator (z. B. Ladeluftschlauch/Wastegate)."
           : "Ist-Ladedruck überschreitet das Ziel – möglicher Overboost (Wastegate/Regelung prüfen).",
@@ -536,22 +630,32 @@ function findAlerts(
         sampleIndex: worstAt,
         time: at(worstAt),
         label: "Ladedruck-Abweichung",
-        detail: `Soll↔Ist ${under ? "-" : "+"}${worstGap.toFixed(1)} ${unit}`,
+        detail: `Soll↔Ist ${under ? "-" : "+"}${worstGap.toFixed(2)} bar`,
       });
     }
   }
 
-  // 3. Boost above the hardware-plausible ceiling.
+  // 3. Boost above the hardware/stage-plausible ceiling — in bar.
   if (ch.boostActual) {
-    const idx = argMax(ch.boostActual.values, lo, hi);
-    const peak = idx >= 0 ? ch.boostActual.values[idx] : null;
+    const unit = ch.boostActual.unit;
+    let peak: number | null = null;
+    let idx = -1;
+    for (let i = lo; i <= hi; i += 1) {
+      if (!evaluable(i)) continue;
+      const v = ch.boostActual.values[i];
+      if (v === null) continue;
+      const bar = toBar(v, unit);
+      if (peak === null || bar > peak) {
+        peak = bar;
+        idx = i;
+      }
+    }
     if (peak !== null && peak > limits.maxBoost) {
-      const unit = ch.boostActual.unit ?? "psi";
       alerts.push({
         id: "boost-limit",
         severity: "warning",
-        title: `Peak Boost ${peak.toFixed(1)} ${unit} über Hardware-Grenze`,
-        detail: `Über dem plausiblen Maximum (${limits.maxBoost} psi) für den konfigurierten Turbo – Messfehler oder Overboost prüfen.`,
+        title: `Peak Boost ${peak.toFixed(2)} bar über Grenze`,
+        detail: `Über dem plausiblen Maximum (${limits.maxBoost.toFixed(2)} bar) für Turbo + Map-Stufe – Messfehler oder Overboost prüfen.`,
       });
       violations.push({
         id: "boost-limit",
@@ -559,7 +663,7 @@ function findAlerts(
         sampleIndex: idx,
         time: at(idx),
         label: "Overboost",
-        detail: `Peak ${peak.toFixed(1)} ${unit} > ${limits.maxBoost} ${unit}`,
+        detail: `Peak ${peak.toFixed(2)} bar > ${limits.maxBoost.toFixed(2)} bar`,
       });
     }
   }
@@ -574,6 +678,7 @@ function findAlerts(
     let worstVal = 0;
     let worstAt = -1;
     for (let i = lo; i <= hi; i += 1) {
+      if (!evaluable(i)) continue;
       const v = trim.s.values[i];
       if (v === null) continue;
       const mag = Math.abs(v);
@@ -604,26 +709,28 @@ function findAlerts(
     }
   }
 
-  // 5. HPFP pressure drop (fuel starvation) — target vs. actual, or vs. floor.
+  // 5. HPFP pressure drop (fuel starvation) — target vs. actual, or vs. floor; in bar.
   if (ch.hpfpTarget && ch.hpfpActual) {
+    const tUnit = ch.hpfpTarget.unit;
+    const aUnit = ch.hpfpActual.unit;
     let worstDrop = 0;
     let worstAt = -1;
     for (let i = lo; i <= hi; i += 1) {
+      if (!evaluable(i)) continue;
       const t = ch.hpfpTarget.values[i];
       const a = ch.hpfpActual.values[i];
       if (t === null || a === null) continue;
-      const drop = t - a;
+      const drop = toBar(t, tUnit) - toBar(a, aUnit);
       if (drop > worstDrop) {
         worstDrop = drop;
         worstAt = i;
       }
     }
     if (worstDrop >= limits.hpfpDrop && worstAt >= 0) {
-      const unit = ch.hpfpActual.unit ?? "bar";
       alerts.push({
         id: "hpfp-drop",
         severity: "critical",
-        title: `HPFP-Druckeinbruch ${worstDrop.toFixed(0)} ${unit}`,
+        title: `HPFP-Druckeinbruch ${worstDrop.toFixed(0)} bar`,
         detail:
           "Ist-Raildruck fällt deutlich unter das Ziel – Kraftstoffpumpe am Limit (mageres Gemisch-Risiko).",
       });
@@ -633,33 +740,35 @@ function findAlerts(
         sampleIndex: worstAt,
         time: at(worstAt),
         label: "HPFP-Einbruch",
-        detail: `Soll↔Ist -${worstDrop.toFixed(0)} ${unit}`,
+        detail: `Soll↔Ist -${worstDrop.toFixed(0)} bar`,
       });
     }
   } else if (ch.hpfpActual && ch.rpm) {
     // Only judge the rail-pressure floor in the high-load region: at idle / the
     // start of a pull the pump naturally sits low, so measuring there would be a
     // false positive. Restrict to the upper half of the RPM sweep.
+    const aUnit = ch.hpfpActual.unit;
     const rpmEnd = maxOf(ch.rpm.values, lo, hi);
     if (rpmEnd !== null) {
       const threshold = rpmEnd * 0.5;
       let low: number | null = null;
       let lowAt = -1;
       for (let i = lo; i <= hi; i += 1) {
+        if (!evaluable(i)) continue;
         const r = ch.rpm.values[i];
         const v = ch.hpfpActual.values[i];
         if (r === null || v === null || r < threshold) continue;
-        if (low === null || v < low) {
-          low = v;
+        const bar = toBar(v, aUnit);
+        if (low === null || bar < low) {
+          low = bar;
           lowAt = i;
         }
       }
       if (low !== null && low < limits.minHpfpPressure) {
-        const unit = ch.hpfpActual.unit ?? "bar";
         alerts.push({
           id: "hpfp-low",
           severity: "warning",
-          title: `HPFP-Raildruck fällt auf ${low.toFixed(0)} ${unit}`,
+          title: `HPFP-Raildruck fällt auf ${low.toFixed(0)} bar`,
           detail: `Unter der erwarteten Mindestgrenze (${limits.minHpfpPressure} bar) für die konfigurierte Pumpe unter Last.`,
         });
         violations.push({
@@ -668,16 +777,25 @@ function findAlerts(
           sampleIndex: lowAt,
           time: at(lowAt),
           label: "HPFP niedrig",
-          detail: `${low.toFixed(0)} ${unit} < ${limits.minHpfpPressure} bar`,
+          detail: `${low.toFixed(0)} bar < ${limits.minHpfpPressure} bar`,
         });
       }
     }
   }
 
-  // 6. EGT above the cat-contextual ceiling.
+  // 6. EGT above the cat/stage-contextual ceiling (°C, already metric).
   if (ch.egt) {
-    const idx = argMax(ch.egt.values, lo, hi);
-    const peak = idx >= 0 ? ch.egt.values[idx] : null;
+    let peak: number | null = null;
+    let idx = -1;
+    for (let i = lo; i <= hi; i += 1) {
+      if (!evaluable(i)) continue;
+      const v = ch.egt.values[i];
+      if (v === null) continue;
+      if (peak === null || v > peak) {
+        peak = v;
+        idx = i;
+      }
+    }
     if (peak !== null && peak > limits.maxEgt) {
       const unit = ch.egt.unit ?? "°C";
       alerts.push({
@@ -713,12 +831,13 @@ export function evaluateLogPull(log: ParsedLog, spec: VehicleSpec): LogPullEvalu
 
   const validity = evaluateValidity(ch, pull, limits);
   const missing = findMissing(ch);
-  const { alerts, violations } = findAlerts(ch, window, limits, log.time);
+  const { excluded, ranges: exclusionRanges } = computeShiftZones(log, ch.gear, window);
+  const { alerts, violations } = findAlerts(ch, window, limits, log.time, excluded);
 
   // The pull range is only meaningful when there is a real WOT sweep to frame.
   const [lo, hi] = window;
   const pullRange: PullRange | null =
     hi > lo && log.time.length > hi ? { start: log.time[lo], end: log.time[hi] } : null;
 
-  return { validity, missing, alerts, violations, pullRange, limits, window };
+  return { validity, missing, alerts, violations, pullRange, exclusionRanges, limits, window };
 }
