@@ -13,7 +13,7 @@ import {
   Text,
   Title,
 } from "@mantine/core";
-import { IconAlertTriangle, IconDownload } from "@tabler/icons-react";
+import { IconAlertTriangle, IconDownload, IconFileTypePdf } from "@tabler/icons-react";
 import { ENERGY_CATEGORY_LABELS } from "@zaehlwerk/database/shared";
 import { getConsumptionSummary } from "../lib/zaehler-actions";
 
@@ -34,9 +34,27 @@ export default async function BerichtePage() {
             Verbrauchsübersicht je Zähler und CSV-Export für die Buchhaltung oder externe Auswertung.
           </Text>
         </div>
-        <Button component="a" href="/api/export" download color="slate" leftSection={<IconDownload size={16} />}>
-          Alle Ablesungen exportieren
-        </Button>
+        <Group gap="sm">
+          <Button
+            component="a"
+            href="/api/export/pdf"
+            download
+            color="slate"
+            leftSection={<IconFileTypePdf size={16} />}
+          >
+            PDF Bericht exportieren
+          </Button>
+          <Button
+            component="a"
+            href="/api/export"
+            download
+            variant="light"
+            color="slate"
+            leftSection={<IconDownload size={16} />}
+          >
+            Alle Ablesungen (CSV)
+          </Button>
+        </Group>
       </Group>
 
       <Card withBorder radius="md" p="lg">

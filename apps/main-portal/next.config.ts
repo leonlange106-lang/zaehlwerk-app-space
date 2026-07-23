@@ -11,7 +11,11 @@ const nextConfig: NextConfig = {
   // serverExternalPackages is the other half: the App Router bundles every
   // server-side dependency into route chunks by default unless it's opted
   // out here, regardless of transpilePackages.
-  serverExternalPackages: ["@zaehlwerk/database"],
+  //
+  // @react-pdf/renderer for the same reason: it ships its own reconciler,
+  // fontkit and bundled AFM font data that webpack mangles when inlined —
+  // keeping it external lets it require its assets normally at runtime.
+  serverExternalPackages: ["@zaehlwerk/database", "@react-pdf/renderer"],
   // Lean, self-contained server bundle for the production Docker image.
   output: "standalone",
   // Belt-and-suspenders: the native engine binary isn't a static import, so
