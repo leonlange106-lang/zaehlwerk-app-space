@@ -60,14 +60,22 @@ echo "[update] rebuilding at GIT_SHA=$GIT_SHA"
 write_status building true false "Neue Version wird gebaut" "" "$GIT_SHA"
 
 # Free disk BEFORE building so accumulated images + build cache don't fill the
-# disk and fail the rebuild with ENOSPC. This is what lets the in-app update
-# run repeatedly without a manual `docker system prune`. `image prune` only
-# removes dangling (old, now-untagged) images; `builder prune --keep-storage`
-# trims old build cache but keeps a working set. Neither touches NAMED volumes,
-# so the database volume is safe. Non-fatal (|| true) if a flag is unsupported.
-echo "[update] pruning dangling images + old build cache to free disk"
-docker image prune -f || true
-docker builder prune -f --keep-storage=2GB || docker builder prune -f || true
+# disk and fail the rebuild with ENOSPC. On a small LXC even a single cold
+# `next build` can exhaust the disk, so prune AGGRESSIVELY: `-a` drops ALL
+# unused images (not just dangling ones — old build layers add up), and a full
+# `builder prune` clears the ENTIRE build cache rather than keeping a working
+# set. Rebuilds are a little slower without a warm cache, but reliability on a
+# constrained disk beats speed. `container prune` clears exited containers.
+# None of these touch NAMED volumes, so the database volume is always safe.
+# Non-fatal (|| true) so an unsupported flag never aborts the update.
+echo "[update] disk usage before prune:"
+df -h "$REPO_ROOT" 2>/dev/null || true
+echo "[update] pruning all unused images + build cache + exited containers"
+docker container prune -f || true
+docker image prune -af || docker image prune -f || true
+docker builder prune -af || docker builder prune -f || true
+echo "[update] disk usage after prune:"
+df -h "$REPO_ROOT" 2>/dev/null || true
 
 # Migrate the DB schema BEFORE the new app starts. The self-update rebuilds
 # the app, but the database lives on a persistent volume — a build that adds a
