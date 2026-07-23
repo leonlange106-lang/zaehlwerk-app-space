@@ -14,12 +14,6 @@ import {
   NumberInput,
   Select,
   Stack,
-  Table,
-  TableTbody,
-  TableTd,
-  TableTh,
-  TableThead,
-  TableTr,
   Text,
   TextInput,
   Title,
@@ -48,6 +42,7 @@ import { initialActionState } from "../../lib/action-state";
 import { getSmartHomeTips } from "./smart-home-tips";
 import { SmartHomeCard, type SmartHomeTokenOption } from "./SmartHomeCard";
 import { MeterDataCard } from "./MeterDataCard";
+import { ReadingHistoryTable, type ReadingRow } from "./ReadingHistoryTable";
 import { ProjectionStats } from "../../berichte/projection-ui";
 import classes from "./ZaehlerDetail.module.css";
 
@@ -91,6 +86,28 @@ export function ZaehlerDetail({
     return calculateTariffCost(tarif, verbrauch, interval.days);
   }
   const hasTarife = zaehler.tarife.length > 0;
+
+  // Render-ready rows: do the per-row formatting/consumption/tariff math once
+  // here so the (potentially virtualized) history table stays a pure view.
+  const readingRows: ReadingRow[] = zaehler.ablesungen.map((ablesung) => {
+    const interval = intervalByReadingId.get(ablesung.id);
+    const tariffCost = interval ? tariffCostFor(interval) : null;
+    const consumption: ReadingRow["consumption"] = !interval
+      ? { kind: "none" }
+      : interval.amount === null
+        ? { kind: "implausible" }
+        : { kind: "value", text: `${numberFormatter.format(interval.amount)} ${zaehler.einheit}` };
+    return {
+      id: ablesung.id,
+      datum: dateFormatter.format(ablesung.datum),
+      wert: `${numberFormatter.format(ablesung.wert)} ${zaehler.einheit}`,
+      getauscht: ablesung.zaehlerGetauscht,
+      consumption,
+      kosten: ablesung.kosten != null ? `${numberFormatter.format(ablesung.kosten)} €` : "–",
+      tariffCost: hasTarife ? (tariffCost !== null ? eur.format(tariffCost) : null) : null,
+      quelle: ablesung.quelle,
+    };
+  });
 
   return (
     <Stack gap="lg">
@@ -163,67 +180,7 @@ export function ZaehlerDetail({
                 Noch keine Ablesungen erfasst.
               </Text>
             ) : (
-              <Table verticalSpacing="xs" fz="sm">
-                <TableThead>
-                  <TableTr>
-                    <TableTh>Datum</TableTh>
-                    <TableTh>Zählerstand</TableTh>
-                    <TableTh>Verbrauch</TableTh>
-                    <TableTh>Kosten</TableTh>
-                    {hasTarife && <TableTh>Kosten (Tarif)</TableTh>}
-                    <TableTh>Quelle</TableTh>
-                  </TableTr>
-                </TableThead>
-                <TableTbody>
-                  {zaehler.ablesungen.map((ablesung) => {
-                    const interval = intervalByReadingId.get(ablesung.id);
-                    const tariffCost = interval ? tariffCostFor(interval) : null;
-                    return (
-                      <TableTr key={ablesung.id}>
-                        <TableTd>{dateFormatter.format(ablesung.datum)}</TableTd>
-                        <TableTd>
-                          {numberFormatter.format(ablesung.wert)} {zaehler.einheit}
-                          {ablesung.zaehlerGetauscht && (
-                            <Badge ml="xs" size="xs" variant="light" color="orange">
-                              Zähler getauscht
-                            </Badge>
-                          )}
-                        </TableTd>
-                        <TableTd>
-                          {!interval ? (
-                            "–"
-                          ) : interval.amount === null ? (
-                            <Text component="span" size="sm" c="orange">
-                              unplausibel
-                            </Text>
-                          ) : (
-                            `${numberFormatter.format(interval.amount)} ${zaehler.einheit}`
-                          )}
-                        </TableTd>
-                        <TableTd>
-                          {ablesung.kosten != null ? `${numberFormatter.format(ablesung.kosten)} €` : "–"}
-                        </TableTd>
-                        {hasTarife && (
-                          <TableTd>
-                            {tariffCost !== null ? (
-                              <Text component="span" size="sm" c="dimmed">
-                                {eur.format(tariffCost)}
-                              </Text>
-                            ) : (
-                              "–"
-                            )}
-                          </TableTd>
-                        )}
-                        <TableTd>
-                          <Badge size="xs" variant="outline" color="slate">
-                            {ablesung.quelle}
-                          </Badge>
-                        </TableTd>
-                      </TableTr>
-                    );
-                  })}
-                </TableTbody>
-              </Table>
+              <ReadingHistoryTable rows={readingRows} hasTarife={hasTarife} />
             )}
           </Card>
         </GridCol>
@@ -399,6 +356,7 @@ function TarifeCard({ zaehler }: { zaehler: ZaehlerWithHistory }) {
             placeholder="z. B. 34"
             min={0}
             decimalScale={4}
+            inputMode="decimal"
             required
           />
           <Group grow>
@@ -408,8 +366,17 @@ function TarifeCard({ zaehler }: { zaehler: ZaehlerWithHistory }) {
               placeholder="0"
               min={0}
               decimalScale={2}
+              inputMode="decimal"
             />
-            <NumberInput name="mwstProzent" label="MwSt %" defaultValue={19} min={0} max={100} decimalScale={1} />
+            <NumberInput
+              name="mwstProzent"
+              label="MwSt %"
+              defaultValue={19}
+              min={0}
+              max={100}
+              decimalScale={1}
+              inputMode="decimal"
+            />
           </Group>
 
           {createState.error && (

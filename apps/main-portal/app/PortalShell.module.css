@@ -26,6 +26,24 @@
   background: light-dark(var(--mantine-color-gray-1), var(--mantine-color-dark-5));
 }
 
+.brandText {
+  white-space: nowrap;
+}
+
+/* On phones the header is tight: shorten the brand and give tap targets room. */
+@media (max-width: $mantine-breakpoint-sm) {
+  .brandText {
+    max-width: 42vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .iconButton {
+    width: 44px;
+    height: 44px;
+  }
+}
+
 .navbar {
   background: light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6));
   border-right: 1px solid var(--app-shell-border-color);
