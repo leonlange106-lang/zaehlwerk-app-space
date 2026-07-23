@@ -2,6 +2,16 @@
 # See DEPLOYMENT.md for the full setup walkthrough, including the security
 # tradeoffs of the docker.sock + repo bind mounts used by the self-update
 # feature below.
+
+# Pin the Compose PROJECT name. Without this, the project defaults to the
+# working directory's basename — which differs between a manual run from
+# /opt/zaehlwerk (project "zaehlwerk") and the in-container self-update, whose
+# cwd is the bind mount /repo (project "repo"). That mismatch made the update
+# create a NEW empty volume (repo_zaehlwerk-db) and collide with the running
+# container's name. Pinning it keeps networks/volumes/containers identical no
+# matter where `docker compose` is invoked from.
+name: zaehlwerk
+
 services:
   main-portal:
     build:
