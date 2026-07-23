@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { signIn } from "next-auth/react";
+import { beginLoginAction } from "../lib/login-actions";
 import {
   Alert,
   Button,
@@ -34,6 +35,19 @@ export function LoginForm() {
     setError(null);
     setPending(true);
     try {
+      // Step 1: verify credentials without issuing a session yet.
+      const precheck = await beginLoginAction(email, password);
+      if (!precheck.ok) {
+        setError("E-Mail oder Passwort ist falsch.");
+        setPending(false);
+        return;
+      }
+      // Step 2a: 2FA on → continue at /login/2fa (challenge cookie is set).
+      if (precheck.twoFactorRequired) {
+        router.push(`/login/2fa?callbackUrl=${encodeURIComponent(callbackUrl)}`);
+        return;
+      }
+      // Step 2b: no 2FA → issue the session directly.
       const result = await signIn("credentials", { email, password, redirect: false });
       if (!result || result.error) {
         setError("E-Mail oder Passwort ist falsch.");

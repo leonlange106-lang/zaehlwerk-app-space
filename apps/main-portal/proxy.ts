@@ -8,11 +8,16 @@ import { authConfig } from "./auth.config";
 const { auth } = NextAuth(authConfig);
 
 // Pages reachable without a session.
-const PUBLIC_PAGES = ["/login", "/setup"];
+const PUBLIC_PAGES = ["/login", "/login/2fa", "/setup"];
 // API namespaces reachable without a session: Auth.js itself, the first-boot
 // setup, and the health probe (used by the Docker healthcheck).
 const PUBLIC_API_PREFIXES = ["/api/auth", "/api/setup"];
 const PUBLIC_API_EXACT = ["/api/health"];
+// API namespaces that ALSO accept a Personal Access Token (Authorization:
+// Bearer zw_pat_…). The edge can't validate the token (no DB), so we let a
+// well-formed bearer through and the route itself validates it via
+// authenticateApiRequest(). Everything else stays session-only.
+const PAT_API_PREFIXES = ["/api/export", "/api/backup"];
 
 export default auth((req) => {
   const { pathname } = req.nextUrl;
@@ -24,6 +29,13 @@ export default auth((req) => {
     PUBLIC_API_EXACT.includes(pathname);
 
   if (isPublicPage || isPublicApi) {
+    return NextResponse.next();
+  }
+
+  // PAT-enabled API with a well-formed bearer → defer to the route's own check.
+  const bearer = req.headers.get("authorization") ?? "";
+  const hasPatBearer = bearer.startsWith("Bearer zw_pat_");
+  if (hasPatBearer && PAT_API_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
     return NextResponse.next();
   }
 

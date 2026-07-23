@@ -39,8 +39,11 @@ import { createLocationAction } from "../lib/location-actions";
 import { initialActionState } from "../lib/action-state";
 import type { SessionUser } from "../lib/auth-helpers";
 import type { AppUser } from "../lib/user-actions";
+import type { ApiTokenSummary } from "../lib/api-token-actions";
 import { SystemBackupCard } from "./SystemBackupCard";
 import { UserManagementCard } from "./UserManagementCard";
+import { SecurityCard } from "./SecurityCard";
+import { ApiTokenCard } from "./ApiTokenCard";
 
 type LocationList = Awaited<ReturnType<typeof listLocations>>;
 
@@ -57,11 +60,15 @@ export function EinstellungenView({
   versionInfo,
   currentUser,
   users,
+  twoFactorEnabled,
+  apiTokens,
 }: {
   locations: LocationList;
   versionInfo: LocalCommitInfo | null;
   currentUser: SessionUser | null;
   users: AppUser[];
+  twoFactorEnabled: boolean;
+  apiTokens: ApiTokenSummary[];
 }) {
   const isAdmin = currentUser?.role === "ADMIN";
 
@@ -70,10 +77,12 @@ export function EinstellungenView({
       <div>
         <Title order={2}>Einstellungen</Title>
         <Text c="dimmed" size="sm">
-          Standorte / Zählergruppen verwalten und System-Updates prüfen.
+          Konto absichern, Standorte verwalten und System-Updates prüfen.
         </Text>
       </div>
 
+      {currentUser && <SecurityCard twoFactorEnabled={twoFactorEnabled} />}
+      {currentUser && <ApiTokenCard tokens={apiTokens} />}
       <LocationsCard locations={locations} />
       {isAdmin && currentUser && <UserManagementCard users={users} currentUserId={currentUser.id} />}
       <SystemBackupCard />

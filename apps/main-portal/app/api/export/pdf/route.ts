@@ -1,6 +1,7 @@
 import React from "react";
 import { renderToBuffer } from "@react-pdf/renderer";
 import { getYearlyReportData } from "../../../lib/report-data";
+import { authenticateApiRequest, unauthorizedResponse } from "../../../lib/api-auth";
 import { YearlyOverviewReport } from "@/src/components/pdf/YearlyOverviewReport";
 
 // @react-pdf/renderer needs the Node runtime (its own reconciler + fontkit),
@@ -8,7 +9,9 @@ import { YearlyOverviewReport } from "@/src/components/pdf/YearlyOverviewReport"
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: Request) {
+  if (!(await authenticateApiRequest(request))) return unauthorizedResponse();
+
   const data = await getYearlyReportData();
 
   // renderToBuffer is typed for a <Document> element; YearlyOverviewReport
