@@ -44,7 +44,9 @@ export const VEHICLE_CATALOG: CatalogBrand[] = [
         label: "1er (F20 / F21)",
         models: [
           { id: "f20-118i", label: "118i", engines: ["B38B15M0"], transmissions: AUTO_ZF50 },
-          { id: "f20-125i", label: "125i", engines: ["B48B20M0"], transmissions: AUTO_ZF50 },
+          { id: "f20-120i", label: "120i", engines: ["B48B20M0"], transmissions: AUTO_ZF50 },
+          // 125i is the high-output 2.0 (B48B20O0), not the mid-output M0.
+          { id: "f20-125i", label: "125i", engines: ["B48B20O0"], transmissions: AUTO_ZF50 },
           { id: "f20-m140i", label: "M140i", engines: ["B58B30M0"], transmissions: AUTO_ZF50 },
         ],
       },
@@ -52,7 +54,9 @@ export const VEHICLE_CATALOG: CatalogBrand[] = [
         id: "f22",
         label: "2er (F22 / F23 / F87)",
         models: [
-          { id: "f22-228i", label: "228i", engines: ["N20B20", "B48B20M0"], transmissions: AUTO_ZF50 },
+          { id: "f22-220i", label: "220i", engines: ["B48B20M0"], transmissions: AUTO_ZF50 },
+          { id: "f22-228i", label: "228i", engines: ["N20B20"], transmissions: AUTO_ZF50 },
+          { id: "f22-230i", label: "230i", engines: ["B48B20O0"], transmissions: AUTO_ZF50 },
           { id: "f22-m235i", label: "M235i", engines: ["N55B30M0"], transmissions: AUTO_ZF50 },
           { id: "f22-m240i", label: "M240i", engines: ["B58B30M0"], transmissions: AUTO_ZF50 },
           { id: "f87-m2", label: "M2 (F87)", engines: ["N55B30M0"], transmissions: M_DCT_OR_MANUAL },

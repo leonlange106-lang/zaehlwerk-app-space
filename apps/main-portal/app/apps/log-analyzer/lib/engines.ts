@@ -56,25 +56,25 @@ export interface EngineProfile {
 export const ENGINES: Record<EngineCode, EngineProfile> = {
   B38B15M0: {
     code: "B38B15M0",
-    label: "B38B15M0 (118i / 116i)",
+    label: "B38B15M0 (1.5T R3 — 116i / 118i)",
     displacement: "1.5L R3 Turbo",
     thresholds: { stockBoostPsi: 18, boostDeviationPsi: 2, fuelTrimLimitPct: 10, hpfpDropBar: 12, knockCorrectionDeg: -3, redlineRpm: 6500 },
   },
   N20B20: {
     code: "N20B20",
-    label: "N20B20 (128i / 228i / 328i)",
+    label: "N20B20 (2.0T — 328i / 428i / 528i)",
     displacement: "2.0L R4 Turbo",
     thresholds: { stockBoostPsi: 20, boostDeviationPsi: 2, fuelTrimLimitPct: 10, hpfpDropBar: 15, knockCorrectionDeg: -3, redlineRpm: 7000 },
   },
   B48B20M0: {
     code: "B48B20M0",
-    label: "B48B20M0 (120i / 125i / 20i / 25i)",
-    displacement: "2.0L R4 Turbo",
+    label: "B48B20M0 (2.0T, mittlere Leistung — 120i / 320i / 420i)",
+    displacement: "2.0L R4 Turbo (Ausbaustufe M)",
     thresholds: { stockBoostPsi: 22, boostDeviationPsi: 2, fuelTrimLimitPct: 10, hpfpDropBar: 15, knockCorrectionDeg: -3, redlineRpm: 7000 },
   },
   B48B20O0: {
     code: "B48B20O0",
-    label: "B48B20O0 (30i)",
+    label: "B48B20O0 (2.0T, hohe Leistung — 125i / 230i / 330i / 30i)",
     displacement: "2.0L R4 Turbo (Ausbaustufe O)",
     thresholds: { stockBoostPsi: 24, boostDeviationPsi: 2, fuelTrimLimitPct: 10, hpfpDropBar: 15, knockCorrectionDeg: -3, redlineRpm: 7000 },
   },

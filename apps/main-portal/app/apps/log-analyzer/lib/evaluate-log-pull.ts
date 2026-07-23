@@ -1,6 +1,6 @@
 import { resolveChannels, type ResolvedChannels } from "./channels";
 import type { LogSeries, ParsedLog } from "./types";
-import { limitsForSpec, type SpecLimits, type VehicleSpec } from "./vehicle-spec";
+import { limitsForSpec, WOT_THRESHOLD_PCT, type SpecLimits, type VehicleSpec } from "./vehicle-spec";
 
 // The automated log-pull evaluation engine — the analytical heart of the
 // analyzer. Given a parsed log and the vehicle's engine/hardware spec it answers:
@@ -21,18 +21,23 @@ import { limitsForSpec, type SpecLimits, type VehicleSpec } from "./vehicle-spec
 const WOT_COVERAGE_OK = 0.9;
 /** Below this WOT fraction the pull is considered invalid (not a real pull). */
 const WOT_COVERAGE_MIN = 0.5;
-/** Gears that count as a valid comparison/dyno pull. */
-const DYNO_GEARS = new Set([3, 4]);
+/** A valid WOT pull must start in at least this gear (1st/2nd-gear pulls are ignored). */
+const MIN_PULL_GEAR = 3;
 
 export type PullStatus = "verified" | "partial" | "invalid";
 
 export interface PullValidity {
   status: PullStatus;
-  /** Constant gear (no shift) across the pull window — null if no gear channel. */
+  /** True when the pull spans exactly one gear (informational). Null if no gear channel. */
   singleGear: boolean | null;
+  /** The gear the pull STARTS in. Null if no gear channel. */
   gearValue: number | null;
-  /** Whether the constant gear is a valid dyno gear (3/4). Null if unknown. */
+  /** True when the start gear is ≥ MIN_PULL_GEAR (i.e. not a 1st/2nd-gear pull). Null if unknown. */
   gearInRange: boolean | null;
+  /** Distinct gears the pull runs through, in order (e.g. [5, 6]). */
+  gears: number[];
+  /** True when the pull seamlessly spans two consecutive gears (3→4, 4→5, 5→6). */
+  multiGear: boolean;
   /** True when throttle stays ≥ WOT threshold across the window. Null if unknown. */
   wot: boolean | null;
   /** Fraction [0..1] of the window at WOT, or null when no throttle channel. */
@@ -150,11 +155,10 @@ function argMin(values: (number | null)[], lo: number, hi: number): number {
 }
 
 /**
- * Detect the pull window: from the RPM low point that precedes peak RPM up to
- * the peak. This isolates the acceleration sweep from any idle/coast around it.
- * Falls back to the full sample range when there is no usable RPM channel.
+ * Fallback window when there is no usable pedal channel: from the RPM low point
+ * that precedes peak RPM up to the peak, isolating the acceleration sweep.
  */
-function detectWindow(log: ParsedLog, rpm: LogSeries | null): [number, number] {
+function detectRpmWindow(log: ParsedLog, rpm: LogSeries | null): [number, number] {
   const last = log.time.length - 1;
   if (last < 0) return [0, 0];
   if (!rpm) return [0, last];
@@ -164,15 +168,147 @@ function detectWindow(log: ParsedLog, rpm: LogSeries | null): [number, number] {
   return [start < 0 ? 0 : start, peak];
 }
 
+/** First non-null gear at/after `from`, scanning up to a small look-ahead. */
+function firstGearFrom(gear: LogSeries, from: number, hi: number): number | null {
+  for (let i = from; i <= hi; i += 1) {
+    const g = gear.values[i];
+    if (g !== null) return g;
+  }
+  return null;
+}
+
+/** Distinct non-null gears within [lo, hi], in first-seen order. */
+function distinctGears(gear: LogSeries | null, lo: number, hi: number): number[] {
+  if (!gear) return [];
+  const out: number[] = [];
+  for (let i = lo; i <= hi; i += 1) {
+    const g = gear.values[i];
+    if (g !== null && !out.includes(g)) out.push(g);
+  }
+  return out;
+}
+
+export interface DetectedPull {
+  window: [number, number];
+  /** Gear the pull starts in, or null when no gear channel. */
+  startGear: number | null;
+  /** Distinct gears within the window, in order. */
+  gears: number[];
+  /** startGear ≥ MIN_PULL_GEAR, or null when unknown. */
+  gearStartOk: boolean | null;
+  /** Whether the window came from a real pedal-WOT run (vs. the RPM fallback). */
+  pedalDriven: boolean;
+}
+
+function scorePull(pull: DetectedPull, rpm: LogSeries | null): number {
+  const [lo, hi] = pull.window;
+  const len = hi - lo + 1;
+  // Score by the RPM SPAN swept, not peak RPM: the real pull climbs from near
+  // idle to redline, whereas a short high-gear fragment sits at high RPM with a
+  // tiny span — span cleanly prefers the genuine pull.
+  let span = 0;
+  if (rpm) {
+    const hiRpm = maxOf(rpm.values, lo, hi);
+    const loRpm = minOf(rpm.values, lo, hi);
+    if (hiRpm !== null && loRpm !== null) span = hiRpm - loRpm;
+  }
+  // Strongly prefer a pull that starts in a legal gear (≥ 3), then the widest
+  // sweep, then the longer one.
+  const legalBonus = pull.gearStartOk !== false ? 1_000_000_000 : 0;
+  return legalBonus + span * 1000 + len;
+}
+
+/**
+ * Detect the WOT pull, strictly per the tuning rules:
+ *  - the interval starts at the FIRST sample where the accelerator pedal ≥ WOT
+ *    threshold (pre-WOT ramp-up is excluded),
+ *  - it may span ONE or TWO consecutive gears (e.g. 3→4, 5→6); the second gear
+ *    is not required to start below the RPM threshold,
+ *  - it ends the moment the pedal drops below WOT or a shift into a THIRD
+ *    consecutive gear (or a downshift) occurs,
+ *  - pulls starting in gear 1 or 2 are ignored.
+ *
+ * When several WOT runs exist the strongest legal one wins. Falls back to the
+ * RPM-sweep window when there is no pedal channel or no WOT run at all.
+ */
+function detectPull(log: ParsedLog, ch: ResolvedChannels): DetectedPull {
+  const last = log.time.length - 1;
+  const pedal = ch.throttle; // resolves to the accelerator pedal (preferred)
+  const gear = ch.gear;
+
+  const rpmFallback = (): DetectedPull => {
+    const window = detectRpmWindow(log, ch.rpm);
+    const startGear = gear ? firstGearFrom(gear, window[0], window[1]) : null;
+    return {
+      window,
+      startGear,
+      gears: distinctGears(gear, window[0], window[1]),
+      gearStartOk: startGear === null ? null : startGear >= MIN_PULL_GEAR,
+      pedalDriven: false,
+    };
+  };
+
+  if (last < 0) return { window: [0, 0], startGear: null, gears: [], gearStartOk: null, pedalDriven: false };
+  if (!pedal) return rpmFallback();
+
+  const wot = WOT_THRESHOLD_PCT;
+  let best: DetectedPull | null = null;
+  let i = 0;
+  while (i <= last) {
+    const pv = pedal.values[i];
+    if (pv === null || pv < wot) {
+      i += 1;
+      continue;
+    }
+    // A WOT run begins at i. Gate the gear span to {g0, g0+1}.
+    const g0 = gear ? firstGearFrom(gear, i, last) : null;
+    let end = i;
+    let breakIdx = i + 1;
+    for (let k = i; k <= last; k += 1) {
+      const p = pedal.values[k];
+      if (p === null || p < wot) {
+        breakIdx = k + 1;
+        break;
+      }
+      if (gear && g0 !== null) {
+        const g = gear.values[k];
+        if (g !== null && g !== g0 && g !== g0 + 1) {
+          // Shift into a 3rd consecutive gear / a downshift ends the pull.
+          breakIdx = k;
+          break;
+        }
+      }
+      end = k;
+      breakIdx = k + 1;
+    }
+
+    const window: [number, number] = [i, end];
+    const candidate: DetectedPull = {
+      window,
+      startGear: g0,
+      gears: distinctGears(gear, i, end),
+      gearStartOk: g0 === null ? null : g0 >= MIN_PULL_GEAR,
+      pedalDriven: true,
+    };
+    if (!best || scorePull(candidate, ch.rpm) > scorePull(best, ch.rpm)) best = candidate;
+    i = Math.max(breakIdx, end + 1);
+  }
+
+  return best ?? rpmFallback();
+}
+
 function evaluateValidity(
   ch: ResolvedChannels,
-  window: [number, number],
+  pull: DetectedPull,
   limits: SpecLimits,
 ): PullValidity {
-  const [lo, hi] = window;
+  const [lo, hi] = pull.window;
   const reasons: string[] = [];
 
   // ── RPM span ──
+  // rpmStart is the RPM at the FIRST WOT sample (the pull's start); rpmEnd is the
+  // highest RPM reached anywhere in the (possibly two-gear) window — the shift
+  // makes RPM peak mid-window, so we take the max, not the last sample.
   const rpmStart = ch.rpm ? ch.rpm.values[lo] ?? minOf(ch.rpm.values, lo, hi) : null;
   const rpmEnd = ch.rpm ? maxOf(ch.rpm.values, lo, hi) : null;
   const rpmSpanOk =
@@ -180,36 +316,33 @@ function evaluateValidity(
     rpmEnd !== null &&
     rpmStart <= limits.rpmStartMax &&
     rpmEnd >= limits.rpmEndMin;
-  if (ch.rpm && !rpmSpanOk) {
+  if (ch.rpm && rpmStart !== null && rpmStart > limits.rpmStartMax) {
     reasons.push(
-      `Drehzahlfenster unzureichend (Start ${rpmStart ?? "?"} → Ende ${rpmEnd ?? "?"} RPM; erwartet ≤ ${limits.rpmStartMax} bis ≥ ${limits.rpmEndMin}).`,
+      `Pull beginnt zu hoch (${Math.round(rpmStart)} RPM; erwartet ≤ ${limits.rpmStartMax} RPM im Startgang).`,
+    );
+  } else if (ch.rpm && rpmEnd !== null && rpmEnd < limits.rpmEndMin) {
+    reasons.push(
+      `Pull dreht nicht weit genug aus (max ${Math.round(rpmEnd)} RPM; erwartet ≥ ${limits.rpmEndMin} RPM).`,
     );
   } else if (!ch.rpm) {
     reasons.push("Kein RPM-Kanal gefunden – Pull-Umfang nicht verifizierbar.");
   }
 
-  // ── Single gear + dyno-gear (3/4) check ──
-  let singleGear: boolean | null = null;
-  let gearValue: number | null = null;
-  let gearInRange: boolean | null = null;
-  if (ch.gear) {
-    const gMin = minOf(ch.gear.values, lo, hi);
-    const gMax = maxOf(ch.gear.values, lo, hi);
-    if (gMin !== null && gMax !== null) {
-      singleGear = gMin === gMax;
-      gearValue = singleGear ? gMin : null;
-      if (!singleGear) {
-        reasons.push(`Schaltvorgang im Pull erkannt (Gang ${gMin} → ${gMax}).`);
-      } else {
-        gearInRange = DYNO_GEARS.has(gearValue as number);
-        if (!gearInRange) {
-          reasons.push(`Pull nicht im Vergleichsgang (Gang ${gearValue}; erwartet 3 oder 4).`);
-        }
-      }
-    }
+  // ── Gear: min-gear-3 start + one/two consecutive gears ──
+  const gears = pull.gears;
+  const gearValue = pull.startGear;
+  const singleGear = ch.gear ? gears.length <= 1 : null;
+  const multiGear = gears.length === 2;
+  const gearInRange = pull.gearStartOk; // startGear ≥ MIN_PULL_GEAR
+  if (gearInRange === false) {
+    reasons.push(
+      `Pull startet in Gang ${gearValue ?? "?"} – Pulls in Gang 1/2 werden nicht gewertet (min. Gang ${MIN_PULL_GEAR}).`,
+    );
   }
 
-  // ── WOT / throttle ──
+  // ── WOT / throttle (accelerator pedal) ──
+  // The window is defined by pedal ≥ WOT, so coverage is ~100% for a real pull;
+  // a low fraction here means the fallback (no WOT run) window was used.
   let wot: boolean | null = null;
   let wotCoverage: number | null = null;
   if (ch.throttle) {
@@ -231,20 +364,20 @@ function evaluateValidity(
       }
     }
   } else {
-    reasons.push("Kein Pedal-/Throttle-Kanal – Volllast nicht verifizierbar.");
+    reasons.push("Kein Pedal-/Accelerator-Kanal – Volllast nicht verifizierbar.");
   }
 
   // ── Status roll-up ──
-  // A shift, near-zero throttle, or no RPM channel at all means we can't call it
-  // a valid pull. A clean full sweep + WOT + single dyno gear (3/4) is verified;
-  // the in-between (short sweep, wrong gear, unknown throttle) is partial.
-  const shifted = singleGear === false;
+  // No RPM channel, a sub-threshold throttle, or a 1st/2nd-gear start means we
+  // can't call it a valid pull. A pedal-driven WOT run that starts ≤ rpmStartMax
+  // in gear ≥ 3, spans one or two consecutive gears, and revs to ≥ rpmEndMin is
+  // verified; anything short of that (but still a real WOT run) is partial.
   const wotClearlyLow = wotCoverage !== null && wotCoverage < WOT_COVERAGE_MIN;
   const noRpm = ch.rpm === null;
   let status: PullStatus;
-  if (shifted || wotClearlyLow || noRpm) {
+  if (noRpm || wotClearlyLow || gearInRange === false) {
     status = "invalid";
-  } else if (rpmSpanOk && wot === true && singleGear !== false && gearInRange !== false) {
+  } else if (pull.pedalDriven && rpmSpanOk && wot === true) {
     status = "verified";
   } else {
     status = "partial";
@@ -255,6 +388,8 @@ function evaluateValidity(
     singleGear,
     gearValue,
     gearInRange,
+    gears,
+    multiGear,
     wot,
     wotCoverage,
     rpmStart,
@@ -573,18 +708,17 @@ function findAlerts(
 export function evaluateLogPull(log: ParsedLog, spec: VehicleSpec): LogPullEvaluation {
   const limits = limitsForSpec(spec);
   const ch = resolveChannels(log);
-  const window = detectWindow(log, ch.rpm);
+  const pull = detectPull(log, ch);
+  const window = pull.window;
 
-  const validity = evaluateValidity(ch, window, limits);
+  const validity = evaluateValidity(ch, pull, limits);
   const missing = findMissing(ch);
   const { alerts, violations } = findAlerts(ch, window, limits, log.time);
 
-  // The pull range is only meaningful when there is a real RPM sweep to frame.
+  // The pull range is only meaningful when there is a real WOT sweep to frame.
   const [lo, hi] = window;
   const pullRange: PullRange | null =
-    ch.rpm && hi > lo && log.time.length > hi
-      ? { start: log.time[lo], end: log.time[hi] }
-      : null;
+    hi > lo && log.time.length > hi ? { start: log.time[lo], end: log.time[hi] } : null;
 
   return { validity, missing, alerts, violations, pullRange, limits, window };
 }

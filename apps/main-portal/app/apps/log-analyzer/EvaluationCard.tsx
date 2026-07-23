@@ -48,18 +48,21 @@ export function EvaluationCard({
   const { validity, missing, alerts, limits } = evaluation;
   const status = STATUS_META[validity.status];
 
-  const gearOk: boolean | null =
-    validity.singleGear === null
-      ? null
-      : validity.singleGear === false
-        ? false
-        : validity.gearInRange;
+  // A valid pull starts in gear ≥ 3 and spans one or two consecutive gears; the
+  // detector already truncates at a 3rd gear, so the start gear drives the check.
+  const gearOk: boolean | null = validity.gearInRange;
+  const gearValueLabel =
+    validity.gears.length > 0
+      ? `Gang ${validity.gears.join("→")}`
+      : validity.gearValue !== null
+        ? `Gang ${validity.gearValue}`
+        : "—";
 
   const checks: { label: string; ok: boolean | null; value: string }[] = [
     {
-      label: "Konstanter Vergleichsgang (3 oder 4)",
+      label: "WOT-Pull ab Gang 3 (1–2 Gänge)",
       ok: gearOk,
-      value: validity.gearValue !== null ? `Gang ${validity.gearValue}` : "—",
+      value: gearValueLabel,
     },
     {
       label: `Volllast (WOT ≥ ${limits.wotThreshold}% Pedal)`,
