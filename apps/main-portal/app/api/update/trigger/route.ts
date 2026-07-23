@@ -3,6 +3,8 @@ import { spawn } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { type NextRequest, NextResponse } from "next/server";
+import { auth } from "@/auth";
+import { AUDIT_ACTIONS, recordAuditEvent } from "../../../lib/audit";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -70,6 +72,14 @@ export async function POST(request: NextRequest) {
 
   const scriptPath =
     process.env.UPDATE_SCRIPT_PATH ?? path.resolve(process.cwd(), "..", "..", "scripts", "update.sh");
+
+  // Best-effort audit trail — never block the update on the session lookup or log.
+  try {
+    const session = await auth();
+    await recordAuditEvent(AUDIT_ACTIONS.systemUpdate, session?.user?.email ?? "system", "Update ausgelöst");
+  } catch (error) {
+    console.error("[update/trigger] audit", error);
+  }
 
   const child = spawn("sh", [scriptPath], {
     detached: true,

@@ -13,6 +13,13 @@ import {
   type BackupZaehler,
   type FullBackup,
 } from "@zaehlwerk/database";
+import { AUDIT_ACTIONS, recordAuditEvent } from "./audit";
+import { getSessionUser } from "./auth-helpers";
+
+async function currentActor(): Promise<string> {
+  const user = await getSessionUser();
+  return user?.email ?? "unbekannt";
+}
 
 export type BackupResult = { success: boolean; message: string };
 export type RestoreMode = "reset" | "merge";
@@ -131,6 +138,11 @@ export async function restoreBackup(jsonText: string, mode: RestoreMode): Promis
     return { success: false, message: "Das Backup konnte nicht eingespielt werden (Details im Server-Log)." };
   }
 
+  await recordAuditEvent(
+    AUDIT_ACTIONS.dataRestore,
+    await currentActor(),
+    `Modus ${mode}: ${zaehler.length} Zähler, ${ablesungen.length} Ablesungen, ${tarife.length} Tarife`,
+  );
   revalidatePath("/", "layout");
   const label = mode === "reset" ? "ersetzt" : "zusammengeführt";
   return {
@@ -217,6 +229,11 @@ export async function importMeter(jsonText: string, choice: LocationChoice): Pro
       }),
     ]);
 
+    await recordAuditEvent(
+      AUDIT_ACTIONS.dataImport,
+      await currentActor(),
+      `Zähler „${zaehler.name}": ${ablesungen.length} Ablesungen, ${tarife.length} Tarife`,
+    );
     revalidatePath("/zaehler");
     revalidatePath("/");
     return {
@@ -281,6 +298,11 @@ export async function importReadings(
     return { success: false, message: "Die Ablesungen konnten nicht importiert werden (Details im Server-Log)." };
   }
 
+  await recordAuditEvent(
+    AUDIT_ACTIONS.dataImport,
+    await currentActor(),
+    `${valid.length} Ablesungen (CSV) in Zähler ${zaehlerId}`,
+  );
   revalidatePath(`/zaehler/${zaehlerId}`);
   revalidatePath("/");
   const suffix = skipped > 0 ? ` (${skipped} ungültige übersprungen)` : "";

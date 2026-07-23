@@ -1,13 +1,16 @@
 "use client";
 
-import { useActionState, useEffect, useRef } from "react";
+import { useActionState, useEffect, useRef, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   ActionIcon,
   Alert,
   Badge,
   Button,
   Card,
+  Checkbox,
+  Divider,
   Grid,
   GridCol,
   Group,
@@ -18,11 +21,13 @@ import {
   TextInput,
   Title,
 } from "@mantine/core";
+import { notifications } from "@mantine/notifications";
 import {
   IconAlertCircle,
   IconArrowLeft,
   IconChartLine,
   IconCheck,
+  IconGaugeFilled,
   IconReceipt2,
   IconTrash,
 } from "@tabler/icons-react";
@@ -37,7 +42,13 @@ import {
   type ConsumptionProjection,
 } from "@zaehlwerk/database/shared";
 import type { getZaehlerById, listLocations } from "../../lib/zaehler-actions";
-import { createTarifAction, deleteTarifAction, updateZaehlerAction } from "../../lib/zaehler-actions";
+import {
+  createAblesungAction,
+  createTarifAction,
+  deleteTarifAction,
+  deleteZaehlerAction,
+  updateZaehlerAction,
+} from "../../lib/zaehler-actions";
 import { initialActionState } from "../../lib/action-state";
 import { getSmartHomeTips } from "./smart-home-tips";
 import { SmartHomeCard, type SmartHomeTokenOption } from "./SmartHomeCard";
@@ -106,6 +117,14 @@ export function ZaehlerDetail({
       kosten: ablesung.kosten != null ? `${numberFormatter.format(ablesung.kosten)} €` : "–",
       tariffCost: hasTarife ? (tariffCost !== null ? eur.format(tariffCost) : null) : null,
       quelle: ablesung.quelle,
+      raw: {
+        datum: new Date(ablesung.datum).toISOString().slice(0, 10),
+        wert: ablesung.wert,
+        kosten: ablesung.kosten ?? null,
+        notiz: ablesung.notiz ?? "",
+        getauscht: ablesung.zaehlerGetauscht,
+        startwertNeu: ablesung.startwertNeu ?? null,
+      },
     };
   });
 
@@ -180,13 +199,19 @@ export function ZaehlerDetail({
                 Noch keine Ablesungen erfasst.
               </Text>
             ) : (
-              <ReadingHistoryTable rows={readingRows} hasTarife={hasTarife} />
+              <ReadingHistoryTable
+                rows={readingRows}
+                hasTarife={hasTarife}
+                zaehlerId={zaehler.id}
+                einheit={zaehler.einheit}
+              />
             )}
           </Card>
         </GridCol>
 
         <GridCol span={{ base: 12, lg: 4 }}>
           <Stack gap="md">
+            <CreateReadingCard zaehler={zaehler} />
             <EditZaehlerForm zaehler={zaehler} locations={locations} />
 
             <MeterDataCard zaehlerId={zaehler.id} />
@@ -215,6 +240,76 @@ export function ZaehlerDetail({
   );
 }
 
+function CreateReadingCard({ zaehler }: { zaehler: ZaehlerWithHistory }) {
+  const [state, formAction, pending] = useActionState(createAblesungAction, initialActionState);
+  const formRef = useRef<HTMLFormElement>(null);
+  const today = new Date().toISOString().slice(0, 10);
+
+  useEffect(() => {
+    if (state.success) {
+      formRef.current?.reset();
+    }
+  }, [state.success]);
+
+  return (
+    <Card withBorder radius="md" p="lg">
+      <Group gap="xs" mb="sm">
+        <IconGaugeFilled size={18} stroke={1.6} />
+        <Title order={4}>Neue Ablesung erfassen</Title>
+      </Group>
+      <Text size="sm" c="dimmed" mb="md">
+        Zählerstand direkt für <b>{zaehler.name}</b> eintragen.
+      </Text>
+      <form action={formAction} ref={formRef}>
+        <input type="hidden" name="zaehlerId" value={zaehler.id} />
+        <Stack gap="sm">
+          <TextInput name="datum" label="Ablesedatum" type="date" defaultValue={today} required />
+          <NumberInput
+            name="wert"
+            label={`Zählerstand (${zaehler.einheit})`}
+            placeholder="0"
+            min={0}
+            inputMode="decimal"
+            required
+          />
+          <NumberInput
+            name="kosten"
+            label="Kosten (optional)"
+            placeholder="0.00"
+            min={0}
+            decimalScale={2}
+            inputMode="decimal"
+          />
+          <Checkbox name="zaehlerGetauscht" label="Zähler wurde bei dieser Ablesung getauscht" />
+          <NumberInput
+            name="startwertNeu"
+            label="Startwert neuer Zähler (bei Tausch)"
+            placeholder="0"
+            min={0}
+            inputMode="decimal"
+          />
+          <TextInput name="notiz" label="Notiz (optional)" placeholder="z. B. Ablesung durch Hausverwaltung" />
+
+          {state.error && (
+            <Alert color="red" icon={<IconAlertCircle size={16} />} variant="light">
+              {state.error}
+            </Alert>
+          )}
+          {state.success && (
+            <Alert color="green" icon={<IconCheck size={16} />} variant="light">
+              Ablesung wurde erfasst.
+            </Alert>
+          )}
+
+          <Button type="submit" color="slate" loading={pending} fullWidth>
+            Ablesung speichern
+          </Button>
+        </Stack>
+      </form>
+    </Card>
+  );
+}
+
 function EditZaehlerForm({
   zaehler,
   locations,
@@ -222,7 +317,9 @@ function EditZaehlerForm({
   zaehler: ZaehlerWithHistory;
   locations: LocationList;
 }) {
+  const router = useRouter();
   const [state, formAction, pending] = useActionState(updateZaehlerAction, initialActionState);
+  const [deleting, startDelete] = useTransition();
   const formRef = useRef<HTMLFormElement>(null);
 
   useEffect(() => {
@@ -230,6 +327,31 @@ function EditZaehlerForm({
       formRef.current?.reset();
     }
   }, [state.success]);
+
+  function deleteMeter() {
+    if (
+      !window.confirm(
+        `Zähler „${zaehler.name}" endgültig löschen? Alle ${zaehler.ablesungen.length} Ablesungen und ${zaehler.tarife.length} Tarife werden mitgelöscht.`,
+      )
+    ) {
+      return;
+    }
+    startDelete(async () => {
+      const fd = new FormData();
+      fd.set("id", zaehler.id);
+      const result = await deleteZaehlerAction(initialActionState, fd);
+      if (result.success) {
+        notifications.show({ color: "green", icon: <IconCheck size={16} />, message: "Zähler gelöscht." });
+        router.push("/zaehler");
+      } else {
+        notifications.show({
+          color: "red",
+          icon: <IconAlertCircle size={16} />,
+          message: result.error ?? "Fehler.",
+        });
+      }
+    });
+  }
 
   return (
     <Card withBorder radius="md" p="lg">
@@ -278,6 +400,22 @@ function EditZaehlerForm({
           </Button>
         </Stack>
       </form>
+
+      <Divider my="md" />
+      <Group justify="space-between" align="center" wrap="nowrap">
+        <Text size="xs" c="dimmed">
+          Zähler unwiderruflich mit allen Ablesungen und Tarifen entfernen.
+        </Text>
+        <Button
+          variant="light"
+          color="red"
+          leftSection={<IconTrash size={16} />}
+          loading={deleting}
+          onClick={deleteMeter}
+        >
+          Löschen
+        </Button>
+      </Group>
     </Card>
   );
 }

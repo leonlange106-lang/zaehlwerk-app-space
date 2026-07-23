@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Alert,
   Badge,
@@ -8,15 +8,12 @@ import {
   Card,
   Code,
   Group,
-  List,
-  ListItem,
   Loader,
   PasswordInput,
   Progress,
   ScrollArea,
   Stack,
   Text,
-  TextInput,
   Title,
 } from "@mantine/core";
 import {
@@ -35,15 +32,28 @@ import {
 import classes from "./EinstellungenView.module.css";
 import type { LocalCommitInfo, UpdateCheckResult } from "@zaehlwerk/updater";
 import type { listLocations } from "../lib/zaehler-actions";
-import { createLocationAction } from "../lib/location-actions";
-import { initialActionState } from "../lib/action-state";
 import type { SessionUser } from "../lib/auth-helpers";
 import type { AppUser } from "../lib/user-actions";
 import type { ApiTokenSummary } from "../lib/api-token-actions";
+import type { AuditEvent } from "../lib/audit";
+import type { SnapshotFile } from "../lib/backup-engine";
+import type { DatabaseStats } from "../lib/db-maintenance";
+import type { BackupPolicy } from "../lib/settings";
 import { SystemBackupCard } from "./SystemBackupCard";
 import { UserManagementCard } from "./UserManagementCard";
 import { SecurityCard } from "./SecurityCard";
 import { ApiTokenCard } from "./ApiTokenCard";
+import { LocationsCard } from "./LocationsCard";
+import { BackupPolicyCard } from "./BackupPolicyCard";
+import { DatabaseMaintenanceCard } from "./DatabaseMaintenanceCard";
+import { AuditLogCard } from "./AuditLogCard";
+
+export type GovernanceData = {
+  policy: BackupPolicy;
+  snapshots: SnapshotFile[];
+  dbStats: DatabaseStats;
+  auditEvents: AuditEvent[];
+};
 
 type LocationList = Awaited<ReturnType<typeof listLocations>>;
 
@@ -62,6 +72,7 @@ export function EinstellungenView({
   users,
   twoFactorEnabled,
   apiTokens,
+  governance,
 }: {
   locations: LocationList;
   versionInfo: LocalCommitInfo | null;
@@ -69,6 +80,7 @@ export function EinstellungenView({
   users: AppUser[];
   twoFactorEnabled: boolean;
   apiTokens: ApiTokenSummary[];
+  governance: GovernanceData | null;
 }) {
   const isAdmin = currentUser?.role === "ADMIN";
 
@@ -86,69 +98,15 @@ export function EinstellungenView({
       <LocationsCard locations={locations} />
       {isAdmin && currentUser && <UserManagementCard users={users} currentUserId={currentUser.id} />}
       <SystemBackupCard />
+      {isAdmin && governance && (
+        <>
+          <BackupPolicyCard policy={governance.policy} snapshots={governance.snapshots} />
+          <DatabaseMaintenanceCard stats={governance.dbStats} />
+          <AuditLogCard events={governance.auditEvents} />
+        </>
+      )}
       <UpdateSettingsCard versionInfo={versionInfo} />
     </Stack>
-  );
-}
-
-function LocationsCard({ locations }: { locations: LocationList }) {
-  const [state, formAction, pending] = useActionState(createLocationAction, initialActionState);
-  const formRef = useRef<HTMLFormElement>(null);
-
-  useEffect(() => {
-    if (state.success) {
-      formRef.current?.reset();
-    }
-  }, [state.success]);
-
-  return (
-    <Card withBorder radius="md" p="lg">
-      <Title order={4} mb="sm">
-        Standorte / Zählergruppen
-      </Title>
-
-      {locations.length === 0 ? (
-        <Text size="sm" c="dimmed" mb="sm">
-          Noch keine Standorte angelegt.
-        </Text>
-      ) : (
-        <List spacing="xs" size="sm" mb="md">
-          {locations.map((location) => (
-            <ListItem key={location.id}>
-              <Text span fw={600}>
-                {location.name}
-              </Text>
-              {location.address && (
-                <Text span c="dimmed">
-                  {" "}
-                  — {location.address}
-                </Text>
-              )}
-            </ListItem>
-          ))}
-        </List>
-      )}
-
-      <form action={formAction} ref={formRef}>
-        <Group align="flex-end" gap="sm" wrap="wrap">
-          <TextInput name="name" label="Neuer Standort" placeholder="z. B. Nebengebäude" required style={{ flex: 1, minWidth: 200 }} />
-          <TextInput name="address" label="Adresse (optional)" placeholder="Straße, Ort" style={{ flex: 1, minWidth: 200 }} />
-          <Button type="submit" color="slate" loading={pending}>
-            Hinzufügen
-          </Button>
-        </Group>
-        {state.error && (
-          <Alert color="red" icon={<IconAlertCircle size={16} />} variant="light" mt="sm">
-            {state.error}
-          </Alert>
-        )}
-        {state.success && (
-          <Alert color="green" icon={<IconCheck size={16} />} variant="light" mt="sm">
-            Standort wurde angelegt.
-          </Alert>
-        )}
-      </form>
-    </Card>
   );
 }
 

@@ -12,6 +12,7 @@ import {
 import type { UserRole } from "@zaehlwerk/database/shared";
 import type { ActionState } from "./action-state";
 import { adminCount, requireAdmin, userCount } from "./auth-helpers";
+import { AUDIT_ACTIONS, recordAuditEvent } from "./audit";
 
 const BCRYPT_ROUNDS = 12;
 
@@ -73,7 +74,7 @@ export async function setupAdminAction(_prevState: ActionState, formData: FormDa
 }
 
 export async function createUserAction(_prevState: ActionState, formData: FormData): Promise<ActionState> {
-  await requireAdmin();
+  const admin = await requireAdmin();
 
   const parsed = userCreateSchema.safeParse({
     email: formData.get("email"),
@@ -101,12 +102,13 @@ export async function createUserAction(_prevState: ActionState, formData: FormDa
     return { success: false, error: "Der Benutzer konnte nicht angelegt werden." };
   }
 
+  await recordAuditEvent(AUDIT_ACTIONS.userCreate, admin.email, `${email} (${parsed.data.role})`);
   revalidatePath("/einstellungen");
   return { success: true };
 }
 
 export async function resetPassword(userId: string, password: string): Promise<ActionState> {
-  await requireAdmin();
+  const admin = await requireAdmin();
 
   const parsed = passwordResetSchema.safeParse({ userId, password });
   if (!parsed.success) {
@@ -121,6 +123,7 @@ export async function resetPassword(userId: string, password: string): Promise<A
     return { success: false, error: "Das Passwort konnte nicht zurückgesetzt werden." };
   }
 
+  await recordAuditEvent(AUDIT_ACTIONS.userPassword, admin.email, `Benutzer ${parsed.data.userId}`);
   revalidatePath("/einstellungen");
   return { success: true };
 }
@@ -148,9 +151,11 @@ export async function changeRole(userId: string, role: UserRole): Promise<Action
     return { success: false, error: "Die Rolle konnte nicht geändert werden." };
   }
 
-  // Keep the mention of admin so it isn't flagged as unused when the guard above
-  // short-circuits; also lets us skip revalidation work for self no-ops.
-  void admin;
+  await recordAuditEvent(
+    AUDIT_ACTIONS.userRole,
+    admin.email,
+    `Benutzer ${parsed.data.userId} → ${parsed.data.role}`,
+  );
   revalidatePath("/einstellungen");
   return { success: true };
 }
@@ -177,6 +182,7 @@ export async function deleteUser(userId: string): Promise<ActionState> {
     return { success: false, error: "Der Benutzer konnte nicht gelöscht werden." };
   }
 
+  await recordAuditEvent(AUDIT_ACTIONS.userDelete, admin.email, target.email);
   revalidatePath("/einstellungen");
   return { success: true };
 }

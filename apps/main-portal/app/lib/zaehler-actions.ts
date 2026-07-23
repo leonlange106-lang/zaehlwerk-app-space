@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import {
   Prisma,
   ablesungCreateSchema,
+  ablesungUpdateSchema,
   computeConsumptionStats,
   calculateConsumption,
   prisma,
@@ -176,6 +177,31 @@ export async function updateZaehlerAction(
   return { success: true };
 }
 
+/** Löscht einen Zähler samt Ablesungen und Tarifen (Cascade). */
+export async function deleteZaehlerAction(
+  _prevState: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const id = formData.get("id");
+  if (typeof id !== "string" || id.length === 0) {
+    return { success: false, error: "Ungültige Eingabe." };
+  }
+
+  try {
+    await prisma.zaehler.delete({ where: { id } });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {
+      return { success: false, error: "Dieser Zähler existiert nicht mehr." };
+    }
+    console.error("[deleteZaehlerAction]", error);
+    return { success: false, error: "Der Zähler konnte nicht gelöscht werden." };
+  }
+
+  revalidatePath("/zaehler");
+  revalidatePath("/");
+  return { success: true };
+}
+
 export async function createTarifAction(
   _prevState: ActionState,
   formData: FormData,
@@ -268,6 +294,86 @@ export async function createAblesungAction(
     return { success: false, error: "Der Zählerstand konnte nicht gespeichert werden." };
   }
 
+  revalidatePath("/zaehler");
+  revalidatePath(`/zaehler/${parsed.data.zaehlerId}`);
+  revalidatePath("/");
+  return { success: true };
+}
+
+/** Bearbeitet eine bestehende Ablesung. `zaehlerId` dient nur der Revalidierung. */
+export async function updateAblesungAction(
+  _prevState: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const startwertNeuRaw = formData.get("startwertNeu");
+  const kostenRaw = formData.get("kosten");
+  const notizRaw = formData.get("notiz");
+  const zaehlerId = formData.get("zaehlerId");
+
+  const parsed = ablesungUpdateSchema.safeParse({
+    id: formData.get("id"),
+    datum: formData.get("datum"),
+    wert: formData.get("wert"),
+    kosten: kostenRaw ? kostenRaw : undefined,
+    zaehlerGetauscht: formData.get("zaehlerGetauscht") === "on",
+    startwertNeu: startwertNeuRaw ? startwertNeuRaw : undefined,
+    notiz: notizRaw ? notizRaw : undefined,
+  });
+
+  if (!parsed.success) {
+    return invalidInput(parsed.error);
+  }
+
+  const { id, ...data } = parsed.data;
+
+  try {
+    await prisma.ablesung.update({
+      where: { id },
+      data: {
+        datum: data.datum,
+        wert: data.wert,
+        kosten: data.kosten ?? null,
+        zaehlerGetauscht: data.zaehlerGetauscht,
+        startwertNeu: data.startwertNeu ?? null,
+        notiz: data.notiz ?? null,
+      },
+    });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {
+      return { success: false, error: "Diese Ablesung existiert nicht mehr." };
+    }
+    console.error("[updateAblesungAction]", error);
+    return { success: false, error: "Die Ablesung konnte nicht gespeichert werden." };
+  }
+
+  if (typeof zaehlerId === "string") revalidatePath(`/zaehler/${zaehlerId}`);
+  revalidatePath("/zaehler");
+  revalidatePath("/");
+  return { success: true };
+}
+
+/** Löscht eine einzelne Ablesung. `zaehlerId` dient nur der Revalidierung. */
+export async function deleteAblesungAction(
+  _prevState: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const id = formData.get("id");
+  const zaehlerId = formData.get("zaehlerId");
+  if (typeof id !== "string" || id.length === 0) {
+    return { success: false, error: "Ungültige Eingabe." };
+  }
+
+  try {
+    await prisma.ablesung.delete({ where: { id } });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {
+      return { success: false, error: "Diese Ablesung existiert nicht mehr." };
+    }
+    console.error("[deleteAblesungAction]", error);
+    return { success: false, error: "Die Ablesung konnte nicht gelöscht werden." };
+  }
+
+  if (typeof zaehlerId === "string") revalidatePath(`/zaehler/${zaehlerId}`);
   revalidatePath("/zaehler");
   revalidatePath("/");
   return { success: true };

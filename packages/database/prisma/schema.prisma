@@ -58,6 +58,37 @@ model ApiToken {
   @@map("api_tokens")
 }
 
+/// Schlichter Key/Value-Store für Instanz-Einstellungen, die keine eigene
+/// Tabelle rechtfertigen (z.B. Backup-Aufbewahrungsfrist, Auto-Backup an/aus,
+/// Zeitpunkt des letzten automatischen Backups). Werte werden als String
+/// abgelegt und beim Lesen typisiert — siehe `app/lib/settings-actions.ts`.
+model Setting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+
+  @@map("settings")
+}
+
+/// Schlankes Audit-Log für Compliance: protokolliert kritische Systemaktionen
+/// (System-Update, Admin-/Benutzeränderungen, PAT-Erstellung, Massen-Importe,
+/// Backups, DB-Wartung). Bewusst append-only und best-effort — ein Fehler beim
+/// Schreiben darf die eigentliche Aktion nie blockieren.
+model AuditLog {
+  id        String   @id @default(uuid())
+  /// Maschinenlesbare Aktion, z.B. "user.create", "token.create", "backup.create".
+  action    String
+  /// Wer die Aktion ausgelöst hat (E-Mail des Nutzers) oder "system".
+  actor     String
+  /// Menschlich lesbare Zusammenfassung (z.B. betroffener Benutzer, Dateiname).
+  detail    String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([action])
+  @@map("audit_logs")
+}
+
 /// Energieträger / Kategorie eines Zählers.
 enum EnergyCategory {
   STROM
