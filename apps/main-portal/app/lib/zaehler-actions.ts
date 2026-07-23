@@ -2,18 +2,20 @@
 
 import { revalidatePath } from "next/cache";
 import {
+  Prisma,
   ablesungCreateSchema,
+  computeConsumptionStats,
   calculateConsumption,
   prisma,
-  sumConsumption,
   zaehlerCreateSchema,
   zaehlerUpdateSchema,
 } from "@zaehlwerk/database";
+import type { ActionState } from "./action-state";
 
-export type ActionState = {
-  success: boolean;
-  error?: string;
-};
+/** Erste Zod-Fehlermeldung als strukturierte Action-Antwort. */
+function invalidInput(error: { issues: ReadonlyArray<{ message: string }> }): ActionState {
+  return { success: false, error: error.issues[0]?.message ?? "Ungültige Eingabe." };
+}
 
 export async function listZaehler() {
   return prisma.zaehler.findMany({
@@ -52,8 +54,7 @@ export async function getConsumptionSummary() {
   const zaehlerList = await listZaehler();
 
   return zaehlerList.map((zaehler) => {
-    const intervals = calculateConsumption(zaehler.ablesungen);
-    const latest = intervals.at(-1) ?? null;
+    const stats = computeConsumptionStats(calculateConsumption(zaehler.ablesungen));
 
     return {
       zaehlerId: zaehler.id,
@@ -62,9 +63,10 @@ export async function getConsumptionSummary() {
       einheit: zaehler.einheit,
       farbe: zaehler.farbe,
       icon: zaehler.icon,
-      totalConsumption: sumConsumption(intervals),
-      latestInterval: latest,
+      totalConsumption: stats.total,
+      avgPerDay: stats.avgPerDay,
       readingCount: zaehler.ablesungen.length,
+      hasImplausibleData: stats.hasImplausibleIntervals,
     };
   });
 }
@@ -81,10 +83,15 @@ export async function createZaehlerAction(
   });
 
   if (!parsed.success) {
-    return { success: false, error: parsed.error.issues[0]?.message ?? "Ungültige Eingabe" };
+    return invalidInput(parsed.error);
   }
 
-  await prisma.zaehler.create({ data: parsed.data });
+  try {
+    await prisma.zaehler.create({ data: parsed.data });
+  } catch (error) {
+    console.error("[createZaehlerAction]", error);
+    return { success: false, error: "Der Zähler konnte nicht angelegt werden." };
+  }
 
   revalidatePath("/zaehler");
   revalidatePath("/");
@@ -104,11 +111,21 @@ export async function updateZaehlerAction(
   });
 
   if (!parsed.success) {
-    return { success: false, error: parsed.error.issues[0]?.message ?? "Ungültige Eingabe" };
+    return invalidInput(parsed.error);
   }
 
   const { id, ...data } = parsed.data;
-  await prisma.zaehler.update({ where: { id }, data });
+
+  try {
+    await prisma.zaehler.update({ where: { id }, data });
+  } catch (error) {
+    // P2025 = Datensatz nicht gefunden (z. B. Zähler wurde zwischenzeitlich gelöscht).
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {
+      return { success: false, error: "Dieser Zähler existiert nicht mehr." };
+    }
+    console.error("[updateZaehlerAction]", error);
+    return { success: false, error: "Die Änderungen konnten nicht gespeichert werden." };
+  }
 
   revalidatePath(`/zaehler/${id}`);
   revalidatePath("/zaehler");
@@ -135,10 +152,19 @@ export async function createAblesungAction(
   });
 
   if (!parsed.success) {
-    return { success: false, error: parsed.error.issues[0]?.message ?? "Ungültige Eingabe" };
+    return invalidInput(parsed.error);
   }
 
-  await prisma.ablesung.create({ data: parsed.data });
+  try {
+    await prisma.ablesung.create({ data: parsed.data });
+  } catch (error) {
+    // P2003 = Fremdschlüssel verletzt: der referenzierte Zähler existiert nicht.
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2003") {
+      return { success: false, error: "Der gewählte Zähler existiert nicht mehr." };
+    }
+    console.error("[createAblesungAction]", error);
+    return { success: false, error: "Der Zählerstand konnte nicht gespeichert werden." };
+  }
 
   revalidatePath("/zaehler");
   revalidatePath("/");

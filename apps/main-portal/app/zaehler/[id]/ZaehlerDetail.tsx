@@ -13,6 +13,11 @@ import {
   Select,
   Stack,
   Table,
+  TableTbody,
+  TableTd,
+  TableTh,
+  TableThead,
+  TableTr,
   Text,
   TextInput,
   Title,
@@ -22,19 +27,20 @@ import {
   ENERGY_CATEGORIES,
   ENERGY_CATEGORY_LABELS,
   calculateConsumption,
+  computeConsumptionStats,
 } from "@zaehlwerk/database/shared";
 import type { getZaehlerById, listLocations } from "../../lib/zaehler-actions";
 import { updateZaehlerAction } from "../../lib/zaehler-actions";
+import { initialActionState } from "../../lib/action-state";
 import { getSmartHomeTips } from "./smart-home-tips";
 import classes from "./ZaehlerDetail.module.css";
 
 type ZaehlerWithHistory = NonNullable<Awaited<ReturnType<typeof getZaehlerById>>>;
 type LocationList = Awaited<ReturnType<typeof listLocations>>;
 
-const initialState = { success: false, error: undefined };
-
 const dateFormatter = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
 const numberFormatter = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 });
+const perDayFormatter = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 2 });
 
 export function ZaehlerDetail({
   zaehler,
@@ -45,7 +51,10 @@ export function ZaehlerDetail({
 }) {
   const ascendingReadings = [...zaehler.ablesungen].reverse();
   const intervals = calculateConsumption(ascendingReadings);
-  const consumptionByReadingId = new Map(intervals.map((interval) => [interval.toReadingId, interval.amount]));
+  const stats = computeConsumptionStats(intervals);
+  // toReadingId -> Intervall, das an dieser Ablesung endet. Der Verbrauch kann
+  // `null` sein (unplausibel) — das rendert die Tabelle bewusst als solches.
+  const intervalByReadingId = new Map(intervals.map((interval) => [interval.toReadingId, interval]));
   const tips = getSmartHomeTips(zaehler.kategorie);
 
   return (
@@ -81,50 +90,91 @@ export function ZaehlerDetail({
       <Grid gutter="md">
         <GridCol span={{ base: 12, lg: 8 }}>
           <Card withBorder radius="md" p="lg">
-            <Title order={4} mb="sm">
-              Verlauf
-            </Title>
+            <Group justify="space-between" align="flex-start" mb="sm">
+              <Title order={4}>Verlauf</Title>
+              {intervals.length > 0 && (
+                <Group gap="lg" align="flex-start">
+                  <div>
+                    <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
+                      Verbrauch gesamt
+                    </Text>
+                    <Text fw={600}>
+                      {numberFormatter.format(stats.total)} {zaehler.einheit}
+                    </Text>
+                  </div>
+                  <div>
+                    <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
+                      Ø pro Tag
+                    </Text>
+                    <Text fw={600}>
+                      {stats.avgPerDay !== null
+                        ? `${perDayFormatter.format(stats.avgPerDay)} ${zaehler.einheit}`
+                        : "–"}
+                    </Text>
+                  </div>
+                </Group>
+              )}
+            </Group>
+
+            {stats.hasImplausibleIntervals && (
+              <Alert color="orange" icon={<IconAlertCircle size={16} />} variant="light" mb="sm">
+                Mindestens ein Intervall ist unplausibel (negativer Verbrauch) und fließt nicht in
+                die Summe ein. Bitte betroffene Ablesungen prüfen.
+              </Alert>
+            )}
+
             {zaehler.ablesungen.length === 0 ? (
               <Text size="sm" c="dimmed">
                 Noch keine Ablesungen erfasst.
               </Text>
             ) : (
               <Table verticalSpacing="xs" fz="sm">
-                <Table.Thead>
-                  <Table.Tr>
-                    <Table.Th>Datum</Table.Th>
-                    <Table.Th>Zählerstand</Table.Th>
-                    <Table.Th>Verbrauch</Table.Th>
-                    <Table.Th>Kosten</Table.Th>
-                    <Table.Th>Quelle</Table.Th>
-                  </Table.Tr>
-                </Table.Thead>
-                <Table.Tbody>
-                  {zaehler.ablesungen.map((ablesung) => (
-                    <Table.Tr key={ablesung.id}>
-                      <Table.Td>{dateFormatter.format(ablesung.datum)}</Table.Td>
-                      <Table.Td>
-                        {numberFormatter.format(ablesung.wert)} {zaehler.einheit}
-                        {ablesung.zaehlerGetauscht && (
-                          <Badge ml="xs" size="xs" variant="light" color="orange">
-                            Zähler getauscht
+                <TableThead>
+                  <TableTr>
+                    <TableTh>Datum</TableTh>
+                    <TableTh>Zählerstand</TableTh>
+                    <TableTh>Verbrauch</TableTh>
+                    <TableTh>Kosten</TableTh>
+                    <TableTh>Quelle</TableTh>
+                  </TableTr>
+                </TableThead>
+                <TableTbody>
+                  {zaehler.ablesungen.map((ablesung) => {
+                    const interval = intervalByReadingId.get(ablesung.id);
+                    return (
+                      <TableTr key={ablesung.id}>
+                        <TableTd>{dateFormatter.format(ablesung.datum)}</TableTd>
+                        <TableTd>
+                          {numberFormatter.format(ablesung.wert)} {zaehler.einheit}
+                          {ablesung.zaehlerGetauscht && (
+                            <Badge ml="xs" size="xs" variant="light" color="orange">
+                              Zähler getauscht
+                            </Badge>
+                          )}
+                        </TableTd>
+                        <TableTd>
+                          {!interval ? (
+                            "–"
+                          ) : interval.amount === null ? (
+                            <Text component="span" size="sm" c="orange">
+                              unplausibel
+                            </Text>
+                          ) : (
+                            `${numberFormatter.format(interval.amount)} ${zaehler.einheit}`
+                          )}
+                        </TableTd>
+                        <TableTd>
+                          {ablesung.kosten != null ? `${numberFormatter.format(ablesung.kosten)} €` : "–"}
+                        </TableTd>
+                        <TableTd>
+                          <Badge size="xs" variant="outline" color="slate">
+                            {ablesung.quelle}
                           </Badge>
-                        )}
-                      </Table.Td>
-                      <Table.Td>
-                        {consumptionByReadingId.has(ablesung.id)
-                          ? `${numberFormatter.format(consumptionByReadingId.get(ablesung.id) ?? 0)} ${zaehler.einheit}`
-                          : "–"}
-                      </Table.Td>
-                      <Table.Td>{ablesung.kosten != null ? `${numberFormatter.format(ablesung.kosten)} €` : "–"}</Table.Td>
-                      <Table.Td>
-                        <Badge size="xs" variant="outline" color="slate">
-                          {ablesung.quelle}
-                        </Badge>
-                      </Table.Td>
-                    </Table.Tr>
-                  ))}
-                </Table.Tbody>
+                        </TableTd>
+                      </TableTr>
+                    );
+                  })}
+                </TableTbody>
               </Table>
             )}
           </Card>
@@ -166,7 +216,7 @@ function EditZaehlerForm({
   zaehler: ZaehlerWithHistory;
   locations: LocationList;
 }) {
-  const [state, formAction, pending] = useActionState(updateZaehlerAction, initialState);
+  const [state, formAction, pending] = useActionState(updateZaehlerAction, initialActionState);
   const formRef = useRef<HTMLFormElement>(null);
 
   useEffect(() => {

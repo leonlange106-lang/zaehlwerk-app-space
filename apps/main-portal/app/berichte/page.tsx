@@ -13,13 +13,14 @@ import {
   Text,
   Title,
 } from "@mantine/core";
-import { IconDownload } from "@tabler/icons-react";
+import { IconAlertTriangle, IconDownload } from "@tabler/icons-react";
 import { ENERGY_CATEGORY_LABELS } from "@zaehlwerk/database/shared";
 import { getConsumptionSummary } from "../lib/zaehler-actions";
 
 export const dynamic = "force-dynamic";
 
 const numberFormatter = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 });
+const perDayFormatter = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 2 });
 
 export default async function BerichtePage() {
   const summary = await getConsumptionSummary();
@@ -51,6 +52,7 @@ export default async function BerichtePage() {
                 <TableTh>Kategorie</TableTh>
                 <TableTh>Ablesungen</TableTh>
                 <TableTh>Verbrauch gesamt</TableTh>
+                <TableTh>Ø / Tag</TableTh>
                 <TableTh />
               </TableTr>
             </TableThead>
@@ -79,7 +81,23 @@ export default async function BerichtePage() {
                   </TableTd>
                   <TableTd>{entry.readingCount}</TableTd>
                   <TableTd>
-                    {numberFormatter.format(entry.totalConsumption)} {entry.einheit}
+                    <Group gap={6} wrap="nowrap">
+                      <Text size="sm">
+                        {numberFormatter.format(entry.totalConsumption)} {entry.einheit}
+                      </Text>
+                      {entry.hasImplausibleData && (
+                        <IconAlertTriangle
+                          size={14}
+                          color="var(--mantine-color-orange-6)"
+                          aria-label="Enthält unplausible Intervalle"
+                        />
+                      )}
+                    </Group>
+                  </TableTd>
+                  <TableTd>
+                    {entry.avgPerDay !== null
+                      ? `${perDayFormatter.format(entry.avgPerDay)} ${entry.einheit}`
+                      : "–"}
                   </TableTd>
                   <TableTd>
                     <Button

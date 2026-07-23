@@ -58,6 +58,8 @@ model Zaehler {
   updatedAt  DateTime       @updatedAt
 
   @@index([locationId])
+  // Deckt die Standardliste `where aktiv orderBy sortIndex` (listZaehler) ab.
+  @@index([aktiv, sortIndex])
   @@map("zaehler")
 }
 
@@ -81,7 +83,12 @@ model Ablesung {
   istAbgerechnet   Boolean  @default(false)
   createdAt        DateTime @default(now())
 
-  @@index([zaehlerId])
+  // Composite deckt die häufigste Query ab (`where zaehlerId orderBy datum`,
+  // getZaehlerById/listZaehler) und dient als linkes Präfix auch für reine
+  // zaehlerId-Lookups — ein separater [zaehlerId]-Index wäre redundant.
+  @@index([zaehlerId, datum])
+  // Für die globale "letzte Ablesungen"-Liste (listRecentAblesungen), die
+  // über alle Zähler hinweg nach datum sortiert.
   @@index([datum])
   @@map("ablesungen")
 }

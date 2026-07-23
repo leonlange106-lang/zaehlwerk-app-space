@@ -28,12 +28,11 @@ import {
 } from "@zaehlwerk/database/shared";
 import type { listLocations, listZaehler } from "../lib/zaehler-actions";
 import { createAblesungAction, createZaehlerAction } from "../lib/zaehler-actions";
+import { initialActionState } from "../lib/action-state";
 import classes from "./ZaehlerManager.module.css";
 
 type ZaehlerList = Awaited<ReturnType<typeof listZaehler>>;
 type LocationList = Awaited<ReturnType<typeof listLocations>>;
-
-const initialState = { success: false, error: undefined };
 
 function formatDate(date: Date) {
   return new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" }).format(
@@ -149,7 +148,7 @@ export function ZaehlerManager({
 }
 
 function CreateZaehlerForm({ locations }: { locations: LocationList }) {
-  const [state, formAction, pending] = useActionState(createZaehlerAction, initialState);
+  const [state, formAction, pending] = useActionState(createZaehlerAction, initialActionState);
   const formRef = useRef<HTMLFormElement>(null);
 
   useEffect(() => {
@@ -216,7 +215,7 @@ function CreateZaehlerForm({ locations }: { locations: LocationList }) {
 }
 
 function CreateAblesungForm({ zaehlerList }: { zaehlerList: ZaehlerList }) {
-  const [state, formAction, pending] = useActionState(createAblesungAction, initialState);
+  const [state, formAction, pending] = useActionState(createAblesungAction, initialActionState);
   const formRef = useRef<HTMLFormElement>(null);
   const today = new Date().toISOString().slice(0, 10);
 

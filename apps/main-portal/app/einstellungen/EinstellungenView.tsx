@@ -26,10 +26,9 @@ import {
 import type { LocalCommitInfo, UpdateCheckResult } from "@zaehlwerk/updater";
 import type { listLocations } from "../lib/zaehler-actions";
 import { createLocationAction } from "../lib/location-actions";
+import { initialActionState } from "../lib/action-state";
 
 type LocationList = Awaited<ReturnType<typeof listLocations>>;
-
-const initialState = { success: false, error: undefined };
 
 const dateFormatter = new Intl.DateTimeFormat("de-DE", {
   day: "2-digit",
@@ -62,7 +61,7 @@ export function EinstellungenView({
 }
 
 function LocationsCard({ locations }: { locations: LocationList }) {
-  const [state, formAction, pending] = useActionState(createLocationAction, initialState);
+  const [state, formAction, pending] = useActionState(createLocationAction, initialActionState);
   const formRef = useRef<HTMLFormElement>(null);
 
   useEffect(() => {
