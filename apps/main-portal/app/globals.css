@@ -24,7 +24,18 @@ body {
     min-height: 44px;
   }
 
+  /* Burger (mobile nav toggle) ships at ~28px — enlarge its hit area to 44px. */
+  .mantine-Burger-root {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
   .mantine-NavLink-root {
+    min-height: 44px;
+  }
+
+  /* Dropdown/menu items (e.g. the app-switcher) get a full thumb row. */
+  .mantine-Menu-item {
     min-height: 44px;
   }
 

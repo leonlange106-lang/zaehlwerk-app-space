@@ -8,6 +8,7 @@ import {
   Badge,
   Button,
   Card,
+  Checkbox,
   Group,
   Menu,
   MenuDropdown,
@@ -15,6 +16,9 @@ import {
   MenuTarget,
   Modal,
   PasswordInput,
+  Popover,
+  PopoverDropdown,
+  PopoverTarget,
   Select,
   Stack,
   Table,
@@ -40,12 +44,93 @@ import {
 import { USER_ROLE_LABELS, USER_ROLES } from "@zaehlwerk/database/shared";
 import type { UserRole } from "@zaehlwerk/database/shared";
 import type { AppUser } from "@/app/lib/user-actions";
-import { changeRole, createUserAction, deleteUser, resetPassword } from "@/app/lib/user-actions";
+import {
+  changeRole,
+  createUserAction,
+  deleteUser,
+  resetPassword,
+  setUserAppsAction,
+} from "@/app/lib/user-actions";
 import { initialActionState } from "@/app/lib/action-state";
+import { APPS } from "@/app/lib/apps";
 
 const dateFormatter = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
 
 const roleOptions = USER_ROLES.map((role) => ({ value: role, label: USER_ROLE_LABELS[role] }));
+
+// Per-user app-assignment control. Admins implicitly have every app, so their
+// cell is read-only; regular users get a checklist of the registered apps.
+function AppAssignment({
+  user,
+  disabled,
+  onSave,
+}: {
+  user: AppUser;
+  disabled: boolean;
+  onSave: (appIds: string[]) => void;
+}) {
+  const [opened, setOpened] = useState(false);
+  // Seeded from the current assignment; the caller remounts (via `key`) when the
+  // saved assignment changes, so no effect is needed to resync.
+  const [selected, setSelected] = useState<string[]>(user.allowedApps);
+
+  if (user.role === "ADMIN") {
+    return (
+      <Badge variant="light" color="slate" size="sm">
+        Alle (Admin)
+      </Badge>
+    );
+  }
+
+  const count = user.allowedApps.length;
+  return (
+    <Popover opened={opened} onChange={setOpened} position="bottom-start" withinPortal trapFocus shadow="md">
+      <PopoverTarget>
+        <Button
+          size="compact-xs"
+          variant="light"
+          color={count === 0 ? "gray" : "slate"}
+          disabled={disabled}
+          onClick={() => setOpened((o) => !o)}
+        >
+          {count === 0 ? "Keine" : `${count} App${count > 1 ? "s" : ""}`}
+        </Button>
+      </PopoverTarget>
+      <PopoverDropdown>
+        <Stack gap="xs">
+          <Text size="xs" c="dimmed">
+            Freigegebene Apps für {user.email}
+          </Text>
+          {APPS.map((app) => (
+            <Checkbox
+              key={app.id}
+              size="sm"
+              label={app.name}
+              checked={selected.includes(app.id)}
+              onChange={(event) =>
+                setSelected((prev) =>
+                  event.currentTarget.checked
+                    ? [...prev, app.id]
+                    : prev.filter((id) => id !== app.id),
+                )
+              }
+            />
+          ))}
+          <Button
+            size="xs"
+            color="slate"
+            onClick={() => {
+              onSave(selected);
+              setOpened(false);
+            }}
+          >
+            Speichern
+          </Button>
+        </Stack>
+      </PopoverDropdown>
+    </Popover>
+  );
+}
 
 export function UserManagementCard({ users, currentUserId }: { users: AppUser[]; currentUserId: string }) {
   const [createState, createFormAction, creating] = useActionState(createUserAction, initialActionState);
@@ -98,6 +183,7 @@ export function UserManagementCard({ users, currentUserId }: { users: AppUser[];
             <TableTh>E-Mail</TableTh>
             <TableTh>Name</TableTh>
             <TableTh>Rolle</TableTh>
+            <TableTh>Apps</TableTh>
             <TableTh>Angelegt</TableTh>
             <TableTh />
           </TableTr>
@@ -130,6 +216,16 @@ export function UserManagementCard({ users, currentUserId }: { users: AppUser[];
                       }
                     }}
                     w={140}
+                  />
+                </TableTd>
+                <TableTd>
+                  <AppAssignment
+                    key={`${user.id}:${user.allowedApps.join(",")}`}
+                    user={user}
+                    disabled={isPending}
+                    onSave={(appIds) =>
+                      run(() => setUserAppsAction(user.id, appIds), "App-Freigaben gespeichert.")
+                    }
                   />
                 </TableTd>
                 <TableTd>{dateFormatter.format(user.createdAt)}</TableTd>

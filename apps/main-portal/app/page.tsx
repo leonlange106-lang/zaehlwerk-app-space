@@ -1,18 +1,23 @@
 import type { CSSProperties } from "react";
 import Link from "next/link";
-import { Badge, Group, SimpleGrid, Stack, Text } from "@mantine/core";
-import { IconPlus } from "@tabler/icons-react";
+import { Alert, Badge, Group, SimpleGrid, Stack, Text } from "@mantine/core";
+import { IconInfoCircle, IconPlus } from "@tabler/icons-react";
 import { APPS } from "./lib/apps";
+import { getAllowedAppIds } from "./lib/app-access";
 import classes from "./launcher.module.css";
 
-// App Space hub (hub-and-spoke root). Lists the installed apps as launch tiles.
-// No DB access — safe to render without force-dynamic; the shell around it
-// already reflects auth/version.
+// App Space hub (hub-and-spoke root). Lists only the apps assigned to the
+// current user (admins see all). Reads the session → force-dynamic.
+export const dynamic = "force-dynamic";
+
 export const metadata = {
   title: "App Space",
 };
 
-export default function LauncherPage() {
+export default async function LauncherPage() {
+  const allowedAppIds = await getAllowedAppIds();
+  const apps = APPS.filter((app) => allowedAppIds.includes(app.id));
+
   return (
     <Stack gap="xl" className={classes.wrap}>
       <Stack gap={4} align="center" className={classes.hero}>
@@ -24,8 +29,22 @@ export default function LauncherPage() {
         </Text>
       </Stack>
 
+      {apps.length === 0 && (
+        <Alert
+          color="slate"
+          variant="light"
+          icon={<IconInfoCircle size={18} />}
+          title="Noch keine App freigegeben"
+          maw={560}
+          mx="auto"
+        >
+          Dir wurde bisher keine App zugewiesen. Bitte wende dich an einen Administrator, um für die
+          gewünschten Apps freigeschaltet zu werden.
+        </Alert>
+      )}
+
       <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="lg" className={classes.grid}>
-        {APPS.map((app) =>
+        {apps.map((app) =>
           app.available ? (
             <Link key={app.id} href={app.href} className={classes.tile}>
               <span className={classes.iconWrap} style={{ "--accent": app.accent } as CSSProperties}>

@@ -72,7 +72,8 @@ function isActiveHref(pathname: string, href: string, exact?: boolean): boolean 
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-function AppSwitcher({ pathname }: { pathname: string }) {
+function AppSwitcher({ pathname, allowedAppIds }: { pathname: string; allowedAppIds: string[] }) {
+  const apps = APPS.filter((app) => allowedAppIds.includes(app.id));
   return (
     <Menu position="bottom-start" withArrow width={264} radius="md">
       <MenuTarget>
@@ -88,30 +89,34 @@ function AppSwitcher({ pathname }: { pathname: string }) {
       </MenuTarget>
       <MenuDropdown>
         <MenuLabel>Apps</MenuLabel>
-        {APPS.map((app) =>
-          app.available ? (
-            <MenuItem
-              key={app.id}
-              component={Link}
-              href={app.href}
-              leftSection={<AppIcon src={app.icon} />}
-            >
-              {app.name}
-            </MenuItem>
-          ) : (
-            <MenuItem
-              key={app.id}
-              disabled
-              leftSection={<AppIcon src={app.icon} />}
-              rightSection={
-                <Badge size="xs" variant="light" color="slate">
-                  Bald
-                </Badge>
-              }
-            >
-              {app.name}
-            </MenuItem>
-          ),
+        {apps.length === 0 ? (
+          <MenuItem disabled>Keine Apps freigegeben</MenuItem>
+        ) : (
+          apps.map((app) =>
+            app.available ? (
+              <MenuItem
+                key={app.id}
+                component={Link}
+                href={app.href}
+                leftSection={<AppIcon src={app.icon} />}
+              >
+                {app.name}
+              </MenuItem>
+            ) : (
+              <MenuItem
+                key={app.id}
+                disabled
+                leftSection={<AppIcon src={app.icon} />}
+                rightSection={
+                  <Badge size="xs" variant="light" color="slate">
+                    Bald
+                  </Badge>
+                }
+              >
+                {app.name}
+              </MenuItem>
+            ),
+          )
         )}
         <MenuDivider />
         <MenuItem
@@ -141,9 +146,11 @@ function AppIcon({ src }: { src: string }) {
 export function PortalShell({
   children,
   version,
+  allowedAppIds,
 }: {
   children: React.ReactNode;
   version: { shortSha: string; branch: string } | null;
+  allowedAppIds: string[];
 }) {
   const pathname = usePathname();
   const [query, setQuery] = useState("");
@@ -194,9 +201,10 @@ export function PortalShell({
                 hiddenFrom="sm"
                 size="sm"
                 aria-label="Navigation umschalten"
+                aria-expanded={mobileOpened}
               />
             )}
-            <AppSwitcher pathname={pathname} />
+            <AppSwitcher pathname={pathname} allowedAppIds={allowedAppIds} />
             <UnstyledButton component={Link} href="/" className={classes.brand} aria-label="Zum App Space">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/mark-appspace.svg" alt="App Space" width={28} height={28} />
@@ -233,7 +241,7 @@ export function PortalShell({
             </UnstyledButton>
             <Menu position="bottom-end" withArrow width={220}>
               <MenuTarget>
-                <UnstyledButton aria-label="Benutzermenü">
+                <UnstyledButton aria-label="Benutzermenü" className={classes.iconButton}>
                   <Avatar radius="sm" size={30} color="slate">
                     {initialsFor(user?.name, user?.email)}
                   </Avatar>
