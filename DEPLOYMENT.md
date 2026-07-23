@@ -112,8 +112,10 @@ cat > .env <<'EOF'
 # private and /api/update/check hits GitHub's API.
 GITHUB_TOKEN=github_pat_xxxxxxxxxxxxxxxxxxxxxxxx
 
-# Shared secret required to POST /api/update/trigger. Generate a random one:
-#   openssl rand -hex 32
+# OPTIONAL shared secret for POST /api/update/trigger. If set, the in-app
+# update button requires it (and remembers it in the browser). Leave it out
+# entirely to update without a token — fine on a trusted/VPN-only network,
+# since the app has no other auth either. Generate one with: openssl rand -hex 32
 UPDATE_TRIGGER_TOKEN=REPLACE_ME
 EOF
 chmod 600 .env
@@ -296,8 +298,9 @@ with ~12–16 GB.
   '/^GITHUB_TOKEN=/{print length($2)}' .env`. Fix the value, then recreate
   the container with `docker compose -f docker-compose.prod.yml up -d`
   (a plain `restart` does **not** re-read `.env`).
-- **`/api/update/trigger` returns 503**: `UPDATE_TRIGGER_TOKEN` isn't set in
-  `.env`.
+- **Update button asks for a token you don't want**: `UPDATE_TRIGGER_TOKEN` is
+  set in `.env`. Remove the line (and recreate the container) to update without
+  one, or keep it — the browser remembers it after the first use.
 - **Update reports success / "up to date" but nothing changes**: the update
   script runs `git pull` then `docker compose up -d --build`. If the pull
   succeeds but the rebuild fails (most commonly a full disk — see Disk

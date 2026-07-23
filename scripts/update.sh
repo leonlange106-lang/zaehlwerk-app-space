@@ -1,112 +1,124 @@
 #!/bin/sh
-# Pulls the latest commit and rebuilds/restarts the production containers.
+# Self-update orchestrator for the Zählwerk production deployment.
 #
-# Invoked by apps/main-portal's POST /api/update/trigger (token-protected),
-# or run manually on the host: `scripts/update.sh`.
+# Triggered by POST /api/update/trigger (runs INSIDE the main-portal container,
+# using the mounted /var/run/docker.sock to drive the host's Docker daemon), or
+# run by hand on the host: `scripts/update.sh`.
 #
-# Expects to run somewhere that can reach both the git checkout and the
-# Docker daemon that should be restarted — see DEPLOYMENT.md. Uses `sh`
-# (not bash) so it also runs unmodified inside the slim node:alpine image.
+# Reliability design (learned the hard way):
+#   1. pull      – fast-forward the checkout
+#   2. build     – build the NEW image while the OLD app keeps serving
+#   3. migrate   – additive `prisma db push` as a PRECONDITION: if it fails we
+#                  abort here with the old app still running and healthy, so a
+#                  schema change can never take the site down again
+#   4. hand off  – a DETACHED "deployer" container (started from the new image)
+#                  performs the actual `compose up` recreate and writes the
+#                  final status. This MUST be a separate container: recreating
+#                  main-portal kills THIS script mid-swap, so it cannot reliably
+#                  finish the recreate or record "done" itself. That single flaw
+#                  is why the old updater hung on "building" forever.
+#
+# Uses `sh` (not bash) so it runs unmodified inside the slim node:alpine image.
+set -u
 
 REPO_ROOT="${REPO_ROOT:-/repo}"
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
 UPDATE_BRANCH="${UPDATE_BRANCH:-main}"
 LOG_FILE="${UPDATE_LOG_FILE:-/data/update.log}"
 STATUS_FILE="${UPDATE_STATUS_FILE:-/data/update-status.json}"
-# Pin the Compose project name so an update run from the container's /repo cwd
-# targets the SAME project (network/volume/container) as a manual run from the
-# host — otherwise it forks a new "repo" project and collides. Matches the
-# top-level `name:` in docker-compose.prod.yml; both say "zaehlwerk".
+# Pin the Compose project name so a run from the container's /repo cwd targets
+# the SAME project (network/volume/container) as a manual run from the host.
 export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-zaehlwerk}"
+DB_VOLUME="${COMPOSE_PROJECT_NAME}_zaehlwerk-db"
+MIGRATE_DB_URL="${MIGRATE_DB_URL:-file:/data/zaehlwerk.db}"
+IMAGE_TAG="${IMAGE_TAG:-zaehlwerk-main-portal:latest}"
 
-# Redirect ALL output to a persistent log file. The trigger endpoint starts
-# this script detached with stdio discarded, so without this a failed update
-# (full disk, auth error, failed rebuild) vanishes silently. Truncated each
-# run; if the path isn't writable, fall back to inherited stdio.
+# Redirect ALL output to a persistent log the UI tails live (GET /api/update/log)
+# and truncate it for this run. The deployer APPENDS to it later, so the whole
+# story stays in one place. Fall back to inherited stdio if not writable.
 if : >"$LOG_FILE" 2>/dev/null; then
   exec >>"$LOG_FILE" 2>&1
 fi
 
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
-# Machine-readable progress for GET /api/update/status → the UI stepper.
+# Machine-readable progress for GET /api/update/status → the UI.
 # Args: <stage> <ok:true|false> <done:true|false> <message> [error] [targetSha]
 write_status() {
   printf '{"stage":"%s","ok":%s,"done":%s,"message":"%s","error":"%s","targetSha":"%s","updatedAt":"%s"}\n' \
     "$1" "$2" "$3" "$4" "${5:-}" "${6:-}" "$(now)" >"$STATUS_FILE" 2>/dev/null || true
 }
 
+fail() {
+  write_status failed false true "$1" "${2:-}" "${GIT_SHA:-}"
+  echo "[update] FAILED: $1 $(now)"
+  exit 1
+}
+
 echo "===== update $(now) ====="
 write_status started true false "Update gestartet"
 
-if ! cd "$REPO_ROOT"; then
-  write_status failed false true "Arbeitsverzeichnis nicht gefunden"
-  exit 1
-fi
+cd "$REPO_ROOT" || fail "Arbeitsverzeichnis nicht gefunden"
 
+# 1) Pull -------------------------------------------------------------------
 echo "[update] git pull --ff-only origin $UPDATE_BRANCH"
 write_status pulling true false "Neuer Code wird geholt"
-if ! git pull --ff-only origin "$UPDATE_BRANCH"; then
-  write_status failed false true "git pull fehlgeschlagen – Details im Log"
-  echo "[update] FAILED (git pull) $(now)"
-  exit 1
-fi
+git pull --ff-only origin "$UPDATE_BRANCH" || fail "git pull fehlgeschlagen – Details im Log"
 
-# Bake the freshly-pulled commit into the rebuilt image so the version badge /
-# update check reflect the ACTUALLY running build (see version.ts).
 GIT_SHA="$(git rev-parse HEAD)"
 export GIT_SHA
-echo "[update] rebuilding at GIT_SHA=$GIT_SHA"
-write_status building true false "Neue Version wird gebaut" "" "$GIT_SHA"
+echo "[update] target GIT_SHA=$GIT_SHA"
 
-# Free disk BEFORE building so accumulated images + build cache don't fill the
-# disk and fail the rebuild with ENOSPC. On a small LXC even a single cold
-# `next build` can exhaust the disk, so prune AGGRESSIVELY: `-a` drops ALL
-# unused images (not just dangling ones — old build layers add up), and a full
-# `builder prune` clears the ENTIRE build cache rather than keeping a working
-# set. Rebuilds are a little slower without a warm cache, but reliability on a
-# constrained disk beats speed. `container prune` clears exited containers.
-# None of these touch NAMED volumes, so the database volume is always safe.
-# Non-fatal (|| true) so an unsupported flag never aborts the update.
-echo "[update] disk usage before prune:"
+# Keep the disk tidy but KEEP a working build cache so rebuilds stay fast — the
+# LXC disk was grown, so we no longer need to nuke the whole cache each time.
+# Named volumes (the database) are never touched. All non-fatal.
+echo "[update] disk before prune:"
 df -h "$REPO_ROOT" 2>/dev/null || true
-echo "[update] pruning all unused images + build cache + exited containers"
 docker container prune -f || true
-docker image prune -af || docker image prune -f || true
-docker builder prune -af || docker builder prune -f || true
-echo "[update] disk usage after prune:"
-df -h "$REPO_ROOT" 2>/dev/null || true
+docker image prune -f || true
+docker builder prune -f --keep-storage=6GB || docker builder prune -f || true
 
-# Migrate the DB schema BEFORE the new app starts. The self-update rebuilds
-# the app, but the database lives on a persistent volume — a build that adds a
-# table/column/index would otherwise start against an out-of-date DB and crash
-# (exactly what a new `tarife` table once did). `prisma db push` is additive:
-# it creates what's missing and refuses destructive changes, so it's safe to
-# run unattended. The builder image carries the Prisma CLI + schema; the volume
-# and DB path mirror docker-compose.prod.yml.
-echo "[update] migrating database schema (prisma db push)"
-MIGRATE_DB_URL="${MIGRATE_DB_URL:-file:/data/zaehlwerk.db}"
-DB_VOLUME="${COMPOSE_PROJECT_NAME}_zaehlwerk-db"
-if docker build --target=builder -t zaehlwerk-builder "$REPO_ROOT" &&
-  docker run --rm -v "${DB_VOLUME}:/data" -e DATABASE_URL="$MIGRATE_DB_URL" \
-    zaehlwerk-builder sh -c "cd packages/database && pnpm db:push"; then
-  echo "[update] database schema in sync"
-else
-  write_status failed false true "DB-Migration fehlgeschlagen – Details im Log" "" "$GIT_SHA"
-  echo "[update] FAILED (db push) $(now)"
-  exit 1
-fi
+# 2) Build the NEW image ----------------------------------------------------
+# The old container keeps serving during this; buildkit steps stream to the
+# live log. This is the long phase.
+echo "[update] building new image ($IMAGE_TAG)"
+write_status building true false "Neue Version wird gebaut" "" "$GIT_SHA"
+GIT_SHA="$GIT_SHA" docker compose -f "$COMPOSE_FILE" build || fail "Build fehlgeschlagen – Details im Log" "$GIT_SHA"
 
-echo "[update] docker compose -f $COMPOSE_FILE up -d --build"
-# On SUCCESS this command recreates (and thus tears down) THIS very container
-# mid-run, so the lines below usually never execute — the UI detects success
-# by the server returning on the new version, not by a "done" status. On BUILD
-# failure the command returns non-zero WITHOUT a restart, so we can record it.
-if docker compose -f "$COMPOSE_FILE" up -d --build; then
-  write_status done true true "Update abgeschlossen" "" "$GIT_SHA"
-  echo "[update] done $(now)"
-else
-  write_status failed false true "Build/Neustart fehlgeschlagen – Details im Log" "" "$GIT_SHA"
-  echo "[update] FAILED (build) $(now)"
-  exit 1
-fi
+# 3) Migrate the database (additive) ----------------------------------------
+# Reuses the builder layers just cached by the compose build, so this image
+# build is fast. `prisma db push` is additive (creates missing tables/columns,
+# refuses destructive changes). It is a PRECONDITION for the swap: if it fails
+# we stop here and the old app keeps running — no broken deploy, no downtime.
+echo "[update] migrating database (prisma db push)"
+write_status migrating true false "Datenbank wird migriert" "" "$GIT_SHA"
+docker build --target=builder -t zaehlwerk-builder "$REPO_ROOT" \
+  || fail "Migrations-Image konnte nicht gebaut werden – Details im Log" "$GIT_SHA"
+docker run --rm -v "${DB_VOLUME}:/data" -e DATABASE_URL="$MIGRATE_DB_URL" \
+  zaehlwerk-builder sh -c "cd packages/database && pnpm db:push" \
+  || fail "DB-Migration fehlgeschlagen – Details im Log" "$GIT_SHA"
+
+# 4) Hand the swap to a detached deployer ------------------------------------
+# Built from the NEW image (it has docker + compose). It is NOT part of the
+# compose project, so recreating main-portal does not kill it — it finishes the
+# swap and writes the authoritative done/failed status the UI waits for.
+echo "[update] handing container swap to detached deployer"
+write_status restarting true false "Anwendung wird neu gestartet" "" "$GIT_SHA"
+docker rm -f zaehlwerk-deployer >/dev/null 2>&1 || true
+docker run -d --rm --name zaehlwerk-deployer \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v "$REPO_ROOT":/repo \
+  -v "${DB_VOLUME}:/data" \
+  -w /repo \
+  --entrypoint sh \
+  -e COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT_NAME" \
+  -e COMPOSE_FILE="$COMPOSE_FILE" \
+  -e UPDATE_STATUS_FILE="$STATUS_FILE" \
+  -e UPDATE_LOG_FILE="$LOG_FILE" \
+  -e GIT_SHA="$GIT_SHA" \
+  "$IMAGE_TAG" \
+  /repo/scripts/deploy-swap.sh \
+  || fail "Deployer konnte nicht gestartet werden – Details im Log" "$GIT_SHA"
+
+echo "[update] deployer launched; this script exits, swap continues detached $(now)"
+exit 0
