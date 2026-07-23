@@ -29,6 +29,7 @@ import {
 import type { listLocations, listZaehler } from "../lib/zaehler-actions";
 import { createAblesungAction, createZaehlerAction } from "../lib/zaehler-actions";
 import { initialActionState } from "../lib/action-state";
+import { MeterImportCard } from "./MeterImportCard";
 import classes from "./ZaehlerManager.module.css";
 
 type ZaehlerList = Awaited<ReturnType<typeof listZaehler>>;
@@ -140,6 +141,7 @@ export function ZaehlerManager({
           <Stack gap="md">
             <CreateZaehlerForm locations={locations} />
             <CreateAblesungForm zaehlerList={zaehlerList} />
+            <MeterImportCard locations={locations} />
           </Stack>
         </GridCol>
       </Grid>

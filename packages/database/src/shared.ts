@@ -6,3 +6,4 @@ export * from "./schemas";
 export * from "./consumption";
 export * from "./gas";
 export * from "./tariff";
+export * from "./backup";
