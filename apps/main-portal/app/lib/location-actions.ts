@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { locationCreateSchema, prisma } from "@zaehlwerk/database";
-import type { ActionState } from "./zaehler-actions";
+import type { ActionState } from "./action-state";
 
 export async function createLocationAction(
   _prevState: ActionState,
@@ -16,10 +16,15 @@ export async function createLocationAction(
   });
 
   if (!parsed.success) {
-    return { success: false, error: parsed.error.issues[0]?.message ?? "Ungültige Eingabe" };
+    return { success: false, error: parsed.error.issues[0]?.message ?? "Ungültige Eingabe." };
   }
 
-  await prisma.location.create({ data: parsed.data });
+  try {
+    await prisma.location.create({ data: parsed.data });
+  } catch (error) {
+    console.error("[createLocationAction]", error);
+    return { success: false, error: "Der Standort konnte nicht angelegt werden." };
+  }
 
   revalidatePath("/einstellungen");
   revalidatePath("/zaehler");
