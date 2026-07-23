@@ -24,6 +24,19 @@ export async function listApiTokens(): Promise<ApiTokenSummary[]> {
 }
 
 /**
+ * Namen + Ids der aktiven (nicht abgelaufenen) Tokens des Nutzers — für den
+ * Smart-Home-Snippet-Generator. Bewusst hier (Server-Action-Modul) und nicht in
+ * einer Komponente, damit das `Date.now()` außerhalb des React-Renders liegt.
+ */
+export async function listActiveApiTokens(): Promise<{ id: string; name: string }[]> {
+  const now = Date.now();
+  const tokens = await listApiTokens();
+  return tokens
+    .filter((token) => !token.expiresAt || token.expiresAt.getTime() > now)
+    .map((token) => ({ id: token.id, name: token.name }));
+}
+
+/**
  * Create a PAT for the current user. Returns the plaintext token ONCE — only its
  * SHA-256 hash is stored, so it can never be shown again.
  */

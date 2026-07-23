@@ -24,7 +24,7 @@ import {
   TextInput,
   Title,
 } from "@mantine/core";
-import { IconAlertCircle, IconArrowLeft, IconBulb, IconCheck, IconReceipt2, IconTrash } from "@tabler/icons-react";
+import { IconAlertCircle, IconArrowLeft, IconCheck, IconReceipt2, IconTrash } from "@tabler/icons-react";
 import {
   ENERGY_CATEGORIES,
   ENERGY_CATEGORY_LABELS,
@@ -38,6 +38,7 @@ import type { getZaehlerById, listLocations } from "../../lib/zaehler-actions";
 import { createTarifAction, deleteTarifAction, updateZaehlerAction } from "../../lib/zaehler-actions";
 import { initialActionState } from "../../lib/action-state";
 import { getSmartHomeTips } from "./smart-home-tips";
+import { SmartHomeCard, type SmartHomeTokenOption } from "./SmartHomeCard";
 import { MeterDataCard } from "./MeterDataCard";
 import classes from "./ZaehlerDetail.module.css";
 
@@ -52,9 +53,13 @@ const eur = new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" 
 export function ZaehlerDetail({
   zaehler,
   locations,
+  apiTokens,
+  origin,
 }: {
   zaehler: ZaehlerWithHistory;
   locations: LocationList;
+  apiTokens: SmartHomeTokenOption[];
+  origin: string;
 }) {
   const ascendingReadings = [...zaehler.ablesungen].reverse();
   const intervals = calculateConsumption(ascendingReadings);
@@ -219,28 +224,17 @@ export function ZaehlerDetail({
             <MeterDataCard zaehlerId={zaehler.id} />
 
             <TarifeCard zaehler={zaehler} />
-
-            <Card withBorder radius="md" p="lg">
-              <Group gap="xs" mb="sm">
-                <IconBulb size={18} stroke={1.6} />
-                <Title order={4}>Smart-Home-Integration</Title>
-              </Group>
-              <Stack gap="sm">
-                {tips.map((tip) => (
-                  <div key={tip.title}>
-                    <Text size="sm" fw={600}>
-                      {tip.title}
-                    </Text>
-                    <Text size="xs" c="dimmed">
-                      {tip.description}
-                    </Text>
-                  </div>
-                ))}
-              </Stack>
-            </Card>
           </Stack>
         </GridCol>
       </Grid>
+
+      <SmartHomeCard
+        meterId={zaehler.id}
+        meterName={zaehler.name}
+        tips={tips}
+        tokens={apiTokens}
+        origin={origin}
+      />
     </Stack>
   );
 }

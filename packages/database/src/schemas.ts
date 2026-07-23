@@ -74,6 +74,48 @@ export const ablesungCreateSchema = z
 
 export type AblesungCreateInput = z.infer<typeof ablesungCreateSchema>;
 
+// Payload der Smart-Home-/Webhook-API (`POST /api/v1/readings`). Bewusst
+// entkoppelt von `ablesungCreateSchema`: externe Geräte sprechen von `meterId`
+// und `value`, und `timestamp` ist optional (fehlt es, gilt „jetzt"). So bleibt
+// das öffentliche API-Vokabular stabil, auch wenn sich die internen Feldnamen
+// ändern.
+export const apiReadingCreateSchema = z
+  .object({
+    meterId: z.string().uuid("meterId muss eine gültige UUID sein."),
+    value: z.coerce.number().finite().nonnegative().max(MAX_METER_VALUE),
+    // Fehlt der Zeitstempel, setzt die Route „jetzt" ein (siehe Route-Handler).
+    timestamp: z.coerce.date().optional(),
+    note: z
+      .string()
+      .trim()
+      .max(500)
+      .optional()
+      .or(z.literal(""))
+      .transform((value) => (value ? value : undefined)),
+    zaehlerGetauscht: z.coerce.boolean().optional().default(false),
+    startwertNeu: z.coerce.number().finite().nonnegative().max(MAX_METER_VALUE).optional(),
+    // Erlaubt es, einen als unplausibel (negativer Verbrauch) erkannten Stand
+    // bewusst trotzdem zu speichern — z. B. nach einem echten Zählertausch,
+    // den das Gerät nicht kennt.
+    allowImplausible: z.coerce.boolean().optional().default(false),
+  })
+  .refine((data) => data.startwertNeu === undefined || data.zaehlerGetauscht, {
+    path: ["startwertNeu"],
+    message: "Ein Startwert ist nur bei einem Zählertausch zulässig.",
+  })
+  .refine(
+    (data) =>
+      data.startwertNeu === undefined ||
+      !data.zaehlerGetauscht ||
+      data.startwertNeu <= data.value,
+    {
+      path: ["startwertNeu"],
+      message: "Der Startwert des neuen Zählers darf nicht über dem Ablesewert liegen.",
+    },
+  );
+
+export type ApiReadingCreateInput = z.infer<typeof apiReadingCreateSchema>;
+
 export const tarifCreateSchema = z
   .object({
     zaehlerId: z.string().uuid(),
