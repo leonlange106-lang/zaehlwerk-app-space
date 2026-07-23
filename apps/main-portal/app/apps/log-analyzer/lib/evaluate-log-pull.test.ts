@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { evaluateLogPull, toBar } from "./evaluate-log-pull";
+import { evaluateLogPull, healthFromAlerts, toBar } from "./evaluate-log-pull";
 import { DEFAULT_VEHICLE_SPEC, type VehicleSpec } from "./vehicle-spec";
 import { makeLog, verifiedPullColumns } from "./test-helpers";
 
@@ -276,6 +276,23 @@ describe("evaluateLogPull — gear-shift exclusion zone", () => {
     cols.push({ label: "EGT", unit: "°C", values: egt });
     const { alerts } = evaluateLogPull(makeLog(cols), SPEC);
     expect(alerts.find((a) => a.id === "egt-limit")).toBeDefined();
+  });
+});
+
+describe("healthFromAlerts — hardware health", () => {
+  it("is safe with no alerts", () => {
+    expect(healthFromAlerts([])).toBe("safe");
+  });
+  it("is caution with only warnings", () => {
+    expect(healthFromAlerts([{ id: "x", severity: "warning", title: "", detail: "" }])).toBe("caution");
+  });
+  it("is danger when any critical alert is present", () => {
+    expect(
+      healthFromAlerts([
+        { id: "a", severity: "warning", title: "", detail: "" },
+        { id: "b", severity: "critical", title: "", detail: "" },
+      ]),
+    ).toBe("danger");
   });
 });
 

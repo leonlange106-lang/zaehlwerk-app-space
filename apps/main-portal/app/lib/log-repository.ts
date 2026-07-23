@@ -1,16 +1,18 @@
 import { prisma } from "@zaehlwerk/database";
 import { parseLog } from "../apps/log-analyzer/lib/log-parser";
-import { evaluateLogPull } from "../apps/log-analyzer/lib/evaluate-log-pull";
+import { evaluateLogPull, healthFromAlerts } from "../apps/log-analyzer/lib/evaluate-log-pull";
 import { DEFAULT_VEHICLE_SPEC } from "../apps/log-analyzer/lib/vehicle-spec";
-import type { PullStatus } from "../apps/log-analyzer/lib/evaluate-log-pull";
+import { parseLogFilename } from "../apps/log-analyzer/lib/log-filename";
+import type { PullHealth, PullStatus } from "../apps/log-analyzer/lib/evaluate-log-pull";
 
 // Server-side persistence for uploaded MGflasher datalogs. Logs used to live
 // only in the browser (localStorage); they now survive server-side so they
 // persist across devices/sessions, carry the automatically-evaluated pull
-// status, and can be tagged (real octane driven, free tags). The raw CSV is
-// stored verbatim and re-parsed on open — compact and lossless.
+// status + hardware-health, the drive time parsed from the filename (for
+// chronological sorting), and can be tagged (real octane driven, free tags).
+// The raw CSV is stored verbatim and re-parsed on open — compact and lossless.
 
-export type { PullStatus };
+export type { PullStatus, PullHealth };
 
 export interface LogUploadInput {
   name: string;
@@ -29,6 +31,9 @@ export interface LogSummary {
   vin: string | null;
   vehicle: string | null;
   status: PullStatus;
+  health: PullHealth;
+  /** Drive time parsed from the filename (ISO), or null. */
+  recordedAt: string | null;
   octane: string | null;
   tags: string[];
   createdAt: string;
@@ -58,11 +63,14 @@ function derive(csv: string): {
   software: string | null;
   loggedAt: string | null;
   status: PullStatus;
+  health: PullHealth;
 } {
   try {
     const log = parseLog(csv);
-    const status =
-      log.rowCount === 0 ? "invalid" : evaluateLogPull(log, DEFAULT_VEHICLE_SPEC).validity.status;
+    if (log.rowCount === 0) {
+      return { rowCount: 0, vin: null, vehicle: null, mapVersion: null, software: null, loggedAt: null, status: "invalid", health: "safe" };
+    }
+    const evaluation = evaluateLogPull(log, DEFAULT_VEHICLE_SPEC);
     return {
       rowCount: log.rowCount,
       vin: log.meta.vin,
@@ -70,10 +78,11 @@ function derive(csv: string): {
       mapVersion: log.meta.mapVersion,
       software: log.meta.software,
       loggedAt: log.meta.date,
-      status,
+      status: evaluation.validity.status,
+      health: healthFromAlerts(evaluation.alerts),
     };
   } catch {
-    return { rowCount: 0, vin: null, vehicle: null, mapVersion: null, software: null, loggedAt: null, status: "invalid" };
+    return { rowCount: 0, vin: null, vehicle: null, mapVersion: null, software: null, loggedAt: null, status: "invalid", health: "safe" };
   }
 }
 
@@ -86,6 +95,8 @@ type LogRow = {
   vin: string | null;
   vehicle: string | null;
   status: string;
+  health: string;
+  recordedAt: Date | null;
   octane: string | null;
   tags: string;
   createdAt: Date;
@@ -101,6 +112,8 @@ function toSummary(row: LogRow): LogSummary {
     vin: row.vin,
     vehicle: row.vehicle,
     status: row.status as PullStatus,
+    health: row.health as PullHealth,
+    recordedAt: row.recordedAt ? row.recordedAt.toISOString() : null,
     octane: row.octane,
     tags: splitTags(row.tags),
     createdAt: row.createdAt.toISOString(),
@@ -112,6 +125,7 @@ export async function createLogs(inputs: LogUploadInput[]): Promise<LogSummary[]
   const created: LogSummary[] = [];
   for (const input of inputs) {
     const d = derive(input.csv);
+    const fromName = parseLogFilename(input.name);
     const row = await prisma.logFile.create({
       data: {
         name: input.name,
@@ -125,6 +139,10 @@ export async function createLogs(inputs: LogUploadInput[]): Promise<LogSummary[]
         software: d.software,
         loggedAt: d.loggedAt,
         status: d.status,
+        health: d.health,
+        // Drive time & octane pre-filled from the filename when present.
+        recordedAt: fromName.recordedAt,
+        octane: fromName.octane,
       },
     });
     created.push(toSummary(row));
@@ -132,9 +150,11 @@ export async function createLogs(inputs: LogUploadInput[]): Promise<LogSummary[]
   return created;
 }
 
-/** All stored logs as summaries, newest first. */
+/** All stored logs as summaries, chronologically by drive time (newest first). */
 export async function listLogs(): Promise<LogSummary[]> {
-  const rows = await prisma.logFile.findMany({ orderBy: { createdAt: "desc" } });
+  const rows = await prisma.logFile.findMany({
+    orderBy: [{ recordedAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
+  });
   return rows.map(toSummary);
 }
 
