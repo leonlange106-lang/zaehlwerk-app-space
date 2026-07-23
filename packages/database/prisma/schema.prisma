@@ -34,6 +34,11 @@ model User {
   /// TOTP-Secret (Base32), AES-GCM-verschlüsselt gespeichert — nie im Klartext.
   twoFactorSecret  String?
   twoFactorEnabled Boolean @default(false)
+  /// Wenn true, wurde der Account mit einem Temp-Passwort angelegt: der erste
+  /// Login gelingt ohne Passwort (nur per E-Mail), danach MUSS sofort ein
+  /// eigenes Passwort vergeben werden, bevor die App nutzbar ist. Wird beim
+  /// Setzen des Passworts auf false gesetzt.
+  mustSetPassword  Boolean @default(false)
   /// JSON-Array der App-IDs, die dieser Benutzer sehen/nutzen darf (z.B.
   /// ["zaehlwerk"]). Standardmäßig leer — neue Benutzer haben KEINE App-Freigabe
   /// und müssen von einem Admin freigeschaltet werden. Admins sehen stets alle

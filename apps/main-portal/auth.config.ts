@@ -12,12 +12,19 @@ export const authConfig = {
   pages: { signIn: "/login" },
   providers: [],
   callbacks: {
-    jwt({ token, user }) {
+    jwt({ token, user, trigger, session }) {
       if (user) {
         token.id = user.id;
         token.role = user.role;
         token.name = user.name ?? null;
         token.email = user.email ?? null;
+        token.mustSetPassword = user.mustSetPassword ?? false;
+      }
+      // After the user sets their own password we refresh the JWT client-side
+      // via update({ mustSetPassword: false }) so the middleware gate clears
+      // without forcing a re-login. No DB access → edge-safe.
+      if (trigger === "update" && session && typeof session.mustSetPassword === "boolean") {
+        token.mustSetPassword = session.mustSetPassword;
       }
       return token;
     },
@@ -25,6 +32,7 @@ export const authConfig = {
       if (session.user) {
         session.user.id = (token.id as string) ?? "";
         session.user.role = (token.role as UserRole) ?? "USER";
+        session.user.mustSetPassword = Boolean(token.mustSetPassword);
       }
       return session;
     },

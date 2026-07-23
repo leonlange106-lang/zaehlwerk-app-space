@@ -6,7 +6,13 @@
  */
 import bcrypt from "bcryptjs";
 import { prisma, EnergyCategory } from "@zaehlwerk/database";
-import { E2E_ADMIN, E2E_RESTRICTED, E2E_METER_NAME } from "./fixtures";
+import {
+  E2E_ADMIN,
+  E2E_RESTRICTED,
+  E2E_FIRSTLOGIN_PROJECTS,
+  firstLoginEmail,
+  E2E_METER_NAME,
+} from "./fixtures";
 
 async function main() {
   // Clean slate (order respects FKs).
@@ -40,6 +46,22 @@ async function main() {
       allowedApps: "[]",
     },
   });
+
+  // Temp-password accounts (one per project): passwordless first login → forced
+  // password setup. The stored hash is a throwaway; first login skips the check.
+  for (const project of E2E_FIRSTLOGIN_PROJECTS) {
+    await prisma.user.create({
+      data: {
+        email: firstLoginEmail(project),
+        name: "E2E First Login",
+        passwordHash: await bcrypt.hash("temp-unused-secret", 10),
+        role: "USER",
+        twoFactorEnabled: false,
+        mustSetPassword: true,
+        allowedApps: "[]",
+      },
+    });
+  }
 
   const location = await prisma.location.create({
     data: { name: "E2E Standort", address: "Teststraße 1" },

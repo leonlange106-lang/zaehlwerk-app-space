@@ -1,5 +1,6 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import bcrypt from "bcryptjs";
 import {
@@ -124,7 +125,6 @@ export async function createUserAction(_prevState: ActionState, formData: FormDa
   const parsed = userCreateSchema.safeParse({
     email: formData.get("email"),
     name: formData.get("name") ?? undefined,
-    password: formData.get("password"),
     role: formData.get("role"),
   });
   if (!parsed.success) {
@@ -138,9 +138,19 @@ export async function createUserAction(_prevState: ActionState, formData: FormDa
   }
 
   try {
-    const passwordHash = await bcrypt.hash(parsed.data.password, BCRYPT_ROUNDS);
+    // No admin-set password: create with a random, unusable temp hash and force
+    // the user to set their own on first login (mustSetPassword). The temp value
+    // is never shared — the first login is passwordless (by e-mail).
+    const tempSecret = `temp_${randomUUID()}_${randomUUID()}`;
+    const passwordHash = await bcrypt.hash(tempSecret, BCRYPT_ROUNDS);
     await prisma.user.create({
-      data: { email, name: parsed.data.name, passwordHash, role: parsed.data.role },
+      data: {
+        email,
+        name: parsed.data.name,
+        passwordHash,
+        role: parsed.data.role,
+        mustSetPassword: true,
+      },
     });
   } catch (error) {
     console.error("[createUserAction]", error);

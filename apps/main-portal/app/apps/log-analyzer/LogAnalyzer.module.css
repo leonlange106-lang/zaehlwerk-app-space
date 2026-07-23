@@ -1,0 +1,46 @@
+.dropzone {
+  border: 2px dashed light-dark(var(--mantine-color-gray-4), var(--mantine-color-dark-3));
+  border-radius: var(--mantine-radius-md);
+  padding: var(--mantine-spacing-xl);
+  text-align: center;
+  transition: border-color 120ms ease, background-color 120ms ease;
+  background-color: light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6));
+  cursor: pointer;
+}
+
+.dropzone:hover {
+  border-color: var(--mantine-color-orange-5);
+}
+
+.dropzoneActive {
+  border-color: var(--mantine-color-orange-6);
+  background-color: light-dark(var(--mantine-color-orange-0), rgba(253, 126, 20, 0.08));
+}
+
+/* Each parameter group renders one synchronized chart. A fixed-ish height keeps
+   the stack scannable; it shrinks a little on phones so several fit on screen. */
+.chartBox {
+  height: 240px;
+  width: 100%;
+}
+
+@media (max-width: 48em) {
+  .chartBox {
+    height: 200px;
+  }
+}
+
+/* Recharts renders an SVG that can momentarily exceed its container during
+   layout; clip so it can never push the mobile viewport into horizontal scroll. */
+.chartClip {
+  width: 100%;
+  overflow: hidden;
+}
+
+.legendDot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex: none;
+}
