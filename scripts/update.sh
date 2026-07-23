@@ -86,22 +86,25 @@ docker builder prune -f --keep-storage=6GB || docker builder prune -f || true
 
 # 2) Build the NEW image ----------------------------------------------------
 # The old container keeps serving during this; buildkit steps stream to the
-# live log. This is the long phase.
-echo "[update] building new image ($IMAGE_TAG)"
+# live log. This is the long phase. Go through `docker compose` (not `docker
+# build`) so it uses BuildKit — the Dockerfile's cache mounts require it, and
+# `docker build` in this container has no buildx plugin (would fall back to the
+# legacy builder and fail on `--mount`).
+echo "[update] building new image"
 write_status building true false "Neue Version wird gebaut" "" "$GIT_SHA"
-GIT_SHA="$GIT_SHA" docker compose -f "$COMPOSE_FILE" build || fail "Build fehlgeschlagen – Details im Log" "$GIT_SHA"
+GIT_SHA="$GIT_SHA" docker compose -f "$COMPOSE_FILE" build main-portal \
+  || fail "Build fehlgeschlagen – Details im Log" "$GIT_SHA"
 
 # 3) Migrate the database (additive) ----------------------------------------
-# Reuses the builder layers just cached by the compose build, so this image
-# build is fast. `prisma db push` is additive (creates missing tables/columns,
-# refuses destructive changes). It is a PRECONDITION for the swap: if it fails
-# we stop here and the old app keeps running — no broken deploy, no downtime.
-echo "[update] migrating database (prisma db push)"
+# Run `prisma db push` via the one-shot `db-migrate` compose service (builder
+# stage + DB volume). Using `docker compose run` keeps the build on BuildKit
+# too — a plain `docker build --target=builder` here uses the legacy builder and
+# chokes on the cache mounts. The builder layers are already cached from step 2,
+# so this build is a fast cache hit. db push is additive and a PRECONDITION for
+# the swap: if it fails we stop with the old app still running — no broken deploy.
+echo "[update] migrating database (prisma db push via compose)"
 write_status migrating true false "Datenbank wird migriert" "" "$GIT_SHA"
-docker build --target=builder -t zaehlwerk-builder "$REPO_ROOT" \
-  || fail "Migrations-Image konnte nicht gebaut werden – Details im Log" "$GIT_SHA"
-docker run --rm -v "${DB_VOLUME}:/data" -e DATABASE_URL="$MIGRATE_DB_URL" \
-  zaehlwerk-builder sh -c "cd packages/database && pnpm db:push" \
+GIT_SHA="$GIT_SHA" docker compose -f "$COMPOSE_FILE" run --rm --build db-migrate \
   || fail "DB-Migration fehlgeschlagen – Details im Log" "$GIT_SHA"
 
 # 4) Hand the swap to a detached deployer ------------------------------------
