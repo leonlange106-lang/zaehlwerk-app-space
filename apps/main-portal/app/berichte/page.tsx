@@ -1,6 +1,5 @@
 import {
   Badge,
-  Button,
   Card,
   Group,
   Stack,
@@ -13,9 +12,11 @@ import {
   Text,
   Title,
 } from "@mantine/core";
-import { IconAlertTriangle, IconDownload, IconFileTypePdf } from "@tabler/icons-react";
+import { IconAlertTriangle, IconChartLine } from "@tabler/icons-react";
 import { ENERGY_CATEGORY_LABELS } from "@zaehlwerk/database/shared";
-import { getConsumptionSummary } from "../lib/zaehler-actions";
+import { getConsumptionSummary, getProjectionSummary } from "../lib/zaehler-actions";
+import { ExportPanel } from "./ExportPanel";
+import { ProjectionOverview } from "./projection-ui";
 
 export const dynamic = "force-dynamic";
 
@@ -23,41 +24,40 @@ const numberFormatter = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 
 const perDayFormatter = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 2 });
 
 export default async function BerichtePage() {
-  const summary = await getConsumptionSummary();
+  const [summary, projections] = await Promise.all([
+    getConsumptionSummary(),
+    getProjectionSummary(),
+  ]);
+
+  const meters = summary.map((entry) => ({ id: entry.zaehlerId, name: entry.name }));
 
   return (
     <Stack gap="lg">
-      <Group justify="space-between" align="flex-start">
-        <div>
-          <Title order={2}>Berichte</Title>
-          <Text c="dimmed" size="sm">
-            Verbrauchsübersicht je Zähler und CSV-Export für die Buchhaltung oder externe Auswertung.
-          </Text>
-        </div>
-        <Group gap="sm">
-          <Button
-            component="a"
-            href="/api/export/pdf"
-            download
-            color="slate"
-            leftSection={<IconFileTypePdf size={16} />}
-          >
-            PDF Bericht exportieren
-          </Button>
-          <Button
-            component="a"
-            href="/api/export"
-            download
-            variant="light"
-            color="slate"
-            leftSection={<IconDownload size={16} />}
-          >
-            Alle Ablesungen (CSV)
-          </Button>
-        </Group>
-      </Group>
+      <div>
+        <Title order={2}>Berichte</Title>
+        <Text c="dimmed" size="sm">
+          Verbrauchsübersicht, flexible Exporte und Jahres-Hochrechnung je Zähler.
+        </Text>
+      </div>
+
+      <ExportPanel meters={meters} />
 
       <Card withBorder radius="md" p="lg">
+        <Group gap="xs" mb="sm">
+          <IconChartLine size={18} stroke={1.6} />
+          <Title order={4}>Verbrauchs-Hochrechnung</Title>
+        </Group>
+        <Text size="sm" c="dimmed" mb="md">
+          Prognose des Jahresverbrauchs auf Basis der bisherigen Ablesungen — saisonal gewichtet bei
+          Gas/PV, linear bei Strom/Wasser — mit Vergleich zum Vorjahr.
+        </Text>
+        <ProjectionOverview entries={projections} />
+      </Card>
+
+      <Card withBorder radius="md" p="lg">
+        <Title order={4} mb="sm">
+          Verbrauchsübersicht
+        </Title>
         {summary.length === 0 ? (
           <Text size="sm" c="dimmed">
             Noch keine Zähler angelegt.
@@ -71,7 +71,6 @@ export default async function BerichtePage() {
                 <TableTh>Ablesungen</TableTh>
                 <TableTh>Verbrauch gesamt</TableTh>
                 <TableTh>Ø / Tag</TableTh>
-                <TableTh />
               </TableTr>
             </TableThead>
             <TableTbody>
@@ -116,19 +115,6 @@ export default async function BerichtePage() {
                     {entry.avgPerDay !== null
                       ? `${perDayFormatter.format(entry.avgPerDay)} ${entry.einheit}`
                       : "–"}
-                  </TableTd>
-                  <TableTd>
-                    <Button
-                      component="a"
-                      href={`/api/export?zaehlerId=${entry.zaehlerId}`}
-                      download
-                      variant="subtle"
-                      color="slate"
-                      size="xs"
-                      leftSection={<IconDownload size={14} />}
-                    >
-                      CSV
-                    </Button>
                   </TableTd>
                 </TableTr>
               ))}

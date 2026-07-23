@@ -1,5 +1,6 @@
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
+import { projectAnnualConsumption } from "@zaehlwerk/database/shared";
 import { getZaehlerById, listLocations } from "../../lib/zaehler-actions";
 import { listActiveApiTokens } from "../../lib/api-token-actions";
 import { ZaehlerDetail } from "./ZaehlerDetail";
@@ -27,7 +28,20 @@ export default async function ZaehlerDetailPage({
   const proto = headerList.get("x-forwarded-proto") ?? "https";
   const origin = `${proto}://${host}`;
 
+  const projection = projectAnnualConsumption({
+    readings: zaehler.ablesungen,
+    kategorie: zaehler.kategorie,
+    einheit: zaehler.einheit,
+    tarife: zaehler.tarife,
+  });
+
   return (
-    <ZaehlerDetail zaehler={zaehler} locations={locations} apiTokens={apiTokens} origin={origin} />
+    <ZaehlerDetail
+      zaehler={zaehler}
+      locations={locations}
+      apiTokens={apiTokens}
+      origin={origin}
+      projection={projection}
+    />
   );
 }
