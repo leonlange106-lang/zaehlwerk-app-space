@@ -38,6 +38,7 @@ import type { getZaehlerById, listLocations } from "../../lib/zaehler-actions";
 import { createTarifAction, deleteTarifAction, updateZaehlerAction } from "../../lib/zaehler-actions";
 import { initialActionState } from "../../lib/action-state";
 import { getSmartHomeTips } from "./smart-home-tips";
+import { MeterDataCard } from "./MeterDataCard";
 import classes from "./ZaehlerDetail.module.css";
 
 type ZaehlerWithHistory = NonNullable<Awaited<ReturnType<typeof getZaehlerById>>>;
@@ -214,6 +215,8 @@ export function ZaehlerDetail({
         <GridCol span={{ base: 12, lg: 4 }}>
           <Stack gap="md">
             <EditZaehlerForm zaehler={zaehler} locations={locations} />
+
+            <MeterDataCard zaehlerId={zaehler.id} />
 
             <TarifeCard zaehler={zaehler} />
 

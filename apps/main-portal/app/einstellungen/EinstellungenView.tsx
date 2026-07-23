@@ -32,6 +32,7 @@ import type { LocalCommitInfo, UpdateCheckResult } from "@zaehlwerk/updater";
 import type { listLocations } from "../lib/zaehler-actions";
 import { createLocationAction } from "../lib/location-actions";
 import { initialActionState } from "../lib/action-state";
+import { SystemBackupCard } from "./SystemBackupCard";
 
 type LocationList = Awaited<ReturnType<typeof listLocations>>;
 
@@ -60,6 +61,7 @@ export function EinstellungenView({
       </div>
 
       <LocationsCard locations={locations} />
+      <SystemBackupCard />
       <UpdateSettingsCard versionInfo={versionInfo} />
     </Stack>
   );
