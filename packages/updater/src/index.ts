@@ -3,6 +3,7 @@ import { fetchLatestCommit, fetchLatestRelease } from "./github";
 
 export * from "./git";
 export * from "./github";
+export * from "./changelog";
 
 export interface CheckForUpdatesOptions {
   /** GitHub repo owner, e.g. "leonlange106-lang". */

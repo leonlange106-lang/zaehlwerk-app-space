@@ -39,3 +39,17 @@
   background: light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-8));
   min-height: 100vh;
 }
+
+.versionButton {
+  padding: 8px 10px;
+  border-radius: var(--mantine-radius-sm);
+  border: 1px solid var(--app-shell-border-color);
+  color: light-dark(var(--mantine-color-slate-7), var(--mantine-color-slate-2));
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.versionButton:hover,
+.versionButton[data-active] {
+  background: light-dark(var(--mantine-color-white), var(--mantine-color-dark-5));
+  border-color: light-dark(var(--mantine-color-slate-4), var(--mantine-color-slate-6));
+}

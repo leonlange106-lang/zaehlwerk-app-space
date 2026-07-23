@@ -23,6 +23,28 @@ interface GithubCommitResponse {
   };
 }
 
+interface GithubCommitListItem {
+  sha: string;
+  html_url: string;
+  commit: {
+    message: string;
+    author: { name: string; date: string } | null;
+  };
+}
+
+/** One commit from the branch history, with the FULL message (subject + body). */
+export interface RemoteCommitLogEntry {
+  sha: string;
+  shortSha: string;
+  /** First line of the commit message. */
+  subject: string;
+  /** Everything after the first line, trimmed. */
+  body: string;
+  authorName: string;
+  authorDate: string;
+  htmlUrl: string;
+}
+
 interface GithubReleaseResponse {
   tag_name: string;
   name: string | null;
@@ -65,6 +87,43 @@ export async function fetchLatestCommit(
     authorDate: data.commit.author?.date ?? "",
     htmlUrl: data.html_url,
   };
+}
+
+/**
+ * Recent commit history of a branch, newest first — the raw material for the
+ * in-app changelog. Returns the full message so the changelog can split off a
+ * body and parse the Conventional-Commit subject (see changelog.ts).
+ */
+export async function fetchCommitHistory(
+  owner: string,
+  repo: string,
+  branch: string,
+  perPage = 100,
+): Promise<RemoteCommitLogEntry[]> {
+  const response = await fetch(
+    `https://api.github.com/repos/${owner}/${repo}/commits?sha=${encodeURIComponent(branch)}&per_page=${perPage}`,
+    { headers: githubHeaders(), cache: "no-store" },
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      `GitHub commit history request failed: ${response.status} ${response.statusText}`,
+    );
+  }
+
+  const data = (await response.json()) as GithubCommitListItem[];
+  return data.map((item) => {
+    const lines = item.commit.message.split("\n");
+    return {
+      sha: item.sha,
+      shortSha: item.sha.slice(0, 7),
+      subject: lines[0] ?? "",
+      body: lines.slice(1).join("\n").trim(),
+      authorName: item.commit.author?.name ?? "",
+      authorDate: item.commit.author?.date ?? "",
+      htmlUrl: item.html_url,
+    };
+  });
 }
 
 /**
