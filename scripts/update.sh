@@ -7,38 +7,63 @@
 # Expects to run somewhere that can reach both the git checkout and the
 # Docker daemon that should be restarted — see DEPLOYMENT.md. Uses `sh`
 # (not bash) so it also runs unmodified inside the slim node:alpine image.
-set -eu
 
 REPO_ROOT="${REPO_ROOT:-/repo}"
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
 UPDATE_BRANCH="${UPDATE_BRANCH:-main}"
 LOG_FILE="${UPDATE_LOG_FILE:-/data/update.log}"
+STATUS_FILE="${UPDATE_STATUS_FILE:-/data/update-status.json}"
 
 # Redirect ALL output to a persistent log file. The trigger endpoint starts
 # this script detached with stdio discarded, so without this a failed update
-# (full disk, auth error, failed rebuild) vanishes silently — exactly the
-# "update did nothing" symptom. Truncated each run: the latest attempt is what
-# matters for diagnosis. If the log path isn't writable, fall back to inherited
-# stdio rather than aborting.
+# (full disk, auth error, failed rebuild) vanishes silently. Truncated each
+# run; if the path isn't writable, fall back to inherited stdio.
 if : >"$LOG_FILE" 2>/dev/null; then
   exec >>"$LOG_FILE" 2>&1
 fi
 
-echo "===== update $(date -u +%Y-%m-%dT%H:%M:%SZ) ====="
-cd "$REPO_ROOT"
+now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+
+# Machine-readable progress for GET /api/update/status → the UI stepper.
+# Args: <stage> <ok:true|false> <done:true|false> <message> [error] [targetSha]
+write_status() {
+  printf '{"stage":"%s","ok":%s,"done":%s,"message":"%s","error":"%s","targetSha":"%s","updatedAt":"%s"}\n' \
+    "$1" "$2" "$3" "$4" "${5:-}" "${6:-}" "$(now)" >"$STATUS_FILE" 2>/dev/null || true
+}
+
+echo "===== update $(now) ====="
+write_status started true false "Update gestartet"
+
+if ! cd "$REPO_ROOT"; then
+  write_status failed false true "Arbeitsverzeichnis nicht gefunden"
+  exit 1
+fi
 
 echo "[update] git pull --ff-only origin $UPDATE_BRANCH"
-git pull --ff-only origin "$UPDATE_BRANCH"
+write_status pulling true false "Neuer Code wird geholt"
+if ! git pull --ff-only origin "$UPDATE_BRANCH"; then
+  write_status failed false true "git pull fehlgeschlagen – Details im Log"
+  echo "[update] FAILED (git pull) $(now)"
+  exit 1
+fi
 
-# Bake the freshly-pulled commit into the rebuilt image (Dockerfile ARG
-# GIT_SHA) so the version badge / update check reflect the ACTUALLY running
-# build. If the rebuild below fails, the old container keeps its old SHA and
-# the check honestly keeps showing "update available".
+# Bake the freshly-pulled commit into the rebuilt image so the version badge /
+# update check reflect the ACTUALLY running build (see version.ts).
 GIT_SHA="$(git rev-parse HEAD)"
 export GIT_SHA
 echo "[update] rebuilding at GIT_SHA=$GIT_SHA"
+write_status building true false "Neue Version wird gebaut" "" "$GIT_SHA"
 
 echo "[update] docker compose -f $COMPOSE_FILE up -d --build"
-docker compose -f "$COMPOSE_FILE" up -d --build
-
-echo "[update] done $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+# On SUCCESS this command recreates (and thus tears down) THIS very container
+# mid-run, so the lines below usually never execute — the UI detects success
+# by the server returning on the new version, not by a "done" status. On BUILD
+# failure the command returns non-zero WITHOUT a restart, so we can record it.
+if docker compose -f "$COMPOSE_FILE" up -d --build; then
+  write_status done true true "Update abgeschlossen" "" "$GIT_SHA"
+  echo "[update] done $(now)"
+else
+  write_status failed false true "Build/Neustart fehlgeschlagen – Details im Log" "" "$GIT_SHA"
+  echo "[update] FAILED (build) $(now)"
+  exit 1
+fi
