@@ -24,6 +24,17 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/**": ["../../packages/database/generated/client/**/*"],
   },
+  // Disable webpack's persistent filesystem cache for production builds. In a
+  // one-shot Docker build the `.next/cache/webpack` pack files are written and
+  // then thrown away with the build stage — pure disk churn that once filled a
+  // small LXC and failed the rebuild with ENOSPC. Dev keeps its cache for fast
+  // HMR; only production drops it.
+  webpack: (config, { dev }) => {
+    if (!dev) {
+      config.cache = false;
+    }
+    return config;
+  },
 };
 
 export default nextConfig;
