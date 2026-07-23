@@ -75,14 +75,34 @@ GIT_SHA="$(git rev-parse HEAD)"
 export GIT_SHA
 echo "[update] target GIT_SHA=$GIT_SHA"
 
-# Keep the disk tidy but KEEP a working build cache so rebuilds stay fast — the
-# LXC disk was grown, so we no longer need to nuke the whole cache each time.
-# Named volumes (the database) are never touched. All non-fatal.
+# Keep the disk tidy. Normally we KEEP ~6GB of BuildKit cache so rebuilds stay
+# incremental (pnpm store + Next/Turbo caches). But that "keep" only ever runs
+# HERE — manual `docker compose build` runs (debugging on the host) bypass this
+# script and pile up a fresh ~1.5GB cache layer per build. That's how the cache
+# ballooned past 20GB and filled the LXC disk, killing the build with ENOSPC at
+# `COPY node_modules`. So: measure free space first, and if it's already tight,
+# drop the "keep" and prune ALL build cache. A cold rebuild costs a few minutes;
+# a full disk costs the whole deploy. Named volumes (the DB) are never touched.
+#
+# /repo is bind-mounted from the host, so `df` on it reflects the same
+# filesystem that backs /var/lib/docker — i.e. the real space the build needs.
+# Override the threshold with MIN_FREE_KB (default 8 GiB).
 echo "[update] disk before prune:"
 df -h "$REPO_ROOT" 2>/dev/null || true
 docker container prune -f || true
 docker image prune -f || true
-docker builder prune -f --keep-storage=6GB || docker builder prune -f || true
+
+MIN_FREE_KB="${MIN_FREE_KB:-8388608}"
+free_kb="$(df -Pk "$REPO_ROOT" 2>/dev/null | awk 'NR==2 {print $4}')"
+if [ -n "$free_kb" ] && [ "$free_kb" -lt "$MIN_FREE_KB" ]; then
+  echo "[update] low disk: ${free_kb}KB free < ${MIN_FREE_KB}KB — pruning ALL build cache"
+  docker builder prune -af || true
+else
+  echo "[update] disk ok: ${free_kb:-?}KB free — keeping ~6GB build cache"
+  docker builder prune -f --keep-storage=6GB || docker builder prune -f || true
+fi
+echo "[update] disk after prune:"
+df -h "$REPO_ROOT" 2>/dev/null || true
 
 # 2) Build the NEW image ----------------------------------------------------
 # The old container keeps serving during this; buildkit steps stream to the
