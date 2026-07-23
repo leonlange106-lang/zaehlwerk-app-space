@@ -49,6 +49,34 @@
   border-right: 1px solid var(--app-shell-border-color);
 }
 
+/*
+ * On phones the navbar is a burger-triggered overlay drawer. Lift it above page
+ * content and paint a dimming scrim behind it so it's unmistakably on top and
+ * dismissable by tapping outside. Both are scoped to < sm so tablet/desktop
+ * (where the navbar is pinned in the layout) are untouched.
+ */
+@media (max-width: $mantine-breakpoint-sm) {
+  .navbar {
+    z-index: 201;
+    box-shadow: var(--mantine-shadow-md);
+  }
+}
+
+/* Below the header (200) and navbar (201) so the burger stays visible/tappable
+   to close, but above page content so tapping the page dismisses the drawer. */
+.navScrim {
+  position: fixed;
+  inset: 0;
+  z-index: 199;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+@media (min-width: $mantine-breakpoint-sm) {
+  .navScrim {
+    display: none;
+  }
+}
+
 .navLink {
   border-radius: var(--mantine-radius-sm);
 }

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@zaehlwerk/database";
 import { getSessionUser } from "./auth-helpers";
 import { generateApiToken, hashToken } from "./crypto";
+import { AUDIT_ACTIONS, recordAuditEvent } from "./audit";
 
 export type ApiTokenSummary = {
   id: string;
@@ -66,6 +67,7 @@ export async function createApiToken(
     return { success: false, error: "Token konnte nicht erstellt werden." };
   }
 
+  await recordAuditEvent(AUDIT_ACTIONS.tokenCreate, user.email, `„${trimmed}"`);
   revalidatePath("/einstellungen");
   return { success: true, token };
 }
@@ -82,6 +84,7 @@ export async function deleteApiToken(id: string): Promise<{ success: boolean; er
     return { success: false, error: "Token konnte nicht gelöscht werden." };
   }
 
+  await recordAuditEvent(AUDIT_ACTIONS.tokenDelete, user.email, id);
   revalidatePath("/einstellungen");
   return { success: true };
 }

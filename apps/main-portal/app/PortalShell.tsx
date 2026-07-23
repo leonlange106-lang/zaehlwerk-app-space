@@ -232,6 +232,18 @@ export function PortalShell({
         </Stack>
       </AppShell.Navbar>
 
+      {/* Tap-to-dismiss scrim behind the open mobile drawer. Mantine's AppShell
+          ships no overlay for the navbar, so without this the drawer can feel
+          "stuck" — you see it but taps land on the page content behind it. */}
+      {mobileOpened && (
+        <div
+          className={classes.navScrim}
+          onClick={closeMobile}
+          role="presentation"
+          aria-hidden
+        />
+      )}
+
       <AppShell.Main className={classes.main}>{children}</AppShell.Main>
     </AppShell>
   );

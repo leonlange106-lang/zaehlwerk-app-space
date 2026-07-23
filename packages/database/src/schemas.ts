@@ -74,6 +74,39 @@ export const ablesungCreateSchema = z
 
 export type AblesungCreateInput = z.infer<typeof ablesungCreateSchema>;
 
+// Bearbeiten einer bestehenden Ablesung. Wie beim Anlegen, aber per `id`
+// adressiert und ohne `zaehlerId` (der Zähler wechselt beim Editieren nie).
+export const ablesungUpdateSchema = z
+  .object({
+    id: z.string().uuid(),
+    datum: z.coerce.date(),
+    wert: z.coerce.number().finite().nonnegative().max(MAX_METER_VALUE),
+    kosten: z.coerce.number().finite().nonnegative().max(MAX_COST).optional(),
+    zaehlerGetauscht: z.coerce.boolean().optional().default(false),
+    startwertNeu: z.coerce.number().finite().nonnegative().max(MAX_METER_VALUE).optional(),
+    notiz: z
+      .string()
+      .trim()
+      .max(500)
+      .optional()
+      .or(z.literal(""))
+      .transform((value) => (value ? value : undefined)),
+  })
+  .refine((data) => data.startwertNeu === undefined || data.zaehlerGetauscht, {
+    path: ["startwertNeu"],
+    message: "Ein Startwert ist nur bei einem Zählertausch zulässig.",
+  })
+  .refine(
+    (data) =>
+      data.startwertNeu === undefined || !data.zaehlerGetauscht || data.startwertNeu <= data.wert,
+    {
+      path: ["startwertNeu"],
+      message: "Der Startwert des neuen Zählers darf nicht über dem Ablesewert liegen.",
+    },
+  );
+
+export type AblesungUpdateInput = z.infer<typeof ablesungUpdateSchema>;
+
 // Payload der Smart-Home-/Webhook-API (`POST /api/v1/readings`). Bewusst
 // entkoppelt von `ablesungCreateSchema`: externe Geräte sprechen von `meterId`
 // und `value`, und `timestamp` ist optional (fehlt es, gilt „jetzt"). So bleibt
@@ -166,3 +199,17 @@ export const locationCreateSchema = z.object({
 });
 
 export type LocationCreateInput = z.infer<typeof locationCreateSchema>;
+
+export const locationUpdateSchema = z.object({
+  id: z.string().uuid(),
+  name: nameField,
+  address: z
+    .string()
+    .trim()
+    .max(200)
+    .optional()
+    .or(z.literal(""))
+    .transform((value) => (value ? value : undefined)),
+});
+
+export type LocationUpdateInput = z.infer<typeof locationUpdateSchema>;
