@@ -69,6 +69,26 @@ echo "[update] pruning dangling images + old build cache to free disk"
 docker image prune -f || true
 docker builder prune -f --keep-storage=2GB || docker builder prune -f || true
 
+# Migrate the DB schema BEFORE the new app starts. The self-update rebuilds
+# the app, but the database lives on a persistent volume — a build that adds a
+# table/column/index would otherwise start against an out-of-date DB and crash
+# (exactly what a new `tarife` table once did). `prisma db push` is additive:
+# it creates what's missing and refuses destructive changes, so it's safe to
+# run unattended. The builder image carries the Prisma CLI + schema; the volume
+# and DB path mirror docker-compose.prod.yml.
+echo "[update] migrating database schema (prisma db push)"
+MIGRATE_DB_URL="${MIGRATE_DB_URL:-file:/data/zaehlwerk.db}"
+DB_VOLUME="${COMPOSE_PROJECT_NAME}_zaehlwerk-db"
+if docker build --target=builder -t zaehlwerk-builder "$REPO_ROOT" &&
+  docker run --rm -v "${DB_VOLUME}:/data" -e DATABASE_URL="$MIGRATE_DB_URL" \
+    zaehlwerk-builder sh -c "cd packages/database && pnpm db:push"; then
+  echo "[update] database schema in sync"
+else
+  write_status failed false true "DB-Migration fehlgeschlagen – Details im Log" "" "$GIT_SHA"
+  echo "[update] FAILED (db push) $(now)"
+  exit 1
+fi
+
 echo "[update] docker compose -f $COMPOSE_FILE up -d --build"
 # On SUCCESS this command recreates (and thus tears down) THIS very container
 # mid-run, so the lines below usually never execute — the UI detects success

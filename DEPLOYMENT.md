@@ -271,9 +271,19 @@ with ~12–16 GB.
   `docker compose -f docker-compose.prod.yml exec main-portal ls
   /app/packages/database/generated/client` and update the `ENV
   PRISMA_QUERY_ENGINE_LIBRARY=...` line in the Dockerfile to match.
-- **Every page 500s with `PrismaClientKnownRequestError: The table
-  main.zaehler does not exist`** (code `P2021`): the database volume exists
-  but its schema was never created. Run the `db:push` step from section 6.
+- **Every page (or a detail page) 500s with `PrismaClientKnownRequestError:
+  The table main.<x> does not exist`** (code `P2021`): the DB schema is behind
+  the running code. `scripts/update.sh` now runs `prisma db push`
+  automatically on every self-update, so this only happens on a first-ever
+  deploy (run the `db:push` step from section 6) or a **manual** `docker
+  compose up` that skipped migration. Recover manually with:
+  ```sh
+  docker build --target=builder -t zaehlwerk-builder .
+  docker run --rm -v zaehlwerk_zaehlwerk-db:/data \
+    -e DATABASE_URL="file:/data/zaehlwerk.db" \
+    zaehlwerk-builder sh -c "cd packages/database && pnpm db:push"
+  docker compose -f docker-compose.prod.yml up -d
+  ```
 - **`/api/update/check` returns a GitHub 404**: `GITHUB_TOKEN` is missing or
   lacks access — the repo is private, so unauthenticated requests 404
   instead of 403.
