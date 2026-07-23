@@ -36,6 +36,19 @@ const SHIFT_ZONE_POST_SAMPLES = 8;
 
 export type PullStatus = "verified" | "partial" | "invalid";
 
+/**
+ * Hardware-health classification derived from the safety alerts: a critical
+ * alert (knock, EGT over limit, fuel starvation) means the run stressed the
+ * hardware; warnings warrant a look; nothing means it ran clean.
+ */
+export type PullHealth = "safe" | "caution" | "danger";
+
+export function healthFromAlerts(alerts: SafetyAlert[]): PullHealth {
+  if (alerts.some((a) => a.severity === "critical")) return "danger";
+  if (alerts.length > 0) return "caution";
+  return "safe";
+}
+
 export interface PullValidity {
   status: PullStatus;
   /** True when the pull spans exactly one gear (informational). Null if no gear channel. */

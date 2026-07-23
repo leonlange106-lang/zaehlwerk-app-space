@@ -222,12 +222,17 @@ model LogFile {
   loggedAt   String?
   /// Automatisch bewerteter Pull-Status: "verified" | "partial" | "invalid".
   status     String   @default("invalid")
+  /// Hardware-Health aus den Safety-Alerts: "safe" | "caution" | "danger".
+  health     String   @default("safe")
+  /// Aus dem Dateinamen geparster Fahr-Zeitpunkt (für chronologische Sortierung).
+  recordedAt DateTime?
   /// Real gefahrene Oktanzahl / Kraftstoff (frei, z.B. "100 RON", "E85").
   octane     String?
   /// Weitere frei gesetzte Tags, kommagetrennt.
   tags       String   @default("")
   createdAt  DateTime @default(now())
 
+  @@index([recordedAt])
   @@index([createdAt])
   @@map("log_files")
 }

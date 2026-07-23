@@ -1,4 +1,4 @@
-import type { PullStatus } from "./evaluate-log-pull";
+import type { PullHealth, PullStatus } from "./evaluate-log-pull";
 
 // Thin client for the server-persisted log store (/api/apps/log-analyzer/logs).
 // Uploaded logs live server-side now, so these replace the old localStorage
@@ -13,6 +13,8 @@ export interface LogSummaryDTO {
   vin: string | null;
   vehicle: string | null;
   status: PullStatus;
+  health: PullHealth;
+  recordedAt: string | null;
   octane: string | null;
   tags: string[];
   createdAt: string;

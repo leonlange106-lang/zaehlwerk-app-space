@@ -17,7 +17,14 @@ import {
   Title,
   Tooltip,
 } from "@mantine/core";
-import { IconChartHistogram, IconClockHour4, IconGasStation, IconTrash } from "@tabler/icons-react";
+import {
+  IconAlertTriangle,
+  IconChartHistogram,
+  IconClockHour4,
+  IconGasStation,
+  IconShieldCheck,
+  IconTrash,
+} from "@tabler/icons-react";
 import { setActiveLogId } from "./lib/log-store";
 import {
   deleteLogById,
@@ -25,16 +32,23 @@ import {
   patchLogTags,
   type LogSummaryDTO,
 } from "./lib/log-api";
-import type { PullStatus } from "./lib/evaluate-log-pull";
+import type { PullHealth, PullStatus } from "./lib/evaluate-log-pull";
 
-// Server-persisted overview of all uploaded logs. Entries show the automatically
-// evaluated pull status, can be tagged with the real octane driven and free
-// tags, reopened in the analyzer, or deleted. Everything is stored server-side.
+// Server-persisted overview of all uploaded logs, sorted chronologically by the
+// drive time parsed from the filename and grouped by day (newest first). Entries
+// show the pull status and a hardware-health badge, can be tagged with the real
+// octane driven and free tags, reopened, or deleted. All stored server-side.
 
 const STATUS_META: Record<PullStatus, { label: string; color: string }> = {
   verified: { label: "VERIFIED", color: "teal" },
   partial: { label: "PARTIAL", color: "yellow" },
   invalid: { label: "INVALID", color: "red" },
+};
+
+const HEALTH_META: Record<PullHealth, { label: string; color: string; safe: boolean }> = {
+  safe: { label: "Hardware-sicher", color: "green", safe: true },
+  caution: { label: "Beobachten", color: "yellow", safe: false },
+  danger: { label: "Hardware-Risiko", color: "red", safe: false },
 };
 
 const dateFormatter = new Intl.DateTimeFormat("de-DE", {
@@ -44,6 +58,39 @@ const dateFormatter = new Intl.DateTimeFormat("de-DE", {
   hour: "2-digit",
   minute: "2-digit",
 });
+
+const dayFormatter = new Intl.DateTimeFormat("de-DE", {
+  weekday: "long",
+  day: "2-digit",
+  month: "long",
+  year: "numeric",
+});
+
+const timeFormatter = new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit" });
+
+interface DayGroup {
+  key: string;
+  label: string;
+  logs: LogSummaryDTO[];
+}
+
+/** Group already-sorted logs by their drive day; undated logs go last. */
+function groupByDay(logs: LogSummaryDTO[]): DayGroup[] {
+  const groups: DayGroup[] = [];
+  const index = new Map<string, DayGroup>();
+  for (const log of logs) {
+    const d = log.recordedAt ? new Date(log.recordedAt) : null;
+    const key = d ? d.toISOString().slice(0, 10) : "undated";
+    let group = index.get(key);
+    if (!group) {
+      group = { key, label: d ? dayFormatter.format(d) : "Ohne Datum", logs: [] };
+      index.set(key, group);
+      groups.push(group);
+    }
+    group.logs.push(log);
+  }
+  return groups;
+}
 
 export function HistoryView() {
   const router = useRouter();
@@ -124,16 +171,23 @@ export function HistoryView() {
           </Text>
         </Card>
       ) : (
-        <Stack gap="sm">
-          {items.map((log) => (
-            <LogRow
-              key={log.id}
-              log={log}
-              onOpen={() => open(log.id)}
-              onRemove={() => void remove(log.id)}
-              onSaveOctane={(octane) => void saveTags(log.id, { octane })}
-              onSaveTags={(tags) => void saveTags(log.id, { tags })}
-            />
+        <Stack gap="lg">
+          {groupByDay(items).map((group) => (
+            <Stack key={group.key} gap="sm">
+              <Text size="xs" fw={700} tt="uppercase" c="dimmed">
+                {group.label} · {group.logs.length} Log{group.logs.length === 1 ? "" : "s"}
+              </Text>
+              {group.logs.map((log) => (
+                <LogRow
+                  key={log.id}
+                  log={log}
+                  onOpen={() => open(log.id)}
+                  onRemove={() => void remove(log.id)}
+                  onSaveOctane={(octane) => void saveTags(log.id, { octane })}
+                  onSaveTags={(tags) => void saveTags(log.id, { tags })}
+                />
+              ))}
+            </Stack>
           ))}
         </Stack>
       )}
@@ -155,6 +209,7 @@ function LogRow({
   onSaveTags: (tags: string[]) => void;
 }) {
   const status = STATUS_META[log.status];
+  const health = HEALTH_META[log.health];
   const [octane, setOctane] = useState(log.octane ?? "");
 
   return (
@@ -165,7 +220,18 @@ function LogRow({
             <Text fw={600} style={{ wordBreak: "break-all" }}>
               {log.name}
             </Text>
-            <Badge color={status.color} variant="filled" size="sm" data-testid="log-status">
+            <Badge
+              color={health.color}
+              variant="filled"
+              size="sm"
+              leftSection={
+                health.safe ? <IconShieldCheck size={12} /> : <IconAlertTriangle size={12} />
+              }
+              data-testid="log-health"
+            >
+              {health.label}
+            </Badge>
+            <Badge color={status.color} variant="light" size="sm" data-testid="log-status">
               {status.label}
             </Badge>
             <Badge variant="light" color={log.source === "remote" ? "blue" : "orange"} size="sm">
@@ -174,10 +240,11 @@ function LogRow({
           </Group>
           <Text size="xs" c="dimmed" mt={2}>
             {[
+              log.recordedAt ? `gefahren ${timeFormatter.format(new Date(log.recordedAt))} Uhr` : null,
               log.vehicle,
               log.vin,
               `${log.rowCount} Zeilen`,
-              dateFormatter.format(new Date(log.createdAt)),
+              `Upload ${dateFormatter.format(new Date(log.createdAt))}`,
             ]
               .filter(Boolean)
               .join(" · ")}

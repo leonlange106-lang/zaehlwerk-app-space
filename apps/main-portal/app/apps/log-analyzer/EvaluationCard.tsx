@@ -20,7 +20,7 @@ import {
   IconInfoCircle,
   IconShieldCheck,
 } from "@tabler/icons-react";
-import type { LogPullEvaluation, PullStatus } from "./lib/evaluate-log-pull";
+import { healthFromAlerts, type LogPullEvaluation, type PullStatus } from "./lib/evaluate-log-pull";
 import { summarizeSpec, type VehicleSpec } from "./lib/vehicle-spec";
 
 // Presentational summary of an automated log-pull evaluation: the VERIFIED /
@@ -33,6 +33,12 @@ const STATUS_META: Record<PullStatus, { label: string; color: string }> = {
   partial: { label: "PARTIAL PULL", color: "yellow" },
   invalid: { label: "INVALID / INCOMPLETE", color: "red" },
 };
+
+const HEALTH_META = {
+  safe: { label: "Hardware-sicher", color: "green" },
+  caution: { label: "Beobachten", color: "yellow" },
+  danger: { label: "Hardware-Risiko", color: "red" },
+} as const;
 
 function fmtPct(v: number | null): string {
   return v === null ? "—" : `${Math.round(v * 100)}%`;
@@ -47,6 +53,7 @@ export function EvaluationCard({
 }) {
   const { validity, missing, alerts, limits } = evaluation;
   const status = STATUS_META[validity.status];
+  const health = HEALTH_META[healthFromAlerts(alerts)];
 
   // A valid pull starts in gear ≥ 3 and spans one or two consecutive gears; the
   // detector already truncates at a 3rd gear, so the start gear drives the check.
@@ -88,9 +95,14 @@ export function EvaluationCard({
           </ThemeIcon>
           <Title order={5}>Log-Pull Bewertung</Title>
         </Group>
-        <Badge size="lg" color={status.color} variant="filled" data-testid="pull-status">
-          {status.label}
-        </Badge>
+        <Group gap="xs">
+          <Badge size="lg" color={health.color} variant="filled" data-testid="pull-health">
+            {health.label}
+          </Badge>
+          <Badge size="lg" color={status.color} variant="light" data-testid="pull-status">
+            {status.label}
+          </Badge>
+        </Group>
       </Group>
 
       <List spacing={8} size="sm" center>

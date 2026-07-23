@@ -31,6 +31,8 @@ function row(overrides: Record<string, unknown> = {}) {
     software: null,
     loggedAt: null,
     status: "invalid",
+    health: "safe",
+    recordedAt: null,
     octane: null,
     tags: "",
     createdAt: new Date("2026-07-01T00:00:00Z"),
@@ -64,6 +66,16 @@ describe("createLogs — parse, evaluate & persist", () => {
     const [summary] = await createLogs([{ name: "junk.csv", csv: "not,a,valid\nlog" }]);
     expect(summary.status).toBe("invalid");
     expect(summary.rowCount).toBe(0);
+  });
+
+  it("pre-fills recordedAt and octane from the filename timestamp", async () => {
+    create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => row({ ...data }));
+    await createLogs([
+      { name: "2026-07-20_22_37_14_Stage1_100RON_CS1.csv", csv: makeSampleCsv() },
+    ]);
+    const persisted = create.mock.calls[0][0].data;
+    expect((persisted.recordedAt as Date).toISOString()).toBe("2026-07-20T22:37:14.000Z");
+    expect(persisted.octane).toBe("100 RON");
   });
 
   it("persists each file of a bulk upload", async () => {
