@@ -19,15 +19,16 @@ describe("evaluateLogPull — pull validity", () => {
     expect(validity.reasons).toHaveLength(0);
   });
 
-  it("flags a mid-pull shift as INVALID (not a single gear)", () => {
+  it("accepts a 3→4 upshift as a valid two-gear WOT pull", () => {
     const cols = verifiedPullColumns();
     const gear = cols.find((c) => c.label === "Gear")!;
-    // Shift 3 → 4 halfway through the pull.
+    // Shift 3 → 4 halfway through the pull — a legal two-gear pull now.
     gear.values = gear.values.map((_, i) => (i < 30 ? 3 : 4));
     const { validity } = evaluateLogPull(makeLog(cols), SPEC);
-    expect(validity.status).toBe("invalid");
+    expect(validity.status).toBe("verified");
+    expect(validity.multiGear).toBe(true);
+    expect(validity.gears).toEqual([3, 4]);
     expect(validity.singleGear).toBe(false);
-    expect(validity.reasons.join(" ")).toMatch(/Schaltvorgang/);
   });
 
   it("marks a partial-throttle sweep as INVALID when WOT coverage is very low", () => {
@@ -39,14 +40,14 @@ describe("evaluateLogPull — pull validity", () => {
   });
 
   it("is PARTIAL when the RPM sweep is too short but throttle is full", () => {
-    // Only spans 3000 → 5500: below start-max is fine, but never reaches 6000.
+    // Spans ~3100 → 5500: starts a touch high and never reaches redline.
     const n = 60;
     const rpm = Array.from({ length: n }, (_, i) => 3000 + Math.round((i / (n - 1)) * 2500));
     const log = makeLog(verifiedPullColumns({ rpm }));
     const { validity } = evaluateLogPull(log, SPEC);
     expect(validity.rpmSpanOk).toBe(false);
     expect(validity.status).toBe("partial");
-    expect(validity.reasons.join(" ")).toMatch(/Drehzahlfenster/);
+    expect(validity.reasons.join(" ")).toMatch(/zu hoch|dreht nicht weit/);
   });
 
   it("is PARTIAL when throttle is unknown (no pedal channel)", () => {
@@ -64,23 +65,64 @@ describe("evaluateLogPull — pull validity", () => {
     expect(validity.status).toBe("invalid");
   });
 
-  it("downgrades a clean sweep held in the wrong gear (5) to PARTIAL", () => {
+  it("accepts a single-gear pull held in gear 5 (≥ min gear)", () => {
     const cols = verifiedPullColumns();
     const gear = cols.find((c) => c.label === "Gear")!;
     gear.values = gear.values.map(() => 5);
     const { validity } = evaluateLogPull(makeLog(cols), SPEC);
     expect(validity.singleGear).toBe(true);
-    expect(validity.gearInRange).toBe(false);
-    expect(validity.status).toBe("partial");
-    expect(validity.reasons.join(" ")).toMatch(/Vergleichsgang/);
+    expect(validity.gearValue).toBe(5);
+    expect(validity.gearInRange).toBe(true);
+    expect(validity.status).toBe("verified");
   });
 
-  it("accepts gear 4 as a valid dyno gear", () => {
+  it("accepts gear 4 as a valid start gear", () => {
     const cols = verifiedPullColumns();
     const gear = cols.find((c) => c.label === "Gear")!;
     gear.values = gear.values.map(() => 4);
     const { validity } = evaluateLogPull(makeLog(cols), SPEC);
     expect(validity.gearInRange).toBe(true);
+    expect(validity.status).toBe("verified");
+  });
+
+  it("detects a real-world two-gear 5→6 highway pull as verified", () => {
+    const cols = verifiedPullColumns();
+    const gear = cols.find((c) => c.label === "Gear")!;
+    // 5 → 6 upshift ~60% through — the exact shape of the reference logs.
+    gear.values = gear.values.map((_, i) => (i < 35 ? 5 : 6));
+    const { validity } = evaluateLogPull(makeLog(cols), SPEC);
+    expect(validity.status).toBe("verified");
+    expect(validity.gears).toEqual([5, 6]);
+    expect(validity.multiGear).toBe(true);
+    expect(validity.gearInRange).toBe(true);
+  });
+
+  it("ignores a pull that starts in gear 2 (below the minimum gear)", () => {
+    const cols = verifiedPullColumns();
+    const gear = cols.find((c) => c.label === "Gear")!;
+    gear.values = gear.values.map(() => 2);
+    const { validity } = evaluateLogPull(makeLog(cols), SPEC);
+    expect(validity.gearInRange).toBe(false);
+    expect(validity.status).toBe("invalid");
+    expect(validity.reasons.join(" ")).toMatch(/Gang 1\/2|min\. Gang/);
+  });
+
+  it("starts the pull at the first WOT sample, excluding the pre-WOT ramp", () => {
+    // Pedal ramps 0→100 across the first ten samples, then holds WOT.
+    const pedal = Array.from({ length: 60 }, (_, i) => (i < 10 ? i * 10 : 100));
+    const { window } = evaluateLogPull(makeLog(verifiedPullColumns({ pedal })), SPEC);
+    // First index at/above 99% pedal is i = 10 (i = 9 is only 90%).
+    expect(window[0]).toBe(10);
+  });
+
+  it("ends the pull when shifting into a THIRD gear (3→4→5 keeps only 3→4)", () => {
+    const cols = verifiedPullColumns();
+    const gear = cols.find((c) => c.label === "Gear")!;
+    // 3 (early) → 4 (through redline) → 5 (last few samples, must be excluded).
+    gear.values = gear.values.map((_, i) => (i < 10 ? 3 : i < 55 ? 4 : 5));
+    const { validity, window } = evaluateLogPull(makeLog(cols), SPEC);
+    expect(validity.gears).toEqual([3, 4]);
+    expect(window[1]).toBe(54); // last gear-4 sample; the 3rd-gear shift ends it
     expect(validity.status).toBe("verified");
   });
 });

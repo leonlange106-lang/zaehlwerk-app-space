@@ -20,7 +20,7 @@ export const PARAMETER_GROUPS: ParameterGroup[] = [
     id: "boost",
     label: "Boost Control",
     color: "#fd7e14",
-    match: [/boost/i, /wgdc/i, /wastegate/i, /ladedruck/i, /charge\s*air/i],
+    match: [/boost/i, /wgdc/i, /\bwg\b/i, /wastegate/i, /ladedruck/i, /charge\s*air/i, /\bmaf\b/i, /mass\s*air/i, /compressor/i, /spool/i],
   },
   {
     id: "ignition",

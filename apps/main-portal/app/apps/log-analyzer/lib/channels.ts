@@ -26,8 +26,11 @@ export type ChannelRole =
 // gets mistaken for the actual trace and vice-versa.
 const ROLE_MATCHERS: Record<ChannelRole, RegExp[]> = {
   rpm: [/\brpm\b/i, /drehzahl/i, /engine\s*speed/i],
-  throttle: [/throttle/i, /pedal/i, /drossel/i, /gaspedal/i, /\btps\b/i, /accel/i],
-  gear: [/\bgear\b/i, /\bgang\b/i],
+  // WOT is decided by the DRIVER input (accelerator pedal), not the throttle
+  // plate — on a real pull the pedal is pinned at 100% while the plate ramps
+  // open gradually. So pedal/accelerator matchers must win over "throttle".
+  throttle: [/pedal/i, /accel/i, /gaspedal/i, /throttle/i, /drossel/i, /\btps\b/i],
+  gear: [/\bgear\b/i, /\bgang\b/i, /transmission.*gear/i],
   boostTarget: [/boost.*(target|soll|desired|req)/i, /(target|soll|desired).*boost/i, /ladedruck.*soll/i],
   boostActual: [/boost.*(actual|ist|current)/i, /(actual|ist).*boost/i, /ladedruck.*ist/i, /^boost\b/i, /^ladedruck\b/i],
   stft: [/\bstft\b/i, /short.*term.*(fuel.*)?trim/i, /fuel.*trim.*short/i],
