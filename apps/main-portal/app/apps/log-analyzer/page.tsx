@@ -1,6 +1,6 @@
-import Link from "next/link";
-import { Badge, Button, Card, Group, List, ListItem, Stack, Text, ThemeIcon, Title } from "@mantine/core";
+import { Badge, Card, Group, List, ListItem, Stack, Text, ThemeIcon, Title } from "@mantine/core";
 import { IconArrowLeft, IconChartHistogram, IconClock } from "@tabler/icons-react";
+import { LinkButton } from "@/app/LinkButton";
 
 export const metadata = {
   title: "MGflasher Log Analyzer – App Space",
@@ -53,8 +53,7 @@ export default function LogAnalyzerPage() {
           <ListItem>Vergleich mehrerer Logs und Marker für Auffälligkeiten.</ListItem>
         </List>
 
-        <Button
-          component={Link}
+        <LinkButton
           href="/"
           variant="light"
           color="slate"
@@ -62,7 +61,7 @@ export default function LogAnalyzerPage() {
           leftSection={<IconArrowLeft size={16} />}
         >
           Zurück zum App Space
-        </Button>
+        </LinkButton>
       </Card>
     </Stack>
   );

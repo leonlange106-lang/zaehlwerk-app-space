@@ -34,6 +34,11 @@ model User {
   /// TOTP-Secret (Base32), AES-GCM-verschlüsselt gespeichert — nie im Klartext.
   twoFactorSecret  String?
   twoFactorEnabled Boolean @default(false)
+  /// JSON-Array der App-IDs, die dieser Benutzer sehen/nutzen darf (z.B.
+  /// ["zaehlwerk"]). Standardmäßig leer — neue Benutzer haben KEINE App-Freigabe
+  /// und müssen von einem Admin freigeschaltet werden. Admins sehen stets alle
+  /// Apps (rollenbasiert), unabhängig von diesem Feld.
+  allowedApps      String  @default("[]")
   apiTokens        ApiToken[]
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt

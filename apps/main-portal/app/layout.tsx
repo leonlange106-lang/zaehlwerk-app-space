@@ -12,6 +12,7 @@ import "./globals.css";
 import { theme } from "../theme";
 import { PortalShell } from "./PortalShell";
 import { getCurrentVersionInfo } from "./lib/version";
+import { allowedAppIdsFor } from "./lib/app-access";
 import { auth } from "@/auth";
 
 export const metadata: Metadata = {
@@ -38,6 +39,8 @@ export default async function RootLayout({
   // Baked build SHA (or git checkout) so every page shows the running version,
   // plus the session so the shell's user menu renders without a client fetch.
   const [version, session] = await Promise.all([getCurrentVersionInfo(), auth()]);
+  // Which apps this user may see (drives launcher tiles + header app-switcher).
+  const allowedAppIds = await allowedAppIdsFor(session?.user);
 
   return (
     <html lang="de" {...mantineHtmlProps}>
@@ -48,7 +51,10 @@ export default async function RootLayout({
         <MantineProvider theme={theme} defaultColorScheme="light">
           <Notifications position="top-right" />
           <SessionProvider session={session}>
-            <PortalShell version={version ? { shortSha: version.shortSha, branch: version.branch } : null}>
+            <PortalShell
+              version={version ? { shortSha: version.shortSha, branch: version.branch } : null}
+              allowedAppIds={allowedAppIds}
+            >
               {children}
             </PortalShell>
           </SessionProvider>

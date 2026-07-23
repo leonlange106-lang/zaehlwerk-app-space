@@ -13,6 +13,7 @@ export const AUDIT_ACTIONS = {
   userDelete: "user.delete",
   userRole: "user.role",
   userPassword: "user.password",
+  userApps: "user.apps",
   tokenCreate: "token.create",
   tokenDelete: "token.delete",
   dataImport: "data.import",

@@ -1,3 +1,5 @@
+"use client";
+
 import Link from "next/link";
 import { Anchor, Card, Group, List, ListItem, Stack, Text, Title } from "@mantine/core";
 import { IconChartBar, IconReceipt2, IconStack2 } from "@tabler/icons-react";

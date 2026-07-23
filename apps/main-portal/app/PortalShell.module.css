@@ -72,6 +72,11 @@
        the theme's base z-index shifts. */
     z-index: 101;
     box-shadow: var(--mantine-shadow-md);
+    /* Mantine's mobile navbar defaults to full width, which buries the scrim and
+       kills tap-outside-to-close. Cap it to a real drawer so a tappable scrim
+       strip remains on the right. Mantine hides it with translateX(-100%), so a
+       narrower width still slides fully off-screen when collapsed. */
+    width: min(82vw, 300px) !important;
   }
 }
 

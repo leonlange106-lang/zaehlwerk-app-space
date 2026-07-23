@@ -13,6 +13,7 @@ import type { UserRole } from "@zaehlwerk/database/shared";
 import type { ActionState } from "./action-state";
 import { adminCount, requireAdmin, userCount } from "./auth-helpers";
 import { AUDIT_ACTIONS, recordAuditEvent } from "./audit";
+import { ALL_APP_IDS, parseAllowedApps, serializeAllowedApps } from "./app-access";
 
 const BCRYPT_ROUNDS = 12;
 
@@ -22,14 +23,58 @@ export type AppUser = {
   name: string | null;
   role: UserRole;
   createdAt: Date;
+  allowedApps: string[];
 };
 
 export async function listUsers(): Promise<AppUser[]> {
   await requireAdmin();
-  return prisma.user.findMany({
+  const rows = await prisma.user.findMany({
     orderBy: { createdAt: "asc" },
-    select: { id: true, email: true, name: true, role: true, createdAt: true },
+    select: { id: true, email: true, name: true, role: true, createdAt: true, allowedApps: true },
   });
+  return rows.map((row) => ({ ...row, allowedApps: parseAllowedApps(row.allowedApps) }));
+}
+
+/**
+ * Set which apps a user may see/use. Admin-only. Unknown ids are dropped.
+ * Note: ADMINs always see every app regardless of this value — the assignment
+ * still persists, but it only takes effect if their role is later downgraded.
+ */
+export async function setUserAppsAction(userId: string, appIds: string[]): Promise<ActionState> {
+  const admin = await requireAdmin();
+
+  if (!Array.isArray(appIds) || appIds.some((id) => typeof id !== "string")) {
+    return { success: false, error: "Ungültige App-Auswahl." };
+  }
+  const unknown = appIds.filter((id) => !ALL_APP_IDS.includes(id as (typeof ALL_APP_IDS)[number]));
+  if (unknown.length > 0) {
+    return { success: false, error: "Unbekannte App in der Auswahl." };
+  }
+
+  const target = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
+  if (!target) {
+    return { success: false, error: "Benutzer nicht gefunden." };
+  }
+
+  try {
+    await prisma.user.update({
+      where: { id: userId },
+      data: { allowedApps: serializeAllowedApps(appIds) },
+    });
+  } catch (error) {
+    console.error("[setUserAppsAction]", error);
+    return { success: false, error: "Die App-Freigaben konnten nicht gespeichert werden." };
+  }
+
+  await recordAuditEvent(
+    AUDIT_ACTIONS.userApps,
+    admin.email,
+    `${target.email} → [${appIds.join(", ") || "keine"}]`,
+  );
+  // The target's own layout/launcher reads this on next request.
+  revalidatePath("/settings");
+  revalidatePath("/", "layout");
+  return { success: true };
 }
 
 /**
