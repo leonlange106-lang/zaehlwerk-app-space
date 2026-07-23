@@ -54,6 +54,7 @@ model Zaehler {
   locationId String?
   location   Location?      @relation(fields: [locationId], references: [id])
   ablesungen Ablesung[]
+  tarife     Tarif[]
   createdAt  DateTime       @default(now())
   updatedAt  DateTime       @updatedAt
 
@@ -91,4 +92,29 @@ model Ablesung {
   // über alle Zähler hinweg nach datum sortiert.
   @@index([datum])
   @@map("ablesungen")
+}
+
+/// Tarifperiode eines Zählers. Kosten werden daraus berechnet — siehe
+/// `src/tariff.ts`. Nach dem Original-Projekt (Za_hler.xlsm, Blatt „Verträge"
+/// / „Gas in kWh"): Arbeitspreis netto je Abrechnungseinheit + Grundpreis/Jahr
+/// netto, MwSt getrennt.
+model Tarif {
+  id                  String    @id @default(uuid())
+  zaehlerId           String
+  zaehler             Zaehler   @relation(fields: [zaehlerId], references: [id], onDelete: Cascade)
+  anbieter            String?
+  produkt             String?
+  gueltigAb           DateTime
+  gueltigBis          DateTime?
+  /// Arbeitspreis netto in Cent je Abrechnungseinheit (kWh bei Strom/Gas, m³ bei Wasser).
+  arbeitspreisCtNetto Float
+  /// Grundpreis netto in Euro pro Jahr.
+  grundpreisJahrNetto Float     @default(0)
+  /// MwSt-Satz in Prozent (Standard 19).
+  mwstProzent         Float     @default(19)
+  notiz               String?
+  createdAt           DateTime  @default(now())
+
+  @@index([zaehlerId, gueltigAb])
+  @@map("tarife")
 }
