@@ -17,7 +17,7 @@ const PUBLIC_API_EXACT = ["/api/health"];
 // Bearer zw_pat_…). The edge can't validate the token (no DB), so we let a
 // well-formed bearer through and the route itself validates it via
 // authenticateApiRequest(). Everything else stays session-only.
-const PAT_API_PREFIXES = ["/api/export", "/api/backup"];
+const PAT_API_PREFIXES = ["/api/export", "/api/backup", "/api/v1"];
 
 export default auth((req) => {
   const { pathname } = req.nextUrl;
