@@ -5,9 +5,16 @@ import {
   prisma,
 } from "@zaehlwerk/database";
 import { authenticateApiRequest, unauthorizedResponse } from "../../../lib/api-auth";
+import { clientIdentifier, rateLimit } from "../../../lib/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+// Smart-home devices legitimately push often, but a misconfigured loop (or an
+// attacker with a leaked token) should not be able to hammer the DB. Cap per
+// source IP; generous enough for minute-interval telemetry from many meters.
+const RATE_LIMIT = 120;
+const RATE_WINDOW_MS = 60_000;
 
 // Synthetische Id für den noch nicht gespeicherten Stand, damit
 // calculateConsumption ihn wie eine echte Ablesung behandeln kann.
@@ -29,6 +36,18 @@ const PENDING_ID = "__pending__";
  * ist gesetzt (z. B. bei einem echten Zählertausch).
  */
 export async function POST(request: NextRequest) {
+  const limit = rateLimit({
+    key: `readings:${clientIdentifier(request)}`,
+    limit: RATE_LIMIT,
+    windowMs: RATE_WINDOW_MS,
+  });
+  if (!limit.ok) {
+    return NextResponse.json(
+      { error: "Zu viele Anfragen. Bitte später erneut versuchen." },
+      { status: 429, headers: { "Retry-After": String(limit.retryAfter) } },
+    );
+  }
+
   const user = await authenticateApiRequest(request);
   if (!user) return unauthorizedResponse();
 

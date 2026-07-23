@@ -50,24 +50,28 @@
 }
 
 /*
- * On phones the navbar is a burger-triggered overlay drawer. Lift it above page
- * content and paint a dimming scrim behind it so it's unmistakably on top and
- * dismissable by tapping outside. Both are scoped to < sm so tablet/desktop
- * (where the navbar is pinned in the layout) are untouched.
+ * On phones the navbar is a burger-triggered overlay drawer. Give it a shadow
+ * and keep it above the dimming scrim so its links stay tappable. Scoped to < sm
+ * so tablet/desktop (where the navbar is pinned in the layout) are untouched.
  */
 @media (max-width: $mantine-breakpoint-sm) {
   .navbar {
-    z-index: 201;
+    /* At or above Mantine's app layer so the drawer sits over the scrim even if
+       the theme's base z-index shifts. */
+    z-index: 101;
     box-shadow: var(--mantine-shadow-md);
   }
 }
 
-/* Below the header (200) and navbar (201) so the burger stays visible/tappable
-   to close, but above page content so tapping the page dismisses the drawer. */
+/* CRITICAL: Mantine's AppShell header/navbar live on the "app" z-index layer,
+   which is 100 (getDefaultZIndex('app')) — NOT 200. The scrim must therefore sit
+   BELOW 100 so the navbar and the header's burger stay on top and tappable,
+   while still covering (and dimming) the page content beneath it. A scrim above
+   100 would swallow every touch and dismiss the drawer on any tap. */
 .navScrim {
   position: fixed;
   inset: 0;
-  z-index: 199;
+  z-index: 99;
   background: rgba(0, 0, 0, 0.35);
 }
 

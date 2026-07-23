@@ -24,6 +24,58 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/**": ["../../packages/database/generated/client/**/*"],
   },
+  async headers() {
+    return [
+      {
+        // Baseline security headers on every response. Values are chosen to be
+        // safe for a self-hosted, same-origin dashboard.
+        source: "/:path*",
+        headers: SECURITY_HEADERS,
+      },
+      {
+        // The JSON API is same-origin only; there is no cross-origin browser
+        // client, so we do NOT emit a permissive Access-Control-Allow-Origin.
+        // Instead we make caching/framing explicit for API responses.
+        source: "/api/:path*",
+        headers: [
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "Cache-Control", value: "no-store" },
+          { key: "Vary", value: "Authorization, Cookie" },
+        ],
+      },
+    ];
+  },
 };
+
+// Content-Security-Policy: Next's runtime and Mantine inject inline styles, and
+// Next's dev/hydration needs inline scripts, so 'unsafe-inline' is required for
+// style-src (and script-src in dev). Everything else is locked to same-origin.
+const CSP = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "object-src 'none'",
+  "frame-ancestors 'none'",
+  "form-action 'self'",
+  "img-src 'self' data: blob:",
+  "font-src 'self' data:",
+  "style-src 'self' 'unsafe-inline'",
+  `script-src 'self' 'unsafe-inline'${process.env.NODE_ENV === "production" ? "" : " 'unsafe-eval'"}`,
+  "connect-src 'self'",
+].join("; ");
+
+const SECURITY_HEADERS = [
+  { key: "Content-Security-Policy", value: CSP },
+  // Defense in depth alongside CSP's frame-ancestors, for older browsers.
+  { key: "X-Frame-Options", value: "DENY" },
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  { key: "X-DNS-Prefetch-Control", value: "off" },
+  { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), interest-cohort=()" },
+  {
+    // Only meaningful over HTTPS; harmless over plain HTTP on a LAN.
+    key: "Strict-Transport-Security",
+    value: "max-age=31536000; includeSubDomains",
+  },
+];
 
 export default nextConfig;
