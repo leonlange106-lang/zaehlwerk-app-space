@@ -17,6 +17,26 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+/// Rolle eines Anwendungsbenutzers. ADMIN darf u.a. Benutzer verwalten.
+enum Role {
+  ADMIN
+  USER
+}
+
+/// Anwendungsbenutzer für Login + Rollen (siehe apps/main-portal `auth.ts`).
+/// Passwörter werden ausschließlich als bcrypt-Hash gespeichert.
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  name         String?
+  role         Role     @default(USER)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("users")
+}
+
 /// Energieträger / Kategorie eines Zählers.
 enum EnergyCategory {
   STROM

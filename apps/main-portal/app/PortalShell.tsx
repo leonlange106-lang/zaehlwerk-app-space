@@ -3,11 +3,18 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { signOut, useSession } from "next-auth/react";
 import {
   ActionIcon,
   AppShell,
   Avatar,
   Group,
+  Menu,
+  MenuDivider,
+  MenuDropdown,
+  MenuItem,
+  MenuLabel,
+  MenuTarget,
   NavLink,
   Stack,
   Text,
@@ -21,6 +28,7 @@ import {
   IconChartBar,
   IconGitCommit,
   IconLayoutDashboard,
+  IconLogout,
   IconMoon,
   IconSearch,
   IconSettings,
@@ -28,7 +36,19 @@ import {
   IconSun,
   IconUsers,
 } from "@tabler/icons-react";
+import { USER_ROLE_LABELS } from "@zaehlwerk/database/shared";
+import type { UserRole } from "@zaehlwerk/database/shared";
 import classes from "./PortalShell.module.css";
+
+// Auth screens render standalone (no nav/header chrome).
+const BARE_PATHS = ["/login", "/setup"];
+
+function initialsFor(name: string | null | undefined, email: string | null | undefined): string {
+  const source = (name ?? email ?? "").trim();
+  if (!source) return "?";
+  const parts = source.split(/[\s@.]+/).filter(Boolean);
+  return (parts[0]?.[0] ?? "").concat(parts[1]?.[0] ?? "").toUpperCase() || source[0]!.toUpperCase();
+}
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/", icon: IconLayoutDashboard, disabled: false },
@@ -53,6 +73,14 @@ export function PortalShell({
   const pathname = usePathname();
   const [query, setQuery] = useState("");
   const { colorScheme, toggleColorScheme } = useMantineColorScheme();
+  const { data: session } = useSession();
+
+  // Login / first-boot setup render without the app chrome.
+  if (BARE_PATHS.includes(pathname)) {
+    return <>{children}</>;
+  }
+
+  const user = session?.user;
 
   return (
     <AppShell
@@ -96,9 +124,40 @@ export function PortalShell({
             <UnstyledButton className={classes.iconButton} aria-label="Benachrichtigungen">
               <IconBell size={18} stroke={1.6} />
             </UnstyledButton>
-            <Avatar radius="sm" size={30} color="slate">
-              LL
-            </Avatar>
+            <Menu position="bottom-end" withArrow width={220}>
+              <MenuTarget>
+                <UnstyledButton aria-label="Benutzermenü">
+                  <Avatar radius="sm" size={30} color="slate">
+                    {initialsFor(user?.name, user?.email)}
+                  </Avatar>
+                </UnstyledButton>
+              </MenuTarget>
+              <MenuDropdown>
+                <MenuLabel>
+                  <Text size="sm" fw={600} truncate>
+                    {user?.name ?? user?.email ?? "Angemeldet"}
+                  </Text>
+                  {user?.email && (
+                    <Text size="xs" c="dimmed" truncate>
+                      {user.email}
+                    </Text>
+                  )}
+                  {user?.role && (
+                    <Text size="xs" c="dimmed">
+                      {USER_ROLE_LABELS[user.role as UserRole]}
+                    </Text>
+                  )}
+                </MenuLabel>
+                <MenuDivider />
+                <MenuItem
+                  color="red"
+                  leftSection={<IconLogout size={15} />}
+                  onClick={() => signOut({ callbackUrl: "/login" })}
+                >
+                  Abmelden
+                </MenuItem>
+              </MenuDropdown>
+            </Menu>
           </Group>
         </Group>
       </AppShell.Header>

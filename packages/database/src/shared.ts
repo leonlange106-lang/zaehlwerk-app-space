@@ -7,3 +7,4 @@ export * from "./consumption";
 export * from "./gas";
 export * from "./tariff";
 export * from "./backup";
+export * from "./auth";

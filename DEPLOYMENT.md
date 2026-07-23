@@ -114,9 +114,13 @@ GITHUB_TOKEN=github_pat_xxxxxxxxxxxxxxxxxxxxxxxx
 
 # OPTIONAL shared secret for POST /api/update/trigger. If set, the in-app
 # update button requires it (and remembers it in the browser). Leave it out
-# entirely to update without a token — fine on a trusted/VPN-only network,
-# since the app has no other auth either. Generate one with: openssl rand -hex 32
+# to update without a token — the app now has login auth as the primary gate.
+# Generate one with: openssl rand -hex 32
 UPDATE_TRIGGER_TOKEN=REPLACE_ME
+
+# REQUIRED for login/sessions (Auth.js). Must be a STABLE random value —
+# changing it logs everyone out. Generate with: openssl rand -base64 32
+AUTH_SECRET=REPLACE_ME
 EOF
 chmod 600 .env
 ```
