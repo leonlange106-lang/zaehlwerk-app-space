@@ -249,14 +249,22 @@ function CreateAblesungForm({ zaehlerList }: { zaehlerList: ZaehlerList }) {
               data={zaehlerList.map((zaehler) => ({ value: zaehler.id, label: zaehler.name }))}
             />
             <TextInput name="datum" label="Ablesedatum" type="date" defaultValue={today} required />
-            <NumberInput name="wert" label="Zählerstand" placeholder="0" min={0} required />
-            <NumberInput name="kosten" label="Kosten (optional)" placeholder="0.00" min={0} decimalScale={2} />
+            <NumberInput name="wert" label="Zählerstand" placeholder="0" min={0} inputMode="decimal" required />
+            <NumberInput
+              name="kosten"
+              label="Kosten (optional)"
+              placeholder="0.00"
+              min={0}
+              decimalScale={2}
+              inputMode="decimal"
+            />
             <Checkbox name="zaehlerGetauscht" label="Zähler wurde bei dieser Ablesung getauscht" />
             <NumberInput
               name="startwertNeu"
               label="Startwert neuer Zähler (bei Tausch)"
               placeholder="0"
               min={0}
+              inputMode="decimal"
             />
             <TextInput name="notiz" label="Notiz (optional)" placeholder="z. B. Ablesung durch Hausverwaltung" />
 

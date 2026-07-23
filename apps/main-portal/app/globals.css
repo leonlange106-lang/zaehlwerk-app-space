@@ -7,3 +7,31 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+/*
+ * Mobile touch-target baseline. On phones every interactive control gets a
+ * comfortable ~44px thumb area (WCAG 2.5.5 / iOS HIG), while desktop keeps the
+ * compact density. Scoped to the sm breakpoint so nothing changes ≥ tablet.
+ */
+@media (max-width: $mantine-breakpoint-sm) {
+  .mantine-Button-root,
+  .mantine-Input-input {
+    min-height: 44px;
+  }
+
+  .mantine-ActionIcon-root {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .mantine-NavLink-root {
+    min-height: 44px;
+  }
+
+  /* Roomier rows so per-row action icons/badges are easy to hit. */
+  .mantine-Table-td,
+  .mantine-Table-th {
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+}

@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import {
   ColorSchemeScript,
   mantineHtmlProps,
@@ -17,6 +17,14 @@ import { auth } from "@/auth";
 export const metadata: Metadata = {
   title: "Main Portal",
   description: "Zaehlwerk Main Portal",
+};
+
+// Mobile/PWA viewport: scale to the device width and extend under the notch /
+// home indicator so the fixed AppShell header sits flush on modern phones.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default async function RootLayout({

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
@@ -8,6 +8,7 @@ import {
   ActionIcon,
   AppShell,
   Avatar,
+  Burger,
   Group,
   Menu,
   MenuDivider,
@@ -23,6 +24,7 @@ import {
   UnstyledButton,
   useMantineColorScheme,
 } from "@mantine/core";
+import { useDisclosure } from "@mantine/hooks";
 import {
   IconBell,
   IconChartBar,
@@ -72,8 +74,15 @@ export function PortalShell({
 }) {
   const pathname = usePathname();
   const [query, setQuery] = useState("");
+  const [mobileOpened, { toggle: toggleMobile, close: closeMobile }] = useDisclosure(false);
   const { colorScheme, toggleColorScheme } = useMantineColorScheme();
   const { data: session } = useSession();
+
+  // Navigating on a phone should dismiss the drawer so the target page is
+  // actually visible instead of hidden behind the open navbar overlay.
+  useEffect(() => {
+    closeMobile();
+  }, [pathname, closeMobile]);
 
   // Login / first-boot setup render without the app chrome.
   if (BARE_PATHS.includes(pathname)) {
@@ -85,17 +94,30 @@ export function PortalShell({
   return (
     <AppShell
       header={{ height: 56 }}
-      navbar={{ width: 248, breakpoint: 0 }}
+      navbar={{
+        width: 248,
+        // Below "sm" the navbar collapses into a burger-triggered drawer;
+        // on tablet/desktop it stays pinned as before.
+        breakpoint: "sm",
+        collapsed: { mobile: !mobileOpened },
+      }}
       padding="lg"
       className={classes.shell}
     >
       <AppShell.Header className={classes.header}>
         <Group h="100%" px="md" justify="space-between" wrap="nowrap">
           <Group gap="xs" wrap="nowrap">
+            <Burger
+              opened={mobileOpened}
+              onClick={toggleMobile}
+              hiddenFrom="sm"
+              size="sm"
+              aria-label="Navigation umschalten"
+            />
             <ThemeIcon size={28} radius="sm" variant="filled" color="slate">
               Z
             </ThemeIcon>
-            <Text fw={600} size="sm">
+            <Text fw={600} size="sm" className={classes.brandText}>
               Zaehlwerk Main Portal
             </Text>
           </Group>
@@ -108,6 +130,7 @@ export function PortalShell({
             onChange={(event) => setQuery(event.currentTarget.value)}
             size="xs"
             radius="sm"
+            visibleFrom="sm"
           />
 
           <Group gap="sm" wrap="nowrap">
