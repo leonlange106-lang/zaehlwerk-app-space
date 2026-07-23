@@ -30,7 +30,7 @@ import {
   type MetricDelta,
   type OverlayChannel,
 } from "./lib/compare-logs";
-import { getHistoryLog, listHistory, type HistorySummary } from "./lib/log-store";
+import { fetchLog, fetchLogs, type LogSummaryDTO } from "./lib/log-api";
 import type { ParsedLog } from "./lib/types";
 import { OverlayChart } from "./OverlayChart";
 
@@ -71,11 +71,21 @@ export function ComparisonView() {
   const [b, setB] = useState<Side | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [channel, setChannel] = useState<OverlayChannel>("boostActual");
-  const [history, setHistory] = useState<HistorySummary[]>([]);
+  const [history, setHistory] = useState<LogSummaryDTO[]>([]);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setHistory(listHistory());
+    let cancelled = false;
+    void (async () => {
+      try {
+        const logs = await fetchLogs();
+        if (!cancelled) setHistory(logs);
+      } catch {
+        // non-fatal — the file pickers still work without the stored list
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const ingest = useCallback(
@@ -111,12 +121,19 @@ export function ComparisonView() {
 
   const pickHistory = useCallback((side: "a" | "b", id: string | null) => {
     if (!id) return;
-    const entry = getHistoryLog(id);
-    if (!entry) return;
-    setError(null);
-    const value = { name: entry.name, log: entry.log };
-    if (side === "a") setA(value);
-    else setB(value);
+    void (async () => {
+      try {
+        const record = await fetchLog(id);
+        if (!record) return;
+        const log = parseLog(record.csv);
+        setError(null);
+        const value = { name: record.name, log };
+        if (side === "a") setA(value);
+        else setB(value);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Log konnte nicht geladen werden.");
+      }
+    })();
   }, []);
 
   const comparison = useMemo(() => (a && b ? compareLogs(a.log, b.log) : null), [a, b]);

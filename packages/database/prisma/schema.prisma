@@ -200,3 +200,34 @@ model Tarif {
   @@index([zaehlerId, gueltigAb])
   @@map("tarife")
 }
+
+/// Persistierte MGflasher-Datenlogs des Log-Analyzers. Ersetzt die frühere rein
+/// browserlokale History: hochgeladene Logs bleiben serverseitig gespeichert,
+/// tragen den ausgewerteten Pull-Status (verified/partial/invalid) und
+/// benutzerdefinierte Tags (real gefahrene Oktanzahl u.a.).
+model LogFile {
+  id         String   @id @default(uuid())
+  name       String
+  /// Quelle: "upload" oder "remote".
+  source     String   @default("upload")
+  sourceUrl  String?
+  /// Roh-CSV; beim Öffnen erneut geparst (kein Verlust, kompakte Speicherung).
+  csv        String
+  rowCount   Int      @default(0)
+  /// Denormalisierte Header-Metadaten für die Übersicht.
+  vin        String?
+  vehicle    String?
+  mapVersion String?
+  software   String?
+  loggedAt   String?
+  /// Automatisch bewerteter Pull-Status: "verified" | "partial" | "invalid".
+  status     String   @default("invalid")
+  /// Real gefahrene Oktanzahl / Kraftstoff (frei, z.B. "100 RON", "E85").
+  octane     String?
+  /// Weitere frei gesetzte Tags, kommagetrennt.
+  tags       String   @default("")
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@map("log_files")
+}

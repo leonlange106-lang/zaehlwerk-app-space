@@ -146,5 +146,6 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  return NextResponse.json({ ok: true, source: link.canonicalUrl, log });
+  // Return the raw CSV too so the client can persist it server-side.
+  return NextResponse.json({ ok: true, source: link.canonicalUrl, csv: text, log });
 }

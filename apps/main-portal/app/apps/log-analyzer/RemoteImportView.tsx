@@ -17,8 +17,8 @@ import {
 } from "@mantine/core";
 import { IconAlertCircle, IconCloudDownload, IconLink, IconWorldDownload } from "@tabler/icons-react";
 import { parseShareLink } from "./lib/mgflasher";
-import { addToHistory, newLogId, setActiveLog, type StoredLog } from "./lib/log-store";
-import type { ParsedLog } from "./lib/types";
+import { setActiveLogId } from "./lib/log-store";
+import { uploadLogs } from "./lib/log-api";
 
 // Import a log by MGflasher share link. The URL is validated client-side for
 // instant feedback, then the server route (`/api/apps/log-analyzer/fetch-remote`)
@@ -53,22 +53,26 @@ export function RemoteImportView() {
         ok?: boolean;
         error?: string;
         source?: string;
-        log?: ParsedLog;
+        csv?: string;
       };
-      if (!res.ok || !json.ok || !json.log) {
+      if (!res.ok || !json.ok || !json.csv) {
         setError(json.error ?? `Import fehlgeschlagen (HTTP ${res.status}).`);
         return;
       }
-      const entry: StoredLog = {
-        id: newLogId(),
-        name: `Log ${check.uuid.slice(0, 8)}`,
-        source: "remote",
-        sourceUrl: json.source ?? check.canonicalUrl,
-        importedAt: Date.now(),
-        log: json.log,
-      };
-      addToHistory(entry);
-      setActiveLog(entry);
+      // Persist the imported log server-side, then hand it to the analyzer by id.
+      const [created] = await uploadLogs([
+        {
+          name: `Log ${check.uuid.slice(0, 8)}`,
+          csv: json.csv,
+          source: "remote",
+          sourceUrl: json.source ?? check.canonicalUrl,
+        },
+      ]);
+      if (!created) {
+        setError("Import konnte nicht gespeichert werden.");
+        return;
+      }
+      setActiveLogId(created.id);
       router.push("/apps/log-analyzer");
     } catch {
       setError("Netzwerkfehler beim Import. Bitte erneut versuchen.");
