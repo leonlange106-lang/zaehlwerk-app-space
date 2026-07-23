@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { authenticateApiRequest, unauthorizedResponse } from "../../../../lib/api-auth";
+import { clientIdentifier, rateLimit } from "../../../../lib/rate-limit";
 import { AUDIT_ACTIONS, recordAuditEvent } from "../../../../lib/audit";
 import {
   buildFullBackup,
@@ -66,6 +67,20 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  // Snapshotting is I/O-heavy (copies the DB + writes to disk). Keep the trigger
+  // rate low so a stuck cron or retry loop can't thrash the disk.
+  const limit = rateLimit({
+    key: `backup:${clientIdentifier(request)}`,
+    limit: 6,
+    windowMs: 60_000,
+  });
+  if (!limit.ok) {
+    return NextResponse.json(
+      { error: "Zu viele Backup-Anfragen. Bitte später erneut versuchen." },
+      { status: 429, headers: { "Retry-After": String(limit.retryAfter) } },
+    );
+  }
+
   const user = await authenticateApiRequest(request);
   if (!user) return unauthorizedResponse();
   if (user.role !== "ADMIN") return forbidden();

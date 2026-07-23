@@ -15,7 +15,7 @@ import {
 } from "@mantine/core";
 import { IconDownload, IconFileTypeCsv, IconFileTypePdf } from "@tabler/icons-react";
 
-type Period = "current" | "last" | "custom";
+type Period = "all" | "current" | "last" | "custom";
 type Delimiter = "semicolon" | "comma";
 
 function pad(value: number): string {
@@ -31,14 +31,21 @@ export function ExportPanel({ meters }: { meters: { id: string; name: string }[]
   const [now] = useState(() => new Date());
   const currentYear = now.getFullYear();
 
-  const [period, setPeriod] = useState<Period>("current");
+  // "Alles" ist der Default: die häufigste Absicht ist ein Gesamtüberblick über
+  // die komplette Historie, nicht ein einzelnes Jahr.
+  const [period, setPeriod] = useState<Period>("all");
   const [customFrom, setCustomFrom] = useState<string>(`${currentYear}-01-01`);
   const [customTo, setCustomTo] = useState<string>(isoDate(now));
   const [selected, setSelected] = useState<string[]>([]);
   const [delimiter, setDelimiter] = useState<Delimiter>("semicolon");
 
   // Zeitraum → konkrete from/to-Grenzen + (falls eindeutig) Berichtsjahr.
-  const range = useMemo(() => {
+  // "Alles" lässt from/to/year offen: ohne diese Filter berücksichtigen CSV wie
+  // PDF die gesamte vorhandene Historie.
+  const range = useMemo((): { from?: string; to?: string; year?: number } => {
+    if (period === "all") {
+      return { from: undefined, to: undefined, year: undefined };
+    }
     if (period === "current") {
       return { from: `${currentYear}-01-01`, to: isoDate(now), year: currentYear };
     }
@@ -87,12 +94,13 @@ export function ExportPanel({ meters }: { meters: { id: string; name: string }[]
           <Select
             label="Zeitraum"
             data={[
+              { value: "all", label: "Alles" },
               { value: "current", label: "Dieses Jahr" },
               { value: "last", label: "Letztes Jahr" },
               { value: "custom", label: "Benutzerdefiniert" },
             ]}
             value={period}
-            onChange={(value) => setPeriod((value as Period) ?? "current")}
+            onChange={(value) => setPeriod((value as Period) ?? "all")}
             allowDeselect={false}
           />
           <TextInput
@@ -149,7 +157,7 @@ export function ExportPanel({ meters }: { meters: { id: string; name: string }[]
             color="slate"
             leftSection={<IconFileTypePdf size={16} />}
           >
-            PDF-Bericht{range.year ? ` ${range.year}` : ""}
+            PDF-Bericht{range.year ? ` ${range.year}` : period === "all" ? " (Alles)" : ""}
           </Button>
         </Group>
       </Stack>
