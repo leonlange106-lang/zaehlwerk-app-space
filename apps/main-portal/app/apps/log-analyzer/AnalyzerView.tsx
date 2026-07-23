@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Badge,
@@ -33,8 +33,12 @@ import {
   takeActiveLog,
   type StoredLog,
 } from "./lib/log-store";
+import { evaluateLogPull } from "./lib/evaluate-log-pull";
+import { loadVehicleSpec } from "./lib/spec-store";
+import { DEFAULT_VEHICLE_SPEC, type VehicleSpec } from "./lib/vehicle-spec";
 import { LogCharts } from "./LogCharts";
 import { MetadataCard } from "./MetadataCard";
+import { EvaluationCard } from "./EvaluationCard";
 import { ParameterPanel } from "./ParameterPanel";
 import classes from "./LogAnalyzer.module.css";
 
@@ -48,6 +52,14 @@ export function AnalyzerView() {
   const [range, setRange] = useState<[number, number]>([0, 0]);
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [spec, setSpec] = useState<VehicleSpec>(DEFAULT_VEHICLE_SPEC);
+
+  // The vehicle/hardware profile lives in localStorage (client-only). Read it on
+  // mount so the evaluation is judged against the user's actual setup.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSpec(loadVehicleSpec());
+  }, []);
 
   const load = useCallback((entry: StoredLog) => {
     setError(null);
@@ -134,6 +146,13 @@ export function AnalyzerView() {
       return next;
     });
   }, []);
+
+  // Automated pull rating / safety / parameter-completeness evaluation. Pure and
+  // cheap; recomputed only when the log or the vehicle profile changes.
+  const evaluation = useMemo(
+    () => (active ? evaluateLogPull(active.log, spec) : null),
+    [active, spec],
+  );
 
   if (!active) {
     return (
@@ -227,6 +246,8 @@ export function AnalyzerView() {
       </Group>
 
       <MetadataCard meta={log.meta} rowCount={log.rowCount} skippedRows={log.skippedRows} />
+
+      {evaluation && <EvaluationCard evaluation={evaluation} spec={spec} />}
 
       <Card withBorder radius="md" p="md">
         <Group justify="space-between" mb="xs">

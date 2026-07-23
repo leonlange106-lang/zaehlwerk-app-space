@@ -169,3 +169,94 @@ test.describe("Log Analyzer: sub-navigation", () => {
     await expect(page.getByRole("heading", { name: "Log-Historie" })).toBeVisible();
   });
 });
+
+// ── Phase 8.1 ──────────────────────────────────────────────────────────────
+
+// A synthetic VERIFIED pull that deliberately omits STFT/LTFT so the analyzer
+// surfaces both the VERIFIED badge and the missing-parameter hints.
+const PULL_CSV = [
+  "# VIN: WBSEVAL0SYNTH123",
+  "# Vehicle: Eval Test Coupe",
+  "Time (s),RPM,Pedal (%),Boost Target (psi),Boost Actual (psi),Ignition Correction (deg),Gear",
+  "0.0,1000,100,2.0,1.8,0,3",
+  "0.1,2500,100,10.0,9.5,0,3",
+  "0.2,4500,100,18.0,17.6,0,3",
+  "0.3,6200,100,17.0,16.6,0,3",
+  "0.4,7000,100,16.0,15.6,0,3",
+].join("\n");
+
+test.describe("Log Analyzer: automated pull evaluation", () => {
+  test("a valid pull is rated VERIFIED and missing fuel trims are flagged", async ({ page }) => {
+    await page.goto("/apps/log-analyzer");
+    await expect(page.getByText(ERROR_BOUNDARY_TEXT)).toHaveCount(0);
+
+    await page.locator('input[type="file"]').setInputFiles({
+      name: "eval-pull.csv",
+      mimeType: "text/csv",
+      buffer: Buffer.from(PULL_CSV),
+    });
+
+    // The evaluation card and its status badge render.
+    await expect(page.getByTestId("evaluation-card")).toBeVisible();
+    await expect(page.getByTestId("pull-status")).toHaveText("VERIFIED PULL");
+
+    // STFT/LTFT are absent → explicit logging-profile hints.
+    const missing = page.getByTestId("missing-params");
+    await expect(missing).toBeVisible();
+    await expect(missing.getByText(/STFT nicht im Log/)).toBeVisible();
+    await expect(missing.getByText(/LTFT nicht im Log/)).toBeVisible();
+
+    await expectNoHorizontalScroll(page);
+  });
+
+  test("the built-in sample raises knock/EGT-free VERIFIED result", async ({ page }) => {
+    await page.goto("/apps/log-analyzer");
+    await page.getByRole("button", { name: "Beispiel laden" }).click();
+    await expect(page.getByTestId("pull-status")).toHaveText("VERIFIED PULL");
+  });
+});
+
+test.describe("Log Analyzer: dual-log comparison", () => {
+  test("loading two logs renders diff cards and an RPM overlay", async ({ page }) => {
+    await page.goto("/apps/log-analyzer/compare");
+    await expect(page.getByText(ERROR_BOUNDARY_TEXT)).toHaveCount(0);
+
+    // Load the built-in baseline (A) and comparison (B) samples.
+    await page.getByRole("button", { name: "Beispiel" }).nth(0).click();
+    await expect(page.getByTestId("picked-a")).toBeVisible();
+    await page.getByRole("button", { name: "Beispiel" }).nth(1).click();
+    await expect(page.getByTestId("picked-b")).toBeVisible();
+
+    // Diff cards + overlay chart appear once both sides are loaded.
+    await expect(page.getByTestId("diff-cards")).toBeVisible();
+    await expect(page.getByText("Peak Boost")).toBeVisible();
+    await expect(page.locator(".recharts-surface").first()).toBeVisible();
+
+    // Switching the overlay channel keeps the chart rendered.
+    await page.getByTestId("overlay-channel").getByText("IAT").click();
+    await expect(page.locator(".recharts-surface").first()).toBeVisible();
+
+    await expectNoHorizontalScroll(page);
+  });
+});
+
+test.describe("Log Analyzer: vehicle & hardware profile", () => {
+  test("changing the catalyst updates the derived EGT limit and saves", async ({ page }) => {
+    await page.goto("/apps/log-analyzer/specs");
+    await expect(page.getByText(ERROR_BOUNDARY_TEXT)).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Fahrzeug & Hardware-Profil" })).toBeVisible();
+
+    // Default OEM cat → 900 °C ceiling.
+    await expect(page.getByText("900 °C")).toBeVisible();
+
+    // Switch to catless → looser ceiling (980 °C).
+    await page.getByTestId("spec-cat").click();
+    await page.getByRole("option", { name: "Catless (kein Kat)" }).click();
+    await expect(page.getByText("980 °C")).toBeVisible();
+
+    await page.getByTestId("spec-save").click();
+    await expect(page.getByTestId("spec-saved")).toBeVisible();
+
+    await expectNoHorizontalScroll(page);
+  });
+});
