@@ -7,8 +7,10 @@ import { authConfig } from "./auth.config";
 // are redirected to /login; unauthenticated API requests get a 401.
 const { auth } = NextAuth(authConfig);
 
-// Pages reachable without a session.
-const PUBLIC_PAGES = ["/login", "/login/2fa", "/setup"];
+// Pages/assets reachable without a session. The web app manifest is fetched by
+// the browser (often uncredentialed) before login, so it must be public or the
+// install/PWA metadata silently fails.
+const PUBLIC_PAGES = ["/login", "/login/2fa", "/setup", "/manifest.webmanifest"];
 // API namespaces reachable without a session: Auth.js itself, the first-boot
 // setup, and the health probe (used by the Docker healthcheck).
 const PUBLIC_API_PREFIXES = ["/api/auth", "/api/setup"];

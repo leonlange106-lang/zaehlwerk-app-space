@@ -15,8 +15,10 @@ import { getCurrentVersionInfo } from "./lib/version";
 import { auth } from "@/auth";
 
 export const metadata: Metadata = {
-  title: "Main Portal",
-  description: "Zaehlwerk Main Portal",
+  title: "App Space",
+  description: "Modulares Multi-App-Portal – Zählwerk, Log Analyzer und mehr.",
+  applicationName: "App Space",
+  appleWebApp: { capable: true, title: "App Space", statusBarStyle: "default" },
 };
 
 // Mobile/PWA viewport: scale to the device width and extend under the notch /
@@ -25,6 +27,7 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
+  themeColor: "#3c4b5a",
 };
 
 export default async function RootLayout({

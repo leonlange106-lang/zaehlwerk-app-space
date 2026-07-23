@@ -1,0 +1,17 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="MGflasher Log Analyzer">
+  <defs>
+    <linearGradient id="la-bg" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#3a4450"/>
+      <stop offset="1" stop-color="#232a32"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="15" fill="url(#la-bg)"/>
+  <!-- log signal / waveform baseline -->
+  <line x1="12" y1="38" x2="52" y2="38" stroke="#4b5763" stroke-width="1.5"/>
+  <!-- datalog trace -->
+  <polyline points="12,38 18,38 22,24 27,44 32,30 37,38 42,20 47,38 52,38"
+    fill="none" stroke="#fd7e14" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round"/>
+  <!-- magnifier analysing the trace -->
+  <circle cx="41" cy="41" r="11" fill="none" stroke="#e5e9ed" stroke-width="3"/>
+  <line x1="49" y1="49" x2="55" y2="55" stroke="#e5e9ed" stroke-width="3.4" stroke-linecap="round"/>
+</svg>

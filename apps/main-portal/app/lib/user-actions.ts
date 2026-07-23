@@ -103,7 +103,7 @@ export async function createUserAction(_prevState: ActionState, formData: FormDa
   }
 
   await recordAuditEvent(AUDIT_ACTIONS.userCreate, admin.email, `${email} (${parsed.data.role})`);
-  revalidatePath("/einstellungen");
+  revalidatePath("/settings");
   return { success: true };
 }
 
@@ -124,7 +124,7 @@ export async function resetPassword(userId: string, password: string): Promise<A
   }
 
   await recordAuditEvent(AUDIT_ACTIONS.userPassword, admin.email, `Benutzer ${parsed.data.userId}`);
-  revalidatePath("/einstellungen");
+  revalidatePath("/settings");
   return { success: true };
 }
 
@@ -156,7 +156,7 @@ export async function changeRole(userId: string, role: UserRole): Promise<Action
     admin.email,
     `Benutzer ${parsed.data.userId} → ${parsed.data.role}`,
   );
-  revalidatePath("/einstellungen");
+  revalidatePath("/settings");
   return { success: true };
 }
 
@@ -183,6 +183,6 @@ export async function deleteUser(userId: string): Promise<ActionState> {
   }
 
   await recordAuditEvent(AUDIT_ACTIONS.userDelete, admin.email, target.email);
-  revalidatePath("/einstellungen");
+  revalidatePath("/settings");
   return { success: true };
 }

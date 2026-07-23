@@ -36,7 +36,7 @@ export function SetupForm() {
             <IconShieldLock size={24} stroke={1.6} />
           </ThemeIcon>
           <div style={{ textAlign: "center" }}>
-            <Title order={3}>Willkommen bei Zählwerk</Title>
+            <Title order={3}>Willkommen im App Space</Title>
             <Text c="dimmed" size="sm">
               Erster Start – lege den Administrator-Account an.
             </Text>

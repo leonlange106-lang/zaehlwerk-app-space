@@ -13,10 +13,9 @@ import {
   Stack,
   Text,
   TextInput,
-  ThemeIcon,
   Title,
 } from "@mantine/core";
-import { IconAlertCircle, IconBolt, IconCheck } from "@tabler/icons-react";
+import { IconAlertCircle, IconCheck } from "@tabler/icons-react";
 import classes from "./LoginForm.module.css";
 
 export function LoginForm() {
@@ -67,11 +66,10 @@ export function LoginForm() {
     <Center className={classes.screen}>
       <Card withBorder radius="md" p="xl" className={classes.card}>
         <Stack gap="sm" align="center" mb="md">
-          <ThemeIcon size={44} radius="md" variant="filled" color="slate">
-            <IconBolt size={24} stroke={1.6} />
-          </ThemeIcon>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/mark-appspace.svg" alt="App Space" width={48} height={48} />
           <div style={{ textAlign: "center" }}>
-            <Title order={3}>Zählwerk</Title>
+            <Title order={3}>App Space</Title>
             <Text c="dimmed" size="sm">
               Bitte melde dich an.
             </Text>

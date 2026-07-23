@@ -1,210 +1,77 @@
-import {
-  Badge,
-  Card,
-  Grid,
-  GridCol,
-  Group,
-  List,
-  ListItem,
-  SimpleGrid,
-  Stack,
-  Text,
-  Title,
-} from "@mantine/core";
-import {
-  IconArrowUpRight,
-  IconCalendarStats,
-  IconClipboardList,
-  IconMapPin,
-  IconStack2,
-} from "@tabler/icons-react";
-import { LinkButton } from "./LinkButton";
-import {
-  getConsumptionSummary,
-  listLocations,
-  listRecentAblesungen,
-  listZaehler,
-} from "./lib/zaehler-actions";
-import classes from "./page.module.css";
+import type { CSSProperties } from "react";
+import Link from "next/link";
+import { Badge, Group, SimpleGrid, Stack, Text } from "@mantine/core";
+import { IconPlus } from "@tabler/icons-react";
+import { APPS } from "./lib/apps";
+import classes from "./launcher.module.css";
 
-// Reads live data from the database on every request — must not be
-// statically prerendered at build time (there's no reachable DB then, and a
-// static snapshot would go stale the moment someone adds a reading).
-export const dynamic = "force-dynamic";
+// App Space hub (hub-and-spoke root). Lists the installed apps as launch tiles.
+// No DB access — safe to render without force-dynamic; the shell around it
+// already reflects auth/version.
+export const metadata = {
+  title: "App Space",
+};
 
-const dateFormatter = new Intl.DateTimeFormat("de-DE", {
-  day: "2-digit",
-  month: "2-digit",
-  year: "numeric",
-});
-const numberFormatter = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 });
-
-function formatRelative(date: Date): string {
-  const diffMs = Date.now() - date.getTime();
-  const minutes = Math.round(diffMs / 60_000);
-  if (minutes < 1) return "gerade eben";
-  if (minutes < 60) return `vor ${minutes} Min.`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `vor ${hours} Std.`;
-  const days = Math.round(hours / 24);
-  if (days < 30) return `vor ${days} Tag${days === 1 ? "" : "en"}`;
-  return dateFormatter.format(date);
-}
-
-export default async function DashboardPage() {
-  const [zaehlerList, locations, recentAblesungen, consumptionSummary] = await Promise.all([
-    listZaehler(),
-    listLocations(),
-    listRecentAblesungen(6),
-    getConsumptionSummary(),
-  ]);
-
-  const totalAblesungen = zaehlerList.reduce((sum, zaehler) => sum + zaehler.ablesungen.length, 0);
-  const lastReadingDate = recentAblesungen[0]?.datum ?? null;
-
-  const stats = [
-    {
-      label: "Aktive Zähler",
-      value: String(zaehlerList.length),
-      diff: "Strom, Gas, Wasser & mehr",
-      icon: IconStack2,
-    },
-    {
-      label: "Standorte",
-      value: String(locations.length),
-      diff: "erfasste Gebäude/Einheiten",
-      icon: IconMapPin,
-    },
-    {
-      label: "Ablesungen erfasst",
-      value: String(totalAblesungen),
-      diff: "über alle Zähler",
-      icon: IconClipboardList,
-    },
-    {
-      label: "Letzte Ablesung",
-      value: lastReadingDate ? dateFormatter.format(lastReadingDate) : "–",
-      diff: lastReadingDate ? formatRelative(lastReadingDate) : "noch keine Daten",
-      icon: IconCalendarStats,
-    },
-  ];
-
+export default function LauncherPage() {
   return (
-    <Stack gap="lg">
-      <div>
-        <Title order={2}>Dashboard</Title>
-        <Text c="dimmed" size="sm">
-          Überblick über Zählwerk-Systeme, Aktivitäten und Team.
+    <Stack gap="xl" className={classes.wrap}>
+      <Stack gap={4} align="center" className={classes.hero}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/logo-appspace.svg" alt="App Space" height={56} className={classes.logo} />
+        <Text c="dimmed" size="sm" ta="center" maw={520}>
+          Dein modulares Portal. Wähle eine App, um loszulegen – zwischen Apps wechselst du jederzeit
+          über das Raster-Symbol oben links.
         </Text>
-      </div>
+      </Stack>
 
-      <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }} spacing="md">
-        {stats.map((stat) => (
-          <Card key={stat.label} className={classes.statCard}>
-            <Group justify="space-between" align="flex-start">
-              <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
-                {stat.label}
+      <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="lg" className={classes.grid}>
+        {APPS.map((app) =>
+          app.available ? (
+            <Link key={app.id} href={app.href} className={classes.tile}>
+              <span className={classes.iconWrap} style={{ "--accent": app.accent } as CSSProperties}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={app.icon} alt="" width={48} height={48} />
+              </span>
+              <Text fw={600} mt="md">
+                {app.name}
               </Text>
-              <stat.icon size={18} stroke={1.6} className={classes.statIcon} />
-            </Group>
-            <Text fw={700} size="xl" mt={4}>
-              {stat.value}
-            </Text>
-            <Text size="xs" c="dimmed" mt={2}>
-              {stat.diff}
-            </Text>
-          </Card>
-        ))}
-      </SimpleGrid>
-
-      <Grid gutter="md">
-        <GridCol span={{ base: 12, lg: 8 }}>
-          <Card className={classes.panel} h="100%">
-            <Group justify="space-between" mb="sm">
-              <Title order={4}>Letzte Aktivität</Title>
-              <LinkButton
-                href="/zaehler"
-                variant="subtle"
-                color="slate"
-                size="xs"
-                rightSection={<IconArrowUpRight size={14} />}
-              >
-                Alle anzeigen
-              </LinkButton>
-            </Group>
-            {recentAblesungen.length === 0 ? (
-              <Text size="sm" c="dimmed">
-                Noch keine Ablesungen erfasst.
+              <Text size="sm" c="dimmed" mt={2}>
+                {app.tagline}
               </Text>
-            ) : (
-              <List spacing="sm" size="sm" listStyleType="none">
-                {recentAblesungen.map((ablesung) => (
-                  <ListItem key={ablesung.id} className={classes.activityItem}>
-                    <Group justify="space-between" wrap="nowrap">
-                      <Text size="sm">
-                        {ablesung.zaehler.name}: {numberFormatter.format(ablesung.wert)}{" "}
-                        {ablesung.zaehler.einheit}
-                      </Text>
-                      <Text size="xs" c="dimmed" style={{ whiteSpace: "nowrap" }}>
-                        {formatRelative(ablesung.datum)}
-                      </Text>
-                    </Group>
-                  </ListItem>
-                ))}
-              </List>
-            )}
-          </Card>
-        </GridCol>
-
-        <GridCol span={{ base: 12, lg: 4 }}>
-          <Stack gap="md">
-            <Card className={classes.panel}>
-              <Title order={4} mb="sm">
-                Verbrauch je Zähler
-              </Title>
-              {consumptionSummary.length === 0 ? (
-                <Text size="sm" c="dimmed">
-                  Noch keine Zähler angelegt.
-                </Text>
-              ) : (
-                <Stack gap="xs">
-                  {consumptionSummary.map((entry) => (
-                    <Group key={entry.zaehlerId} justify="space-between" wrap="nowrap">
-                      <Group gap="xs" wrap="nowrap">
-                        <span className={classes.colorDot} style={{ background: entry.farbe }} />
-                        <Text size="sm">{entry.name}</Text>
-                      </Group>
-                      <Text size="sm" fw={600} style={{ whiteSpace: "nowrap" }}>
-                        {numberFormatter.format(entry.totalConsumption)} {entry.einheit}
-                      </Text>
-                    </Group>
-                  ))}
-                </Stack>
-              )}
-            </Card>
-
-            <Card className={classes.panel}>
-              <Group justify="space-between" mb="sm">
-                <Title order={4}>Schnellzugriff</Title>
+            </Link>
+          ) : (
+            <div key={app.id} className={`${classes.tile} ${classes.tileDisabled}`} aria-disabled>
+              <Group justify="space-between" w="100%">
+                <span className={classes.iconWrap} style={{ "--accent": app.accent } as CSSProperties}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={app.icon} alt="" width={48} height={48} />
+                </span>
                 <Badge variant="light" color="slate" size="sm">
-                  Beta
+                  Bald
                 </Badge>
               </Group>
-              <Stack gap="xs">
-                <LinkButton href="/zaehler" variant="light" color="slate" justify="start" fullWidth>
-                  Neuen Zähler anlegen
-                </LinkButton>
-                <LinkButton href="/zaehler" variant="light" color="slate" justify="start" fullWidth>
-                  Zählerstand erfassen
-                </LinkButton>
-                <LinkButton href="/zaehler" variant="light" color="slate" justify="start" fullWidth>
-                  Alle Zähler anzeigen
-                </LinkButton>
-              </Stack>
-            </Card>
-          </Stack>
-        </GridCol>
-      </Grid>
+              <Text fw={600} mt="md">
+                {app.name}
+              </Text>
+              <Text size="sm" c="dimmed" mt={2}>
+                {app.tagline}
+              </Text>
+            </div>
+          ),
+        )}
+
+        <div className={`${classes.tile} ${classes.tilePlaceholder}`} aria-hidden>
+          <span className={classes.plusWrap}>
+            <IconPlus size={26} stroke={1.6} />
+          </span>
+          <Text fw={600} mt="md" c="dimmed">
+            Weitere Apps
+          </Text>
+          <Text size="sm" c="dimmed" mt={2}>
+            Platz für zukünftige Erweiterungen des App Space.
+          </Text>
+        </div>
+      </SimpleGrid>
     </Stack>
   );
 }

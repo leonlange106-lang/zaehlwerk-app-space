@@ -1,0 +1,71 @@
+.wrap {
+  max-width: 960px;
+  margin: 0 auto;
+  padding-block: clamp(1rem, 4vw, 3rem);
+}
+
+.hero {
+  margin-bottom: 0.5rem;
+}
+
+.logo {
+  width: auto;
+  max-width: 100%;
+}
+
+.grid {
+  width: 100%;
+}
+
+.tile {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 1.25rem;
+  min-height: 168px;
+  border-radius: var(--mantine-radius-md);
+  border: 1px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4));
+  background: light-dark(var(--mantine-color-white), var(--mantine-color-dark-6));
+  color: inherit;
+  text-decoration: none;
+  transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+}
+
+a.tile:hover {
+  transform: translateY(-3px);
+  border-color: light-dark(var(--mantine-color-gray-4), var(--mantine-color-dark-3));
+  box-shadow: var(--mantine-shadow-md);
+}
+
+.iconWrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 60px;
+  height: 60px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.tileDisabled {
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.tilePlaceholder {
+  align-items: flex-start;
+  border-style: dashed;
+  background: transparent;
+}
+
+.plusWrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 60px;
+  height: 60px;
+  border-radius: 14px;
+  color: var(--mantine-color-dimmed);
+  border: 1px dashed light-dark(var(--mantine-color-gray-4), var(--mantine-color-dark-3));
+}

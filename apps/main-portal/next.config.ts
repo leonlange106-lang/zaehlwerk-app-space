@@ -24,6 +24,17 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/**": ["../../packages/database/generated/client/**/*"],
   },
+  // Phase 7 App-Space restructure: the Zählwerk app moved under /apps/zaehlwerk
+  // and settings split into platform (/settings) vs app settings. Keep old
+  // bookmarks and links working.
+  async redirects() {
+    return [
+      { source: "/zaehler", destination: "/apps/zaehlwerk/zaehler", permanent: true },
+      { source: "/zaehler/:path*", destination: "/apps/zaehlwerk/zaehler/:path*", permanent: true },
+      { source: "/berichte", destination: "/apps/zaehlwerk/berichte", permanent: true },
+      { source: "/einstellungen", destination: "/settings", permanent: true },
+    ];
+  },
   async headers() {
     return [
       {
