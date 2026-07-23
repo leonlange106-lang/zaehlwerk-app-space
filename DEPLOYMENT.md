@@ -181,15 +181,98 @@ docker run --rm \
 ## 7. Put it behind a reverse proxy (recommended)
 
 Don't expose port 3000 directly to the internet. Put a reverse proxy in
-front (Caddy, Traefik, or nginx — on the Proxmox host, in another LXC, or on
-your existing edge router) that terminates TLS and forwards to
-`http://<lxc-ip>:3000`. Example Caddy snippet:
+front (Caddy, Traefik, nginx, or a Cloudflare Tunnel — on the Proxmox host, in
+another LXC, or on your existing edge router) that terminates TLS and forwards
+to `http://<lxc-ip>:3000`. Pick **one** of the following.
+
+### Caddy (simplest — automatic HTTPS)
 
 ```
 zaehlwerk.example.com {
   reverse_proxy <lxc-ip>:3000
 }
 ```
+
+Caddy fetches and renews a Let's Encrypt certificate on its own; nothing else to do.
+
+### nginx (with Let's Encrypt via certbot)
+
+```nginx
+# /etc/nginx/sites-available/zaehlwerk.conf
+server {
+  listen 80;
+  server_name zaehlwerk.example.com;
+
+  location / {
+    proxy_pass http://<lxc-ip>:3000;
+    proxy_http_version 1.1;
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Host  $host;
+  }
+}
+```
+
+`X-Forwarded-Host`/`-Proto` matter: the in-app Smart-Home snippet generator
+derives the portal URL from these headers, so without them the generated
+`curl`/Home-Assistant snippets show the wrong origin. Then:
+
+```sh
+ln -s /etc/nginx/sites-available/zaehlwerk.conf /etc/nginx/sites-enabled/
+nginx -t && systemctl reload nginx
+certbot --nginx -d zaehlwerk.example.com    # provisions + auto-renews TLS
+```
+
+### Traefik (Docker labels)
+
+If you run Traefik as your edge, add these labels to the `main-portal` service
+in `docker-compose.prod.yml` (assumes an `websecure` entrypoint on :443 and a
+`letsencrypt` cert resolver already configured in Traefik):
+
+```yaml
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.zaehlwerk.rule=Host(`zaehlwerk.example.com`)"
+      - "traefik.http.routers.zaehlwerk.entrypoints=websecure"
+      - "traefik.http.routers.zaehlwerk.tls.certresolver=letsencrypt"
+      - "traefik.http.services.zaehlwerk.loadbalancer.server.port=3000"
+```
+
+Traefik reads the container port directly, so you don't even need to publish
+port 3000 on the host — put the app and Traefik on the same Docker network.
+
+### Cloudflare Tunnel (no open inbound ports)
+
+Good when the LXC has no public IP or you don't want to open the firewall at
+all. `cloudflared` dials **out** to Cloudflare; TLS terminates at Cloudflare's
+edge.
+
+```sh
+# inside the LXC (or its own container)
+cloudflared tunnel login
+cloudflared tunnel create zaehlwerk
+```
+
+```yaml
+# ~/.cloudflared/config.yml
+tunnel: <tunnel-uuid>
+credentials-file: /root/.cloudflared/<tunnel-uuid>.json
+ingress:
+  - hostname: zaehlwerk.example.com
+    service: http://localhost:3000
+  - service: http_status:404
+```
+
+```sh
+cloudflared tunnel route dns zaehlwerk zaehlwerk.example.com
+cloudflared tunnel run zaehlwerk      # or install as a systemd service
+```
+
+Because the tunnel exposes the app publicly, still lock down
+`/api/update/trigger` — restrict it with a Cloudflare Access policy (or keep
+`UPDATE_TRIGGER_TOKEN` set) so self-update can't be triggered by strangers.
 
 ## Self-update security (read this)
 

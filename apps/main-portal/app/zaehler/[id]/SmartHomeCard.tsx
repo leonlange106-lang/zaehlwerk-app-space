@@ -42,6 +42,10 @@ const SNIPPET_OPTIONS: { value: SnippetKind; label: string }[] = [
 
 const NO_TOKEN = "__none__";
 
+// Fertige Blueprints/Gerätevorlagen liegen versioniert im Repo.
+const HA_DOCS_URL =
+  "https://github.com/leonlange106-lang/zaehlwerk-app-space/tree/main/docs/integrations/home-assistant";
+
 export function SmartHomeCard({
   meterId,
   meterName,
@@ -157,6 +161,18 @@ export function SmartHomeCard({
           w={200}
         />
       </Group>
+
+      {kind === "homeassistant" && (
+        <Text size="xs" c="dimmed" mb="xs">
+          Fertiger Home-Assistant-Blueprint und Gerätevorlagen (ESPHome, Tasmota, Shelly):{" "}
+          <Anchor href={HA_DOCS_URL} target="_blank" rel="noopener noreferrer">
+            <Group gap={4} wrap="nowrap" component="span" display="inline-flex">
+              docs/integrations/home-assistant
+              <IconExternalLink size={12} />
+            </Group>
+          </Anchor>
+        </Text>
+      )}
 
       <div style={{ position: "relative" }}>
         <CopyButton value={snippet}>
