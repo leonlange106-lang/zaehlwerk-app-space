@@ -1,29 +1,44 @@
 # Home Assistant add-on manifest for the Zählwerk App Space.
 #
-# This is a thin Ingress reverse-proxy: the actual Next.js app runs in a
-# separate Proxmox LXC container; this add-on lets Home Assistant surface it as
-# a native panel (iframe via Ingress) and forwards requests to `backend_url`.
+# The actual Next.js app runs in a separate Proxmox LXC container. This add-on
+# is a thin nginx reverse proxy that (a) forwards to that app and (b) relaxes the
+# app's strict iframe-framing policy so Home Assistant can embed it — without
+# rebuilding the app.
+#
+# Two ways to use it:
+#   • Ingress  — HA proxies same-origin; works for simple apps, but a Next.js app
+#                with absolute asset/redirect paths 404s under the dynamic Ingress
+#                sub-path. Available via the add-on's "Open Web UI"; no sidebar
+#                panel is auto-created.
+#   • Port + panel_iframe (recommended for this app) — the proxy is exposed on a
+#     fixed port; point a Home Assistant `panel_iframe` at it. No sub-path issue.
 name: "Zählwerk App Space"
 slug: "zaehlwerk_space"
-description: "Native Ingress Integration for Zählwerk App Space"
-version: "1.0.1"
-# Multi-arch: the base image (nginx:alpine) is available for both.
+description: "Reverse proxy / Ingress bridge for the Zählwerk App Space"
+version: "1.1.0"
 arch:
   - amd64
   - aarch64
-# Ingress: HA proxies the panel to this add-on's port 80 under the HA origin,
-# so no host port needs to be exposed and access is gated by HA auth.
+# Ingress stays available (Open Web UI) but no auto sidebar panel is created
+# (panel_icon/panel_title omitted), since the reliable panel is panel_iframe.
 ingress: true
 ingress_port: 80
-panel_icon: "mdi:gauge"
-panel_title: "Zählwerk"
+# Expose the proxy on a fixed host port for the panel_iframe route.
+ports:
+  "80/tcp": 8099
+ports_description:
+  "80/tcp": "HTTP reverse proxy to the App Space — use this in a HA panel_iframe"
 # The image is a plain nginx (no s6-overlay); let our own CMD be PID 1.
 init: false
-# Give the add-on outbound access on the local network to reach the LXC backend.
 host_network: false
 options:
   backend_url: "http://192.168.1.X:3000"
+  frame_parent: ""
 schema:
   # Base URL of the Next.js app in the LXC container (scheme + host + port,
   # no trailing slash), e.g. http://192.168.1.50:3000
   backend_url: "str"
+  # Origin of your Home Assistant frontend, e.g. http://192.168.1.43:8123 —
+  # REQUIRED for the panel_iframe route so the app may be framed cross-origin.
+  # Leave empty if you only use Ingress (same-origin 'self' is always allowed).
+  frame_parent: "str?"
