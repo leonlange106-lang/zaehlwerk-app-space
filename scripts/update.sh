@@ -13,6 +13,11 @@ COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
 UPDATE_BRANCH="${UPDATE_BRANCH:-main}"
 LOG_FILE="${UPDATE_LOG_FILE:-/data/update.log}"
 STATUS_FILE="${UPDATE_STATUS_FILE:-/data/update-status.json}"
+# Pin the Compose project name so an update run from the container's /repo cwd
+# targets the SAME project (network/volume/container) as a manual run from the
+# host — otherwise it forks a new "repo" project and collides. Matches the
+# top-level `name:` in docker-compose.prod.yml; both say "zaehlwerk".
+export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-zaehlwerk}"
 
 # Redirect ALL output to a persistent log file. The trigger endpoint starts
 # this script detached with stdio discarded, so without this a failed update
