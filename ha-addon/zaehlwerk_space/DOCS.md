@@ -1,109 +1,93 @@
-# Zählwerk App Space — Home Assistant Ingress Add-on
+# Zählwerk App Space — Home Assistant Add-on
 
-This add-on surfaces the **Zählwerk App Space** (a Next.js dashboard running in a
-separate Proxmox **LXC** container) as a native panel inside Home Assistant,
-using **Ingress**. The add-on itself is a tiny `nginx:alpine` reverse proxy — it
-does not run the app, it forwards Home Assistant's Ingress traffic to the app's
-real URL on your LAN.
+This add-on makes the **Zählwerk App Space** (a Next.js dashboard running in a
+separate Proxmox **LXC**/Docker container) available as a native panel in Home
+Assistant. It is a tiny `nginx:alpine` reverse proxy — it does **not** run the
+app, it forwards to the app's real URL on your LAN and relaxes the app's strict
+iframe-framing policy so HA can embed it (no app rebuild required).
 
 ```
-HA frontend ─(Ingress)→ add-on (nginx :80) ─(reverse proxy)→ LXC Next.js :3000
+HA panel_iframe ─→ add-on nginx (host port 8099) ─→ LXC/Docker Next.js :3000
 ```
 
-## Installation
+## Recommended setup: exposed port + `panel_iframe`
 
-1. Copy the folder `zaehlwerk_space/` into `/addons/` on the Home Assistant OS
-   host, so it lives at `/addons/zaehlwerk_space/`.
-   (Settings → Add-ons → Add-on Store → ⋮ → *Repositories* is **not** needed for
-   a local add-on; local add-ons under `/addons` are picked up automatically.)
-2. Settings → Add-ons → **Add-on Store** → ⋮ → **Check for updates**, then open
-   the **Local add-ons** section and select **Zählwerk App Space**.
-3. **Install**.
+This is the route that **fully works** for this Next.js app. (Ingress is also
+available but 404s for this app — see the note at the bottom.)
 
-## Configuration
+### 1. Install the add-on
 
-| Option        | Description                                                        | Example                    |
-| ------------- | ----------------------------------------------------------------- | -------------------------- |
-| `backend_url` | Base URL of the Next.js app in the LXC (scheme + host + port).     | `http://192.168.1.50:3000` |
+- **Custom repo:** Settings → Add-ons → Add-on Store → ⋮ → **Repositories** →
+  add `https://github.com/leonlange106-lang/zaehlwerk-ha-addon` → install
+  **Zählwerk App Space**.
+- **Or local:** copy `zaehlwerk_space/` into `/addons/` on the HAOS host.
 
-Set `backend_url` to the address where the app is reachable from the Home
-Assistant host, then **Start** the add-on. A **Zählwerk** entry appears in the HA
-sidebar (icon `mdi:gauge`).
+### 2. Configure it
 
-> The `backend_url` must be reachable **from the Home Assistant host** — test with
-> `curl` from an HA terminal if the panel stays blank.
+| Option         | Description                                                         | Example                     |
+| -------------- | ----------------------------------------------------------------- | --------------------------- |
+| `backend_url`  | Base URL of the app in the LXC, reachable from the HA host.        | `http://192.168.1.50:3000`  |
+| `frame_parent` | Origin of **your** Home Assistant frontend (so it may frame the app). | `http://192.168.1.43:8123`  |
+
+In the add-on's **Network** section, keep the host port mapping for `80/tcp`
+(default **8099**).
+
+Then **Start** the add-on. Quick check — from an HA terminal:
+`curl -I http://localhost:8099` should return `HTTP/1.1 200` (or a redirect to
+`/login`), not a connection error.
+
+### 3. Add the panel to Home Assistant
+
+Edit `configuration.yaml` (via the *File editor* or *Studio Code Server* add-on),
+pointing at the **add-on's port on the HA host** (not the LXC):
+
+```yaml
+panel_iframe:
+  zaehlwerk:
+    title: "Zählwerk"
+    icon: mdi:gauge
+    url: "http://192.168.1.43:8099"   # <HA-IP>:<add-on port>
+    require_admin: false
+```
+
+Then **Settings → System → Restart**. A **Zählwerk** entry appears in the
+sidebar and loads the full app — no 404, no missing styles, because the proxy
+serves it at its own root (no dynamic Ingress sub-path).
+
+> **HTTP vs HTTPS (mixed content):** if you open Home Assistant over `https://`,
+> the browser blocks an `http://` iframe. Either reach HA over `http://` on the
+> LAN, or put the app behind an HTTPS reverse proxy and use that URL. Match the
+> scheme/host/port in `frame_parent` to how you actually open HA.
 
 ## What the add-on does
 
-- **Ingress**: HA serves the panel under its own origin and auth; no LAN port of
-  the add-on is exposed.
-- **WebSocket support**: `Upgrade`/`Connection` headers are proxied, so live
-  features and Next.js HMR work.
-- **Forwarded headers**: passes `Host`, `X-Real-IP`, `X-Forwarded-For`,
-  `X-Forwarded-Proto`, `X-Forwarded-Host` and `X-HA-Ingress` so the app (which
-  runs with `trustHost: true`) builds correct URLs and can trim duplicate chrome
-  when embedded.
-- **`proxy_redirect off`**: redirect/`Location` headers are left untouched so
-  Ingress path routing stays intact.
+- **Reverse proxy** to `backend_url` (WebSocket `Upgrade`/`Connection` proxied,
+  so live features work).
+- **Relaxes framing without an app rebuild:** drops the app's
+  `X-Frame-Options: DENY` and re-emits its CSP with
+  `frame-ancestors 'self' <frame_parent>`, so Home Assistant may embed it.
+- **Forwarded headers:** `Host`, `X-Real-IP`, `X-Forwarded-For`,
+  `X-Forwarded-Proto`, `X-Forwarded-Host`, `X-HA-Ingress` (the app runs with
+  `trustHost: true` and trims duplicate chrome when embedded).
 
-## Required app build flag
-
-Because HA renders the panel in an **iframe**, the app must permit framing. The
-app ships strict by default (`frame-ancestors 'none'` + `X-Frame-Options: DENY`).
-
-**You do not need to rebuild the app for Ingress.** This add-on's Nginx strips
-the upstream framing headers and re-emits the CSP with `frame-ancestors 'self'`,
-so the panel renders out of the box — no `HA_INGRESS` build flag, nothing to
-change in the LXC. (The optional `HA_INGRESS=true` / `FRAME_ANCESTORS=…` build
-flags still exist if you prefer to relax it at the app instead — e.g. for the
-`panel_iframe` fallback below, which does **not** pass through this add-on.)
-
-The app also detects the embedded context automatically (it's framed, or via
-`?embedded=true`) and hides its duplicate brand/title, since the HA panel already
-provides one.
-
-## Known limitation: Ingress sub-path & static assets
+## Why not Ingress?
 
 Home Assistant Ingress serves each session under a dynamic path
-(`/api/hassio_ingress/<token>/`). Next.js emits **root-absolute** asset URLs
-(`/_next/…`), which the browser resolves against the HA origin root — dropping
-the Ingress prefix. On a strict setup this can cause `/_next/*` assets to 404
-inside the frame.
+(`/api/hassio_ingress/<token>/`). Next.js emits **root-absolute** URLs (`/_next/…`,
+and the unauthenticated redirect to `/login`), which the browser resolves against
+the HA origin **root** — dropping the Ingress prefix — so they hit HA itself and
+return **`404: not found`**. A reverse proxy can't fix this: those requests never
+reach the add-on. Ingress remains available via the add-on's **Open Web UI**
+button for simple cases, but for this app use the `panel_iframe` route above.
 
-This add-on forwards the `X-Ingress-Path` context via standard headers, but a
-generic reverse proxy cannot reliably rewrite the absolute paths that Next's
-client-side router builds at runtime. If you hit blank/asset-404 panels, the
-robust options are:
+If you'd rather not run this proxy at all, you can instead rebuild the app image
+with the HA origin allowed and point `panel_iframe` straight at the LXC
+(`http://<LXC-IP>:3000`):
 
-1. **Direct panel (simplest, always works):** instead of Ingress, add a
-   `panel_iframe` in Home Assistant `configuration.yaml` pointing straight at the
-   LXC app:
+```bash
+# inside the app's build (Dockerfile build-arg / compose), not the host shell:
+FRAME_ANCESTORS="'self' http://192.168.1.43:8123"
+```
 
-   ```yaml
-   panel_iframe:
-     zaehlwerk:
-       title: "Zählwerk"
-       icon: mdi:gauge
-       url: "http://192.168.1.50:3000"
-       require_admin: false
-   ```
-
-   Because HA now frames the app **cross-origin** (HA host → LXC host), the
-   add-on's Nginx is out of the loop, so the app itself must allow the HA origin.
-   Build it once in the LXC naming your HA origin:
-
-   ```bash
-   FRAME_ANCESTORS="'self' http://homeassistant.local:8123" pnpm --filter main-portal build
-   ```
-
-   (Use your real HA URL/port; add both `http://…` and `https://…` variants if
-   you reach HA either way.) You get a native sidebar panel and no Ingress
-   sub-path issue; you lose HA's auth-gating in front of the app (the app has its
-   own login).
-
-2. **Reverse proxy at a stable path / subdomain** (e.g. via the HA *NGINX Proxy
-   Manager* add-on or your router), then use `panel_iframe` against that URL.
-
-Use whichever fits your network. Try Ingress first (nothing to build); if the
-panel stays blank due to the asset sub-path issue, switch to the `panel_iframe`
-fallback, which always works.
+The add-on route is simpler because it needs **no** change to the app or its
+Docker image.
