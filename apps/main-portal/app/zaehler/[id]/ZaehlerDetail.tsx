@@ -3,6 +3,7 @@
 import { useActionState, useEffect, useRef } from "react";
 import Link from "next/link";
 import {
+  ActionIcon,
   Alert,
   Badge,
   Button,
@@ -10,6 +11,7 @@ import {
   Grid,
   GridCol,
   Group,
+  NumberInput,
   Select,
   Stack,
   Table,
@@ -22,15 +24,18 @@ import {
   TextInput,
   Title,
 } from "@mantine/core";
-import { IconAlertCircle, IconArrowLeft, IconBulb, IconCheck } from "@tabler/icons-react";
+import { IconAlertCircle, IconArrowLeft, IconBulb, IconCheck, IconReceipt2, IconTrash } from "@tabler/icons-react";
 import {
   ENERGY_CATEGORIES,
   ENERGY_CATEGORY_LABELS,
   calculateConsumption,
+  calculateTariffCost,
   computeConsumptionStats,
+  gasM3ToKwh,
+  pickTariffForDate,
 } from "@zaehlwerk/database/shared";
 import type { getZaehlerById, listLocations } from "../../lib/zaehler-actions";
-import { updateZaehlerAction } from "../../lib/zaehler-actions";
+import { createTarifAction, deleteTarifAction, updateZaehlerAction } from "../../lib/zaehler-actions";
 import { initialActionState } from "../../lib/action-state";
 import { getSmartHomeTips } from "./smart-home-tips";
 import classes from "./ZaehlerDetail.module.css";
@@ -41,6 +46,7 @@ type LocationList = Awaited<ReturnType<typeof listLocations>>;
 const dateFormatter = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
 const numberFormatter = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 });
 const perDayFormatter = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 2 });
+const eur = new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" });
 
 export function ZaehlerDetail({
   zaehler,
@@ -56,6 +62,18 @@ export function ZaehlerDetail({
   // `null` sein (unplausibel) — das rendert die Tabelle bewusst als solches.
   const intervalByReadingId = new Map(intervals.map((interval) => [interval.toReadingId, interval]));
   const tips = getSmartHomeTips(zaehler.kategorie);
+
+  const isGas = zaehler.kategorie === "GAS";
+  // Tarifbasierte Kosten je Intervall: Gas wird für die Abrechnung in kWh
+  // umgerechnet, Strom/Wasser bleiben in ihrer Einheit.
+  function tariffCostFor(interval: (typeof intervals)[number]): number | null {
+    if (interval.amount === null) return null;
+    const tarif = pickTariffForDate(zaehler.tarife, interval.to);
+    if (!tarif) return null;
+    const verbrauch = isGas ? gasM3ToKwh(interval.amount) : interval.amount;
+    return calculateTariffCost(tarif, verbrauch, interval.days);
+  }
+  const hasTarife = zaehler.tarife.length > 0;
 
   return (
     <Stack gap="lg">
@@ -135,12 +153,14 @@ export function ZaehlerDetail({
                     <TableTh>Zählerstand</TableTh>
                     <TableTh>Verbrauch</TableTh>
                     <TableTh>Kosten</TableTh>
+                    {hasTarife && <TableTh>Kosten (Tarif)</TableTh>}
                     <TableTh>Quelle</TableTh>
                   </TableTr>
                 </TableThead>
                 <TableTbody>
                   {zaehler.ablesungen.map((ablesung) => {
                     const interval = intervalByReadingId.get(ablesung.id);
+                    const tariffCost = interval ? tariffCostFor(interval) : null;
                     return (
                       <TableTr key={ablesung.id}>
                         <TableTd>{dateFormatter.format(ablesung.datum)}</TableTd>
@@ -166,6 +186,17 @@ export function ZaehlerDetail({
                         <TableTd>
                           {ablesung.kosten != null ? `${numberFormatter.format(ablesung.kosten)} €` : "–"}
                         </TableTd>
+                        {hasTarife && (
+                          <TableTd>
+                            {tariffCost !== null ? (
+                              <Text component="span" size="sm" c="dimmed">
+                                {eur.format(tariffCost)}
+                              </Text>
+                            ) : (
+                              "–"
+                            )}
+                          </TableTd>
+                        )}
                         <TableTd>
                           <Badge size="xs" variant="outline" color="slate">
                             {ablesung.quelle}
@@ -183,6 +214,8 @@ export function ZaehlerDetail({
         <GridCol span={{ base: 12, lg: 4 }}>
           <Stack gap="md">
             <EditZaehlerForm zaehler={zaehler} locations={locations} />
+
+            <TarifeCard zaehler={zaehler} />
 
             <Card withBorder radius="md" p="lg">
               <Group gap="xs" mb="sm">
@@ -269,6 +302,113 @@ function EditZaehlerForm({
 
           <Button type="submit" color="slate" loading={pending} fullWidth>
             Speichern
+          </Button>
+        </Stack>
+      </form>
+    </Card>
+  );
+}
+
+function TarifeCard({ zaehler }: { zaehler: ZaehlerWithHistory }) {
+  const [createState, createAction, creating] = useActionState(createTarifAction, initialActionState);
+  const [deleteState, deleteAction] = useActionState(deleteTarifAction, initialActionState);
+  const formRef = useRef<HTMLFormElement>(null);
+  const today = new Date().toISOString().slice(0, 10);
+  const einheit = zaehler.kategorie === "GAS" ? "kWh" : zaehler.einheit;
+
+  useEffect(() => {
+    if (createState.success) {
+      formRef.current?.reset();
+    }
+  }, [createState.success]);
+
+  return (
+    <Card withBorder radius="md" p="lg">
+      <Group gap="xs" mb="sm">
+        <IconReceipt2 size={18} stroke={1.6} />
+        <Title order={4}>Tarife</Title>
+      </Group>
+
+      {zaehler.tarife.length === 0 ? (
+        <Text size="sm" c="dimmed" mb="sm">
+          Noch kein Tarif hinterlegt. Ohne Tarif werden Kosten nur aus erfassten Beträgen angezeigt.
+        </Text>
+      ) : (
+        <Stack gap="xs" mb="md">
+          {zaehler.tarife.map((tarif) => (
+            <Group key={tarif.id} justify="space-between" wrap="nowrap" align="flex-start">
+              <div>
+                <Text size="sm" fw={600}>
+                  {tarif.produkt ?? tarif.anbieter ?? "Tarif"}
+                </Text>
+                <Text size="xs" c="dimmed">
+                  ab {dateFormatter.format(tarif.gueltigAb)}
+                  {tarif.gueltigBis ? ` bis ${dateFormatter.format(tarif.gueltigBis)}` : ""} ·{" "}
+                  {perDayFormatter.format(tarif.arbeitspreisCtNetto)} ct/{einheit} netto
+                  {tarif.grundpreisJahrNetto > 0
+                    ? ` · ${perDayFormatter.format(tarif.grundpreisJahrNetto)} €/Jahr GP`
+                    : ""}{" "}
+                  · {perDayFormatter.format(tarif.mwstProzent)} % MwSt
+                </Text>
+              </div>
+              <form action={deleteAction}>
+                <input type="hidden" name="id" value={tarif.id} />
+                <input type="hidden" name="zaehlerId" value={zaehler.id} />
+                <ActionIcon type="submit" variant="subtle" color="red" aria-label="Tarif löschen">
+                  <IconTrash size={16} />
+                </ActionIcon>
+              </form>
+            </Group>
+          ))}
+        </Stack>
+      )}
+
+      {deleteState.error && (
+        <Alert color="red" icon={<IconAlertCircle size={16} />} variant="light" mb="sm">
+          {deleteState.error}
+        </Alert>
+      )}
+
+      <form action={createAction} ref={formRef}>
+        <input type="hidden" name="zaehlerId" value={zaehler.id} />
+        <Stack gap="xs">
+          <TextInput name="produkt" label="Produkt / Tarifname" placeholder="z. B. Grundversorgung 2024" />
+          <Group grow>
+            <TextInput name="gueltigAb" label="Gültig ab" type="date" defaultValue={today} required />
+            <TextInput name="gueltigBis" label="Gültig bis (optional)" type="date" />
+          </Group>
+          <NumberInput
+            name="arbeitspreisCtNetto"
+            label={`Arbeitspreis (ct/${einheit}, netto)`}
+            placeholder="z. B. 34"
+            min={0}
+            decimalScale={4}
+            required
+          />
+          <Group grow>
+            <NumberInput
+              name="grundpreisJahrNetto"
+              label="Grundpreis (€/Jahr, netto)"
+              placeholder="0"
+              min={0}
+              decimalScale={2}
+            />
+            <NumberInput name="mwstProzent" label="MwSt %" defaultValue={19} min={0} max={100} decimalScale={1} />
+          </Group>
+
+          {createState.error && (
+            <Alert color="red" icon={<IconAlertCircle size={16} />} variant="light">
+              {createState.error}
+            </Alert>
+          )}
+          {createState.success && (
+            <Alert color="green" icon={<IconCheck size={16} />} variant="light">
+              Tarif gespeichert.
+            </Alert>
+          )}
+
+          <Button type="submit" color="slate" loading={creating} fullWidth>
+            Tarif hinzufügen
           </Button>
         </Stack>
       </form>

@@ -74,6 +74,44 @@ export const ablesungCreateSchema = z
 
 export type AblesungCreateInput = z.infer<typeof ablesungCreateSchema>;
 
+export const tarifCreateSchema = z
+  .object({
+    zaehlerId: z.string().uuid(),
+    anbieter: z
+      .string()
+      .trim()
+      .max(120)
+      .optional()
+      .or(z.literal(""))
+      .transform((value) => (value ? value : undefined)),
+    produkt: z
+      .string()
+      .trim()
+      .max(120)
+      .optional()
+      .or(z.literal(""))
+      .transform((value) => (value ? value : undefined)),
+    gueltigAb: z.coerce.date(),
+    gueltigBis: z.coerce.date().optional(),
+    // Arbeitspreis netto in ct je Abrechnungseinheit; Grundpreis netto €/Jahr.
+    arbeitspreisCtNetto: z.coerce.number().finite().nonnegative().max(100_000),
+    grundpreisJahrNetto: z.coerce.number().finite().nonnegative().max(100_000).optional().default(0),
+    mwstProzent: z.coerce.number().finite().min(0).max(100).optional().default(19),
+    notiz: z
+      .string()
+      .trim()
+      .max(500)
+      .optional()
+      .or(z.literal(""))
+      .transform((value) => (value ? value : undefined)),
+  })
+  .refine((data) => !data.gueltigBis || data.gueltigBis >= data.gueltigAb, {
+    path: ["gueltigBis"],
+    message: "„Gültig bis“ darf nicht vor „Gültig ab“ liegen.",
+  });
+
+export type TarifCreateInput = z.infer<typeof tarifCreateSchema>;
+
 export const locationCreateSchema = z.object({
   name: nameField,
   address: z

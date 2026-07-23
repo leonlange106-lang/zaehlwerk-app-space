@@ -4,3 +4,5 @@
 export * from "./categories";
 export * from "./schemas";
 export * from "./consumption";
+export * from "./gas";
+export * from "./tariff";

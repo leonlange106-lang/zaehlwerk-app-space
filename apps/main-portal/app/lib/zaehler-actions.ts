@@ -7,6 +7,7 @@ import {
   computeConsumptionStats,
   calculateConsumption,
   prisma,
+  tarifCreateSchema,
   zaehlerCreateSchema,
   zaehlerUpdateSchema,
 } from "@zaehlwerk/database";
@@ -34,6 +35,7 @@ export async function getZaehlerById(id: string) {
     include: {
       location: true,
       ablesungen: { orderBy: { datum: "desc" } },
+      tarife: { orderBy: { gueltigAb: "desc" } },
     },
   });
 }
@@ -130,6 +132,65 @@ export async function updateZaehlerAction(
   revalidatePath(`/zaehler/${id}`);
   revalidatePath("/zaehler");
   revalidatePath("/");
+  return { success: true };
+}
+
+export async function createTarifAction(
+  _prevState: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const bisRaw = formData.get("gueltigBis");
+  const parsed = tarifCreateSchema.safeParse({
+    zaehlerId: formData.get("zaehlerId"),
+    anbieter: formData.get("anbieter"),
+    produkt: formData.get("produkt"),
+    gueltigAb: formData.get("gueltigAb"),
+    gueltigBis: bisRaw ? bisRaw : undefined,
+    arbeitspreisCtNetto: formData.get("arbeitspreisCtNetto"),
+    grundpreisJahrNetto: formData.get("grundpreisJahrNetto") ?? undefined,
+    mwstProzent: formData.get("mwstProzent") ?? undefined,
+    notiz: formData.get("notiz"),
+  });
+
+  if (!parsed.success) {
+    return invalidInput(parsed.error);
+  }
+
+  try {
+    await prisma.tarif.create({ data: parsed.data });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2003") {
+      return { success: false, error: "Der gewählte Zähler existiert nicht mehr." };
+    }
+    console.error("[createTarifAction]", error);
+    return { success: false, error: "Der Tarif konnte nicht gespeichert werden." };
+  }
+
+  revalidatePath(`/zaehler/${parsed.data.zaehlerId}`);
+  return { success: true };
+}
+
+export async function deleteTarifAction(
+  _prevState: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const id = formData.get("id");
+  const zaehlerId = formData.get("zaehlerId");
+  if (typeof id !== "string") {
+    return { success: false, error: "Ungültige Eingabe." };
+  }
+
+  try {
+    await prisma.tarif.delete({ where: { id } });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {
+      return { success: false, error: "Dieser Tarif existiert nicht mehr." };
+    }
+    console.error("[deleteTarifAction]", error);
+    return { success: false, error: "Der Tarif konnte nicht gelöscht werden." };
+  }
+
+  if (typeof zaehlerId === "string") revalidatePath(`/zaehler/${zaehlerId}`);
   return { success: true };
 }
 
