@@ -79,5 +79,24 @@ services:
       retries: 3
       start_period: 40s
 
+  # One-shot helper that runs `prisma db push` against the DB volume. Built from
+  # the BUILDER stage (which has the Prisma CLI + schema, unlike the slim
+  # runner). scripts/update.sh runs it via `docker compose run` so the build
+  # goes through Compose's BuildKit — a plain `docker build` here uses the
+  # legacy builder (no buildx plugin in the container) and chokes on the
+  # Dockerfile's cache mounts. The "tools" profile keeps `up` from starting it.
+  db-migrate:
+    profiles: ["tools"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder
+    image: zaehlwerk-builder:latest
+    environment:
+      DATABASE_URL: file:/data/zaehlwerk.db
+    volumes:
+      - zaehlwerk-db:/data
+    command: ["sh", "-c", "cd packages/database && pnpm db:push"]
+
 volumes:
   zaehlwerk-db:
