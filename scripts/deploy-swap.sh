@@ -24,10 +24,15 @@ write_status() {
 }
 
 echo "[deploy] $(now) recreating main-portal (compose up -d --no-build)"
-cd /repo || {
-  write_status failed false true "Deployer: /repo nicht gefunden" "" "${GIT_SHA:-}"
+# Run from the repo root (this script lives in <repo>/scripts). The caller mounts
+# the repo at its real HOST path and sets that as the workdir, so compose's
+# `.:/repo` bind resolves correctly on the host daemon.
+REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$REPO_DIR" || {
+  write_status failed false true "Deployer: Repo-Verzeichnis nicht gefunden" "" "${GIT_SHA:-}"
   exit 1
 }
+echo "[deploy] repo dir: $REPO_DIR"
 
 # --no-build: the image was already built in update.sh; this is just the swap.
 if docker compose -f "$COMPOSE_FILE" up -d --no-build; then

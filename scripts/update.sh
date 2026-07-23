@@ -102,14 +102,26 @@ docker run --rm -v "${DB_VOLUME}:/data" -e DATABASE_URL="$MIGRATE_DB_URL" \
 # Built from the NEW image (it has docker + compose). It is NOT part of the
 # compose project, so recreating main-portal does not kill it — it finishes the
 # swap and writes the authoritative done/failed status the UI waits for.
+#
+# docker-outside-of-docker gotcha: bind-mount SOURCE paths in a `docker run`
+# (and in the compose file's `.:/repo`) are resolved by the HOST daemon, not
+# inside this container. So we must give the deployer the repo at its real HOST
+# path and run compose from there — otherwise `.` would resolve to a
+# nonexistent host "/repo" and main-portal would come back with an empty repo.
+SELF_CONTAINER="${SELF_CONTAINER:-zaehlwerk-main-portal}"
+HOST_REPO="$(docker inspect "$SELF_CONTAINER" \
+  --format '{{range .Mounts}}{{if eq .Destination "/repo"}}{{.Source}}{{end}}{{end}}' 2>/dev/null)"
+HOST_REPO="${HOST_REPO:-$REPO_ROOT}"
+echo "[update] host repo path: $HOST_REPO"
+
 echo "[update] handing container swap to detached deployer"
 write_status restarting true false "Anwendung wird neu gestartet" "" "$GIT_SHA"
 docker rm -f zaehlwerk-deployer >/dev/null 2>&1 || true
 docker run -d --rm --name zaehlwerk-deployer \
   -v /var/run/docker.sock:/var/run/docker.sock \
-  -v "$REPO_ROOT":/repo \
+  -v "${HOST_REPO}:${HOST_REPO}" \
   -v "${DB_VOLUME}:/data" \
-  -w /repo \
+  -w "$HOST_REPO" \
   --entrypoint sh \
   -e COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT_NAME" \
   -e COMPOSE_FILE="$COMPOSE_FILE" \
@@ -117,7 +129,7 @@ docker run -d --rm --name zaehlwerk-deployer \
   -e UPDATE_LOG_FILE="$LOG_FILE" \
   -e GIT_SHA="$GIT_SHA" \
   "$IMAGE_TAG" \
-  /repo/scripts/deploy-swap.sh \
+  "${HOST_REPO}/scripts/deploy-swap.sh" \
   || fail "Deployer konnte nicht gestartet werden – Details im Log" "$GIT_SHA"
 
 echo "[update] deployer launched; this script exits, swap continues detached $(now)"
