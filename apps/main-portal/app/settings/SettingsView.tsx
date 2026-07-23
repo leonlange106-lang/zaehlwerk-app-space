@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
   Badge,
@@ -38,6 +38,7 @@ import type { AuditEvent } from "@/app/lib/audit";
 import type { SnapshotFile } from "@/app/lib/backup-engine";
 import type { DatabaseStats } from "@/app/lib/db-maintenance";
 import type { BackupPolicy } from "@/app/lib/settings";
+import { normalizeUpdateState, UPDATE_STEPS, type UpdateState } from "@/app/lib/update-status";
 import { SystemBackupCard } from "./SystemBackupCard";
 import { UserManagementCard } from "./UserManagementCard";
 import { SecurityCard } from "./SecurityCard";
@@ -110,59 +111,30 @@ type CheckState =
   | { status: "error"; message: string }
   | { status: "done"; result: UpdateCheckResult };
 
-// The concrete actions of an update, in order. The server reports a matching
-// `stage`; everything before the active stage is shown as done. The live log
-// below carries the real detail — these are just the milestones.
-const UPDATE_STEPS = [
-  "Neuer Code geholt (git pull)",
-  "Neue Version gebaut",
-  "Datenbank migriert",
-  "Anwendung neu gestartet",
-];
-
-// Server stage → index of the currently-active step. `done` = all complete.
-const STAGE_INDEX: Record<string, number> = {
-  started: 0,
-  pulling: 0,
-  building: 1,
-  migrating: 2,
-  restarting: 3,
-  done: UPDATE_STEPS.length,
-  failed: 0,
-};
-
-function stageIndex(stage: string): number {
-  return STAGE_INDEX[stage] ?? 0;
-}
-
-type UpdatePhase =
-  | { kind: "idle" }
-  | { kind: "running"; stage: string; message: string }
-  | { kind: "success" }
-  | { kind: "failed"; stage: string; message: string };
-
-function UpdateProgress({ phase }: { phase: UpdatePhase }) {
-  const success = phase.kind === "success";
-  const failed = phase.kind === "failed";
-  const active =
-    success
-      ? UPDATE_STEPS.length
-      : phase.kind === "running" || phase.kind === "failed"
-        ? stageIndex(phase.stage)
-        : 0;
+/**
+ * The progress stepper, driven entirely by the server-normalized {@link UpdateState}.
+ * `failIndex` marks which step to flag on failure — the raw "failed" stage no
+ * longer carries a step, so the client remembers the last running step instead.
+ */
+function UpdateProgress({ state, failIndex }: { state: UpdateState; failIndex: number }) {
+  const steps = state.steps.length ? state.steps : [...UPDATE_STEPS];
+  const success = state.status === "SUCCESS";
+  const failed = state.status === "ERROR";
+  const active = failed ? failIndex : state.stepIndex;
 
   return (
     <Stack gap="sm">
       <Progress
-        value={success ? 100 : Math.round((active / UPDATE_STEPS.length) * 100)}
+        value={success ? 100 : state.progress}
         color={failed ? "red" : success ? "green" : "slate"}
         animated={!failed && !success}
         striped={!failed && !success}
         radius="sm"
+        data-testid="update-progress-bar"
       />
       <Stack gap={6}>
-        {UPDATE_STEPS.map((label, index) => {
-          const isDone = index < active;
+        {steps.map((label, index) => {
+          const isDone = index < active || success;
           const isActiveStep = index === active && !success && !failed;
           const isFailedStep = failed && index === active;
           return (
@@ -183,10 +155,10 @@ function UpdateProgress({ phase }: { phase: UpdatePhase }) {
           );
         })}
       </Stack>
-      {phase.kind === "running" && (
+      {state.status === "RUNNING" && (
         <Text size="xs" c="dimmed">
-          {phase.message || "…"}
-          {phase.stage === "building" && " — genauer Fortschritt im Live-Log unten."}
+          {state.message || "…"}
+          {state.stage === "building" && " — genauer Fortschritt im Live-Log unten."}
         </Text>
       )}
     </Stack>
@@ -194,49 +166,22 @@ function UpdateProgress({ phase }: { phase: UpdatePhase }) {
 }
 
 /**
- * Read-only live tail of the server's /data/update.log. While an update is
- * `active` it re-fetches every 1.5s; the log lives on the persistent volume, so
- * a failed fetch during the container restart is transient and the full log
- * reappears once the new container answers.
+ * Read-only view of the server update log. The text is pushed in via SSE (part
+ * of the broadcast state), so this component no longer fetches anything — it
+ * just renders the latest tail and sticks to the bottom as new lines arrive.
  */
-function LiveUpdateLog({ active }: { active: boolean }) {
-  const [text, setText] = useState("");
+function UpdateLogView({ logs }: { logs: string }) {
   const viewportRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    let cancelled = false;
-    async function fetchLog() {
-      try {
-        const response = await fetch("/api/update/log", { cache: "no-store" });
-        if (!response.ok || cancelled) return;
-        const body = await response.text();
-        if (!cancelled) setText(body);
-      } catch {
-        // Server is likely being recreated mid-update — keep the last content
-        // and let the next tick pick the log back up.
-      }
-    }
-    fetchLog();
-    if (!active) return () => {
-      cancelled = true;
-    };
-    const id = setInterval(fetchLog, 1500);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, [active]);
-
-  // Stick to the bottom as new lines stream in.
-  useEffect(() => {
     const viewport = viewportRef.current;
     if (viewport) viewport.scrollTo({ top: viewport.scrollHeight });
-  }, [text]);
+  }, [logs]);
 
   return (
     <ScrollArea h={300} viewportRef={viewportRef} className={classes.logScroll} type="auto">
       <pre className={classes.logPre}>
-        {text ||
+        {logs ||
           "Noch keine Log-Ausgabe. Sobald ein Update läuft, erscheint hier live das komplette Server-Protokoll (git pull, Migration, Build, Neustart)."}
       </pre>
     </ScrollArea>
@@ -245,25 +190,87 @@ function LiveUpdateLog({ active }: { active: boolean }) {
 
 function UpdateSettingsCard({ versionInfo }: { versionInfo: LocalCommitInfo | null }) {
   const [checkState, setCheckState] = useState<CheckState>({ status: "idle" });
-  const [phase, setPhase] = useState<UpdatePhase>({ kind: "idle" });
   const [token, setToken] = useState("");
   const [tokenRequired, setTokenRequired] = useState(false);
   const [logOpen, setLogOpen] = useState(false);
+  // The global, server-authoritative update state (from the initial fetch + SSE).
+  const [state, setState] = useState<UpdateState | null>(null);
+  // True once THIS session has witnessed a RUNNING state — so a stale "done"
+  // left on disk from a past update never shows a success banner or triggers a
+  // reload on a fresh page load.
+  const [witnessedRunning, setWitnessedRunning] = useState(false);
+  // The last RUNNING step index — where a subsequent failure is flagged in the
+  // stepper (the raw "failed" stage carries no step). Kept in state for render
+  // and mirrored to a ref for the SSE error handler.
+  const [lastRunningStep, setLastRunningStep] = useState(0);
 
-  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastStageRef = useRef("started");
-  const startRef = useRef(0);
+  const esRef = useRef<EventSource | null>(null);
+  const sawRunningRef = useRef(false);
+  const lastRunningIndexRef = useRef(0);
+  const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reloadingRef = useRef(false);
 
-  function stopPolling() {
-    if (pollRef.current) {
-      clearTimeout(pollRef.current);
-      pollRef.current = null;
+  const finishSuccess = useCallback(() => {
+    if (reloadingRef.current) return;
+    reloadingRef.current = true;
+    // Reload so the version badge shows the new build. If the session was lost
+    // across the swap, the reload lands on /login — also fine.
+    setTimeout(() => window.location.reload(), 1500);
+  }, []);
+
+  // Fold an incoming state into the UI. Terminal states only act (reload / show
+  // failure) once we've actually seen the run go RUNNING in this session.
+  const applyState = useCallback(
+    (next: UpdateState) => {
+      setState(next);
+      if (reloadTimerRef.current) {
+        clearTimeout(reloadTimerRef.current);
+        reloadTimerRef.current = null;
+      }
+      if (next.status === "RUNNING") {
+        sawRunningRef.current = true;
+        lastRunningIndexRef.current = next.stepIndex;
+        setLastRunningStep(next.stepIndex);
+        setWitnessedRunning(true);
+        setLogOpen(true);
+      } else if (next.status === "SUCCESS" && sawRunningRef.current) {
+        finishSuccess();
+      }
+    },
+    [finishSuccess],
+  );
+
+  // Open the shared SSE stream. Every settings session keeps one open, so a run
+  // started from ANY client is broadcast here in realtime.
+  const attachStream = useCallback(() => {
+    if (esRef.current) return;
+    let es: EventSource;
+    try {
+      es = new EventSource("/api/system/update/stream");
+    } catch {
+      return;
     }
-  }
+    es.addEventListener("state", (event) => {
+      try {
+        applyState(JSON.parse((event as MessageEvent).data) as UpdateState);
+      } catch {
+        // ignore a malformed frame; the next one supersedes it
+      }
+    });
+    es.onerror = () => {
+      // EventSource auto-reconnects on a dropped connection. The one gap it can't
+      // bridge is the mid-update container swap: if we're in the restart step and
+      // the stream can't be re-established, fall back to a full reload onto the
+      // new build (which may require re-auth — landing on /login is fine).
+      if (!sawRunningRef.current || lastRunningIndexRef.current < 3) return;
+      if (reloadTimerRef.current || reloadingRef.current) return;
+      reloadTimerRef.current = setTimeout(() => window.location.reload(), 10_000);
+    };
+    esRef.current = es;
+  }, [applyState]);
 
   // On mount: learn whether the server requires a token, and restore a
-  // remembered one so it isn't re-typed on every update. All setState happens
-  // after the await boundary (never synchronously inside the effect body).
+  // remembered one so it isn't re-typed on every update.
   useEffect(() => {
     let cancelled = false;
     void (async () => {
@@ -291,61 +298,33 @@ function UpdateSettingsCard({ versionInfo }: { versionInfo: LocalCommitInfo | nu
     };
   }, []);
 
-  // Clear any pending timer if the component unmounts mid-update.
-  useEffect(() => stopPolling, []);
-
-  // Single source of truth: poll the authoritative status file. The detached
-  // deployer writes "done"/"failed" once the swap is really finished, so we no
-  // longer have to guess success from a dropped connection. A fetch failure
-  // here is almost always the brief mid-update recreate — we keep retrying.
-  function finishSuccess() {
-    stopPolling();
-    setPhase({ kind: "success" });
-    // Reload so the version badge + "current version" show the new build. If the
-    // session was lost across the swap, the reload lands on /login — also fine.
-    setTimeout(() => window.location.reload(), 1500);
-  }
-
-  async function pollStatus() {
-    try {
-      const response = await fetch("/api/update/status", { cache: "no-store" });
-      // The new build answering with 401/403 means the swap finished and the app
-      // is back — just under auth now (e.g. the first update onto the auth
-      // build, where this polling browser has no session). Treat as done.
-      if (response.status === 401 || response.status === 403) {
-        finishSuccess();
-        return;
+  // On mount/refresh: fetch the current global state (client persistency), then
+  // attach the SSE stream so this session stays in sync with all others.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch("/api/system/update/state", { cache: "no-store" });
+        if (response.ok && !cancelled) {
+          applyState((await response.json()) as UpdateState);
+        }
+      } catch {
+        // ignore — the stream below will deliver the state shortly
       }
-      const data = await response.json();
-      if (data.stage === "failed") {
-        setPhase({ kind: "failed", stage: lastStageRef.current, message: data.message ?? "Update fehlgeschlagen." });
-        stopPolling();
-        return;
+      if (!cancelled) attachStream();
+    })();
+    return () => {
+      cancelled = true;
+      if (esRef.current) {
+        esRef.current.close();
+        esRef.current = null;
       }
-      if (data.stage === "done") {
-        finishSuccess();
-        return;
+      if (reloadTimerRef.current) {
+        clearTimeout(reloadTimerRef.current);
+        reloadTimerRef.current = null;
       }
-      if (data.stage && data.stage !== "idle") {
-        lastStageRef.current = data.stage;
-        setPhase({ kind: "running", stage: data.stage, message: data.message ?? "" });
-      }
-      pollRef.current = setTimeout(pollStatus, 1500);
-    } catch {
-      // Server unreachable — the recreate is in flight. Keep waiting; the new
-      // container serves "done" shortly. Give up only after a generous cap.
-      if (Date.now() - startRef.current > 12 * 60_000) {
-        setPhase({
-          kind: "failed",
-          stage: lastStageRef.current,
-          message: "Zeitüberschreitung — bitte das Server-Log unten prüfen.",
-        });
-        stopPolling();
-        return;
-      }
-      pollRef.current = setTimeout(pollStatus, 2000);
-    }
-  }
+    };
+  }, [applyState, attachStream]);
 
   async function handleCheck() {
     setCheckState({ status: "loading" });
@@ -363,11 +342,11 @@ function UpdateSettingsCard({ versionInfo }: { versionInfo: LocalCommitInfo | nu
   }
 
   function handleTrigger() {
-    stopPolling();
-    lastStageRef.current = "started";
-    startRef.current = Date.now();
+    attachStream();
     setLogOpen(true);
-    setPhase({ kind: "running", stage: "started", message: "Update wird gestartet…" });
+    // Optimistic RUNNING so the UI responds instantly; the SSE stream takes over
+    // with the authoritative per-stage progress within ~1s.
+    applyState(normalizeUpdateState({ stage: "started", message: "Update wird gestartet…" }, state?.logs ?? ""));
 
     void (async () => {
       try {
@@ -377,7 +356,12 @@ function UpdateSettingsCard({ versionInfo }: { versionInfo: LocalCommitInfo | nu
         });
         const data = await response.json();
         if (!response.ok) {
-          setPhase({ kind: "failed", stage: "started", message: data.error ?? "Update konnte nicht gestartet werden." });
+          applyState(
+            normalizeUpdateState(
+              { stage: "failed", message: data.error ?? "Update konnte nicht gestartet werden." },
+              state?.logs ?? "",
+            ),
+          );
           return;
         }
         if (token) {
@@ -387,20 +371,102 @@ function UpdateSettingsCard({ versionInfo }: { versionInfo: LocalCommitInfo | nu
             // ignore
           }
         }
-        pollRef.current = setTimeout(pollStatus, 1500);
+        // Progress now arrives over SSE — nothing else to do here.
       } catch {
-        setPhase({ kind: "failed", stage: "started", message: "Update konnte nicht gestartet werden (Netzwerkfehler)." });
+        applyState(
+          normalizeUpdateState(
+            { stage: "failed", message: "Update konnte nicht gestartet werden (Netzwerkfehler)." },
+            state?.logs ?? "",
+          ),
+        );
       }
     })();
   }
 
   const updateAvailable = checkState.status === "done" && checkState.result.updateAvailable;
+  const running = state?.status === "RUNNING";
+  const succeeded = witnessedRunning && state?.status === "SUCCESS";
+  const failed = witnessedRunning && state?.status === "ERROR";
+  // The progress block is global: it appears for anyone whose session witnessed
+  // the run, independent of whether they clicked "check for updates".
+  const showProgress = Boolean(running || succeeded || failed);
+  const logs = state?.logs ?? "";
 
   return (
     <Card withBorder radius="md" p="lg">
       <Title order={4} mb="sm">
         System-Update
       </Title>
+
+      {showProgress && state && (
+        <Alert
+          variant="light"
+          color={failed ? "red" : succeeded ? "green" : "slate"}
+          icon={
+            running ? (
+              <Loader size={16} color="slate" />
+            ) : succeeded ? (
+              <IconCircleCheck size={18} />
+            ) : (
+              <IconCircleX size={18} />
+            )
+          }
+          title={
+            running
+              ? "System-Update läuft…"
+              : succeeded
+                ? "Update abgeschlossen"
+                : "Update fehlgeschlagen"
+          }
+          mb="md"
+          data-testid="update-progress"
+        >
+          <Stack gap="sm">
+            <Text size="xs" c="dimmed">
+              {running
+                ? "Läuft global auf dem Server — der Fortschritt ist in allen geöffneten Sitzungen sichtbar und überdauert einen Reload."
+                : succeeded
+                  ? "Die Seite lädt neu…"
+                  : state.error}
+            </Text>
+
+            <UpdateProgress state={state} failIndex={lastRunningStep} />
+
+            {running && state.stage === "restarting" && (
+              <Button
+                variant="light"
+                color="slate"
+                size="xs"
+                leftSection={<IconRefresh size={14} />}
+                onClick={() => window.location.reload()}
+              >
+                Lädt nicht automatisch? Jetzt neu laden
+              </Button>
+            )}
+
+            {succeeded && (
+              <Group justify="flex-end">
+                <Button
+                  size="xs"
+                  color="green"
+                  variant="light"
+                  leftSection={<IconRefresh size={14} />}
+                  onClick={() => window.location.reload()}
+                >
+                  Jetzt neu laden
+                </Button>
+              </Group>
+            )}
+
+            {failed && (
+              <Text size="xs">
+                Vollständiges Protokoll auf dem Server:{" "}
+                <Code>docker compose -f docker-compose.prod.yml exec main-portal cat /data/update.log</Code>
+              </Text>
+            )}
+          </Stack>
+        </Alert>
+      )}
 
       <Group justify="space-between" mb="md">
         <div>
@@ -469,7 +535,7 @@ function UpdateSettingsCard({ versionInfo }: { versionInfo: LocalCommitInfo | nu
             </Button>
           </Alert>
 
-          {phase.kind === "idle" && (
+          {!running && (
             <>
               {tokenRequired && (
                 <PasswordInput
@@ -486,49 +552,9 @@ function UpdateSettingsCard({ versionInfo }: { versionInfo: LocalCommitInfo | nu
                 disabled={tokenRequired && !token}
                 onClick={handleTrigger}
               >
-                Update jetzt starten (git pull + Rebuild)
+                {failed ? "Update erneut starten" : "Update jetzt starten (git pull + Rebuild)"}
               </Button>
             </>
-          )}
-
-          {phase.kind !== "idle" && <UpdateProgress phase={phase} />}
-
-          {phase.kind === "running" && phase.stage === "restarting" && (
-            <Button
-              variant="light"
-              color="slate"
-              size="xs"
-              leftSection={<IconRefresh size={14} />}
-              onClick={() => window.location.reload()}
-            >
-              Lädt nicht automatisch? Jetzt neu laden
-            </Button>
-          )}
-
-          {phase.kind === "success" && (
-            <Alert color="green" icon={<IconCheck size={16} />} variant="light">
-              <Group justify="space-between" align="center" wrap="nowrap">
-                <Text size="sm">Update abgeschlossen — die Seite lädt neu…</Text>
-                <Button
-                  size="xs"
-                  color="green"
-                  variant="light"
-                  leftSection={<IconRefresh size={14} />}
-                  onClick={() => window.location.reload()}
-                >
-                  Jetzt neu laden
-                </Button>
-              </Group>
-            </Alert>
-          )}
-          {phase.kind === "failed" && (
-            <Alert color="red" icon={<IconAlertCircle size={16} />} variant="light">
-              {phase.message}
-              <Text size="xs" mt={4}>
-                Vollständiges Protokoll auf dem Server:{" "}
-                <Code>docker compose -f docker-compose.prod.yml exec main-portal cat /data/update.log</Code>
-              </Text>
-            </Alert>
           )}
         </Stack>
       )}
@@ -539,7 +565,7 @@ function UpdateSettingsCard({ versionInfo }: { versionInfo: LocalCommitInfo | nu
           <Text size="sm" fw={600}>
             Server-Log (live)
           </Text>
-          {phase.kind === "running" && <Loader size={12} color="slate" />}
+          {running && <Loader size={12} color="slate" />}
         </Group>
         <Button
           variant="subtle"
@@ -551,7 +577,7 @@ function UpdateSettingsCard({ versionInfo }: { versionInfo: LocalCommitInfo | nu
           {logOpen ? "Ausblenden" : "Anzeigen"}
         </Button>
       </Group>
-      {logOpen && <LiveUpdateLog active={phase.kind === "running"} />}
+      {logOpen && <UpdateLogView logs={logs} />}
     </Card>
   );
 }
