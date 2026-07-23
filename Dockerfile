@@ -1,8 +1,11 @@
+# syntax=docker/dockerfile:1
 # Multi-stage build for apps/main-portal (pnpm + Turborepo monorepo).
 #
-# Not verified against an actual `docker build` (no Docker available while
-# writing this) — please test locally before relying on it in production.
-# See DEPLOYMENT.md for the full deployment walkthrough.
+# Speed: uses BuildKit cache mounts (needs DOCKER_BUILDKIT=1 — scripts/update.sh
+# sets it) so the pnpm store and Next's build cache PERSIST across rebuilds. That
+# turns the self-update's `next build` from fully cold into incremental. If a
+# build ever errors on the `--mount` syntax, BuildKit isn't active — export
+# DOCKER_BUILDKIT=1 (or install buildx). See DEPLOYMENT.md.
 
 FROM node:20-alpine AS base
 RUN npm install -g pnpm@9.15.0
@@ -14,7 +17,11 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/main-portal/package.json apps/main-portal/package.json
 COPY packages/database/package.json packages/database/package.json
 COPY packages/updater/package.json packages/updater/package.json
-RUN pnpm install --frozen-lockfile
+# Cache mount for the pnpm content-addressable store → downloads are reused
+# across builds even when the lockfile changes (node_modules itself is copied
+# into the image layer, so the result stays self-contained).
+RUN --mount=type=cache,id=zw-pnpm-store,target=/pnpm-store \
+    pnpm config set store-dir /pnpm-store && pnpm install --frozen-lockfile
 
 # ---- builder: generate the Prisma client and build main-portal
 FROM base AS builder
@@ -35,7 +42,14 @@ ENV DATABASE_URL="file:./build-placeholder.db"
 # (via their own "build" scripts), then main-portal. Building main-portal
 # alone via `pnpm --filter main-portal build` would skip that and leave it
 # importing packages that were never compiled.
-RUN pnpm build
+#
+# Cache mounts persist Next's webpack cache and Turbo's cache across builds, so
+# an incremental rebuild only recompiles what actually changed instead of the
+# whole app every time. These live in BuildKit's cache (not the image layer),
+# so they never bloat the shipped image.
+RUN --mount=type=cache,id=zw-next-cache,target=/repo/apps/main-portal/.next/cache \
+    --mount=type=cache,id=zw-turbo-cache,target=/repo/.turbo \
+    pnpm build
 
 # ---- runner: minimal production image
 #

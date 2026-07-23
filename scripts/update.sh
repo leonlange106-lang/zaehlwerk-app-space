@@ -29,6 +29,12 @@ STATUS_FILE="${UPDATE_STATUS_FILE:-/data/update-status.json}"
 # Pin the Compose project name so a run from the container's /repo cwd targets
 # the SAME project (network/volume/container) as a manual run from the host.
 export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-zaehlwerk}"
+# Use BuildKit so the Dockerfile's cache mounts (pnpm store + Next build cache)
+# work — that's what turns a cold rebuild into an incremental one. COMPOSE_BAKE
+# is disabled so compose builds via BuildKit directly instead of trying (and
+# warning about) the missing buildx `bake` plugin.
+export DOCKER_BUILDKIT=1
+export COMPOSE_BAKE=false
 DB_VOLUME="${COMPOSE_PROJECT_NAME}_zaehlwerk-db"
 MIGRATE_DB_URL="${MIGRATE_DB_URL:-file:/data/zaehlwerk.db}"
 IMAGE_TAG="${IMAGE_TAG:-zaehlwerk-main-portal:latest}"

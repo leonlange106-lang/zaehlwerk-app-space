@@ -346,9 +346,24 @@ function UpdateSettingsCard({ versionInfo }: { versionInfo: LocalCommitInfo | nu
   // deployer writes "done"/"failed" once the swap is really finished, so we no
   // longer have to guess success from a dropped connection. A fetch failure
   // here is almost always the brief mid-update recreate — we keep retrying.
+  function finishSuccess() {
+    stopPolling();
+    setPhase({ kind: "success" });
+    // Reload so the version badge + "current version" show the new build. If the
+    // session was lost across the swap, the reload lands on /login — also fine.
+    setTimeout(() => window.location.reload(), 1500);
+  }
+
   async function pollStatus() {
     try {
       const response = await fetch("/api/update/status", { cache: "no-store" });
+      // The new build answering with 401/403 means the swap finished and the app
+      // is back — just under auth now (e.g. the first update onto the auth
+      // build, where this polling browser has no session). Treat as done.
+      if (response.status === 401 || response.status === 403) {
+        finishSuccess();
+        return;
+      }
       const data = await response.json();
       if (data.stage === "failed") {
         setPhase({ kind: "failed", stage: lastStageRef.current, message: data.message ?? "Update fehlgeschlagen." });
@@ -356,10 +371,7 @@ function UpdateSettingsCard({ versionInfo }: { versionInfo: LocalCommitInfo | nu
         return;
       }
       if (data.stage === "done") {
-        setPhase({ kind: "success" });
-        stopPolling();
-        // Reload so the version badge + "current version" show the new build.
-        setTimeout(() => window.location.reload(), 2000);
+        finishSuccess();
         return;
       }
       if (data.stage && data.stage !== "idle") {
@@ -529,9 +541,32 @@ function UpdateSettingsCard({ versionInfo }: { versionInfo: LocalCommitInfo | nu
 
           {phase.kind !== "idle" && <UpdateProgress phase={phase} />}
 
+          {phase.kind === "running" && phase.stage === "restarting" && (
+            <Button
+              variant="light"
+              color="slate"
+              size="xs"
+              leftSection={<IconRefresh size={14} />}
+              onClick={() => window.location.reload()}
+            >
+              Lädt nicht automatisch? Jetzt neu laden
+            </Button>
+          )}
+
           {phase.kind === "success" && (
             <Alert color="green" icon={<IconCheck size={16} />} variant="light">
-              Update erfolgreich abgeschlossen — die App läuft jetzt auf der neuen Version.
+              <Group justify="space-between" align="center" wrap="nowrap">
+                <Text size="sm">Update abgeschlossen — die Seite lädt neu…</Text>
+                <Button
+                  size="xs"
+                  color="green"
+                  variant="light"
+                  leftSection={<IconRefresh size={14} />}
+                  onClick={() => window.location.reload()}
+                >
+                  Jetzt neu laden
+                </Button>
+              </Group>
             </Alert>
           )}
           {phase.kind === "failed" && (
