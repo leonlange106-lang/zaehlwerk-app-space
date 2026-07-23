@@ -12,7 +12,13 @@ export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   if (!(await authenticateApiRequest(request))) return unauthorizedResponse();
 
-  const data = await getYearlyReportData();
+  const params = new URL(request.url).searchParams;
+  const yearRaw = params.get("year");
+  const year = yearRaw && /^\d{4}$/.test(yearRaw) ? Number(yearRaw) : undefined;
+  const idsParam = params.get("ids") ?? params.get("zaehlerId");
+  const ids = idsParam ? idsParam.split(",").map((id) => id.trim()).filter(Boolean) : undefined;
+
+  const data = await getYearlyReportData({ year, ids });
 
   // renderToBuffer is typed for a <Document> element; YearlyOverviewReport
   // returns exactly that, but its own props type is {data}, so bridge the two.
@@ -22,10 +28,11 @@ export async function GET(request: Request) {
   const buffer = await renderToBuffer(element);
 
   const datum = data.generatedAt.slice(0, 10);
+  const suffix = year ? `${year}` : datum;
   return new Response(new Uint8Array(buffer), {
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `attachment; filename="zaehlwerk_jahresuebersicht_${datum}.pdf"`,
+      "Content-Disposition": `attachment; filename="zaehlwerk_jahresuebersicht_${suffix}.pdf"`,
       "Cache-Control": "no-store",
     },
   });

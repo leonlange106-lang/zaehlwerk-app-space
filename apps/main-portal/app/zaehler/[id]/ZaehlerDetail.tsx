@@ -24,7 +24,14 @@ import {
   TextInput,
   Title,
 } from "@mantine/core";
-import { IconAlertCircle, IconArrowLeft, IconCheck, IconReceipt2, IconTrash } from "@tabler/icons-react";
+import {
+  IconAlertCircle,
+  IconArrowLeft,
+  IconChartLine,
+  IconCheck,
+  IconReceipt2,
+  IconTrash,
+} from "@tabler/icons-react";
 import {
   ENERGY_CATEGORIES,
   ENERGY_CATEGORY_LABELS,
@@ -33,6 +40,7 @@ import {
   computeConsumptionStats,
   gasM3ToKwh,
   pickTariffForDate,
+  type ConsumptionProjection,
 } from "@zaehlwerk/database/shared";
 import type { getZaehlerById, listLocations } from "../../lib/zaehler-actions";
 import { createTarifAction, deleteTarifAction, updateZaehlerAction } from "../../lib/zaehler-actions";
@@ -40,6 +48,7 @@ import { initialActionState } from "../../lib/action-state";
 import { getSmartHomeTips } from "./smart-home-tips";
 import { SmartHomeCard, type SmartHomeTokenOption } from "./SmartHomeCard";
 import { MeterDataCard } from "./MeterDataCard";
+import { ProjectionStats } from "../../berichte/projection-ui";
 import classes from "./ZaehlerDetail.module.css";
 
 type ZaehlerWithHistory = NonNullable<Awaited<ReturnType<typeof getZaehlerById>>>;
@@ -55,11 +64,13 @@ export function ZaehlerDetail({
   locations,
   apiTokens,
   origin,
+  projection,
 }: {
   zaehler: ZaehlerWithHistory;
   locations: LocationList;
   apiTokens: SmartHomeTokenOption[];
   origin: string;
+  projection: ConsumptionProjection;
 }) {
   const ascendingReadings = [...zaehler.ablesungen].reverse();
   const intervals = calculateConsumption(ascendingReadings);
@@ -222,6 +233,14 @@ export function ZaehlerDetail({
             <EditZaehlerForm zaehler={zaehler} locations={locations} />
 
             <MeterDataCard zaehlerId={zaehler.id} />
+
+            <Card withBorder radius="md" p="lg">
+              <Group gap="xs" mb="sm">
+                <IconChartLine size={18} stroke={1.6} />
+                <Title order={4}>Jahres-Hochrechnung</Title>
+              </Group>
+              <ProjectionStats projection={projection} />
+            </Card>
 
             <TarifeCard zaehler={zaehler} />
           </Stack>

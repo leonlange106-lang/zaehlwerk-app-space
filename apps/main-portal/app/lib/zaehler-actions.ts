@@ -7,10 +7,13 @@ import {
   computeConsumptionStats,
   calculateConsumption,
   prisma,
+  projectAnnualConsumption,
   tarifCreateSchema,
   zaehlerCreateSchema,
   zaehlerUpdateSchema,
+  type ConsumptionProjection,
 } from "@zaehlwerk/database";
+import type { EnergyCategoryValue } from "@zaehlwerk/database/shared";
 import type { ActionState } from "./action-state";
 
 /** Erste Zod-Fehlermeldung als strukturierte Action-Antwort. */
@@ -71,6 +74,44 @@ export async function getConsumptionSummary() {
       hasImplausibleData: stats.hasImplausibleIntervals,
     };
   });
+}
+
+export interface ProjectionSummaryEntry {
+  zaehlerId: string;
+  name: string;
+  kategorie: EnergyCategoryValue;
+  einheit: string;
+  farbe: string;
+  projection: ConsumptionProjection;
+}
+
+/**
+ * Jahres-Hochrechnung je aktivem Zähler (inkl. Tarifkosten), für die
+ * Berichte-Übersicht. Lädt Ablesungen + Tarife in einem `findMany`.
+ */
+export async function getProjectionSummary(): Promise<ProjectionSummaryEntry[]> {
+  const zaehlerList = await prisma.zaehler.findMany({
+    where: { aktiv: true },
+    orderBy: [{ kategorie: "asc" }, { sortIndex: "asc" }],
+    include: {
+      ablesungen: { orderBy: { datum: "asc" } },
+      tarife: { orderBy: { gueltigAb: "asc" } },
+    },
+  });
+
+  return zaehlerList.map((zaehler) => ({
+    zaehlerId: zaehler.id,
+    name: zaehler.name,
+    kategorie: zaehler.kategorie,
+    einheit: zaehler.einheit,
+    farbe: zaehler.farbe,
+    projection: projectAnnualConsumption({
+      readings: zaehler.ablesungen,
+      kategorie: zaehler.kategorie,
+      einheit: zaehler.einheit,
+      tarife: zaehler.tarife,
+    }),
+  }));
 }
 
 export async function createZaehlerAction(

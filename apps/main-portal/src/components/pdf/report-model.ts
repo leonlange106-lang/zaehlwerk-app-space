@@ -1,7 +1,10 @@
 import {
   calculateConsumption,
+  calculateTariffCost,
   computeConsumptionStats,
+  pickTariffForDate,
   type EnergyCategoryValue,
+  type TariffInput,
 } from "@zaehlwerk/database/shared";
 
 // Gas m³ → kWh = Verbrauch × Brennwert × Zustandszahl. Werte aus dem
@@ -49,6 +52,8 @@ export interface ReportZaehlerInput {
   kategorie: EnergyCategoryValue;
   einheit: string;
   ablesungen: ReportReadingInput[];
+  /** Hinterlegte Tarife — für die Kostenberechnung, wenn kein Betrag erfasst ist. */
+  tarife?: TariffInput[];
 }
 
 /** Eine Sparten-Zelle einer Datums-Zeile (Intervall, das an diesem Datum endet). */
@@ -102,6 +107,25 @@ function toIsoDate(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
+/**
+ * Kosten eines Intervalls: erfasster Betrag hat Vorrang, sonst tarifbasiert aus
+ * den hinterlegten Tarifen berechnet. `null`, wenn beides fehlt.
+ */
+function intervalCost(
+  meter: ReportZaehlerInput,
+  amount: number | null,
+  days: number,
+  endDate: Date,
+  recorded: number | null,
+): number | null {
+  if (recorded != null) return recorded;
+  if (amount === null || !meter.tarife || meter.tarife.length === 0) return null;
+  const tarif = pickTariffForDate(meter.tarife, endDate);
+  if (!tarif) return null;
+  const verbrauch = kategorieToSparte(meter.kategorie) === "Gas" ? amount * GAS_KWH_FACTOR : amount;
+  return calculateTariffCost(tarif, verbrauch, days);
+}
+
 /** Baut die Datum→Zelle-Zuordnung für einen Zähler einer Sparte. */
 function buildCellMap(meter: ReportZaehlerInput | undefined, sparte: Sparte): Map<string, UtilityCell> {
   const map = new Map<string, UtilityCell>();
@@ -119,7 +143,7 @@ function buildCellMap(meter: ReportZaehlerInput | undefined, sparte: Sparte): Ma
       consumptionKwh:
         sparte === "Gas" && interval.amount !== null ? interval.amount * GAS_KWH_FACTOR : null,
       days: interval.days,
-      cost: ending.kosten,
+      cost: intervalCost(meter, interval.amount, interval.days, ending.datum, ending.kosten),
       swap: ending.zaehlerGetauscht,
     });
   }
@@ -128,8 +152,18 @@ function buildCellMap(meter: ReportZaehlerInput | undefined, sparte: Sparte): Ma
 
 function buildMeterRow(zaehler: ReportZaehlerInput): ReportMeterRow {
   const ascending = [...zaehler.ablesungen].sort((a, b) => a.datum.getTime() - b.datum.getTime());
-  const stats = computeConsumptionStats(calculateConsumption(ascending));
+  const intervals = calculateConsumption(ascending);
+  const stats = computeConsumptionStats(intervals);
   const sparte = kategorieToSparte(zaehler.kategorie);
+  const byReadingId = new Map(ascending.map((reading) => [reading.id, reading]));
+
+  const totalCost = intervals.reduce((sum, interval) => {
+    const ending = byReadingId.get(interval.toReadingId);
+    if (!ending) return sum;
+    const cost = intervalCost(zaehler, interval.amount, interval.days, ending.datum, ending.kosten);
+    return sum + (cost ?? 0);
+  }, 0);
+
   return {
     id: zaehler.id,
     name: zaehler.name,
@@ -138,7 +172,7 @@ function buildMeterRow(zaehler: ReportZaehlerInput): ReportMeterRow {
     totalConsumption: stats.total,
     totalConsumptionKwh: sparte === "Gas" ? stats.total * GAS_KWH_FACTOR : null,
     avgPerDay: stats.avgPerDay,
-    totalCost: ascending.reduce((sum, reading) => sum + (reading.kosten ?? 0), 0),
+    totalCost,
     hasImplausible: stats.hasImplausibleIntervals,
   };
 }
