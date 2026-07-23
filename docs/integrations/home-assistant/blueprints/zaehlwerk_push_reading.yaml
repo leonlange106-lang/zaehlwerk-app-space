@@ -1,0 +1,70 @@
+blueprint:
+  name: "Zählwerk – Zählerstand übertragen"
+  description: >-
+    Überträgt den Wert eines beliebigen Home-Assistant-Sensors (Zählerstand) an
+    Zählwerk (`POST /api/v1/readings`). Voraussetzung: der `rest_command`
+    `zaehlwerk_push_reading` ist in der `configuration.yaml` definiert (siehe
+    docs/integrations/home-assistant/configuration.yaml). Übertragung täglich zu
+    einer festen Uhrzeit und optional zusätzlich bei jeder Sensoränderung.
+  domain: automation
+  source_url: https://github.com/leonlange106-lang/zaehlwerk-app-space/blob/main/docs/integrations/home-assistant/blueprints/zaehlwerk_push_reading.yaml
+  input:
+    source_sensor:
+      name: Zähler-Sensor
+      description: Der Sensor mit dem aktuellen Zählerstand (z. B. Tasmota/ESPHome/Shelly).
+      selector:
+        entity:
+          domain: sensor
+    meter_id:
+      name: Zählwerk Meter-ID (UUID)
+      description: >-
+        Die UUID des Zählers in Zählwerk. Steht in der Adresszeile beim Öffnen
+        des Zählers: /zaehler/<meterId>.
+      selector:
+        text: {}
+    push_time:
+      name: Übertragungszeit
+      description: Uhrzeit der täglichen Übertragung.
+      default: "23:55:00"
+      selector:
+        time: {}
+    also_on_change:
+      name: Zusätzlich bei jeder Sensoränderung senden
+      description: >-
+        Wenn aktiv, wird zusätzlich zur festen Uhrzeit bei jeder Wertänderung des
+        Sensors übertragen. Bei häufig schwankenden Sensoren besser deaktiviert
+        lassen (Rate-Limit: 120 Anfragen/Minute).
+      default: false
+      selector:
+        boolean: {}
+
+# !input in Templates ist nur über den variables-Block nutzbar.
+variables:
+  source_sensor: !input source_sensor
+  meter_id: !input meter_id
+  also_on_change: !input also_on_change
+
+trigger:
+  - platform: time
+    at: !input push_time
+    id: scheduled
+  - platform: state
+    entity_id: !input source_sensor
+    id: on_change
+
+# Bei "state"-Trigger nur weiter, wenn der Nutzer das aktiviert hat und der Wert
+# numerisch ist (kein "unavailable"/"unknown").
+condition:
+  - condition: template
+    value_template: >-
+      {{ trigger.id == 'scheduled'
+         or (also_on_change and states(source_sensor) not in ['unknown', 'unavailable', 'none']) }}
+
+action:
+  - service: rest_command.zaehlwerk_push_reading
+    data:
+      meter_id: "{{ meter_id }}"
+      value: "{{ states(source_sensor) | float(0) }}"
+
+mode: single
+max_exceeded: silent

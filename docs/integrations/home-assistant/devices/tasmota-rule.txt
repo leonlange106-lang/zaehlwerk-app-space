@@ -1,0 +1,35 @@
+# =============================================================================
+# Tasmota -> Zählwerk (direkter POST, ohne Home Assistant)
+# -----------------------------------------------------------------------------
+# Tasmota kann per WebQuery selbst HTTP-POSTs absetzen. Die folgenden Befehle in
+# die Tasmota-Konsole (Konsole -> Console) eingeben. Drei Stellen anpassen:
+#   - Portal-URL
+#   - Bearer-Token (PAT)
+#   - Meter-ID (UUID)
+#   - Sensorpfad %var1% bzw. den Wert in Rule1 (hier: ENERGY#Total eines PZEM/SML)
+#
+# Voraussetzung: WebQuery ist ab Tasmota 12.x enthalten. Prüfen mit `WebQuery`.
+# =============================================================================
+
+# 1) Zählerstand bei jeder Telemetrie (TelePeriod) in eine Variable schreiben.
+#    Beispiel: Gesamtenergie eines Energiemessmoduls. Passe den JSON-Pfad an
+#    dein Gerät an (z. B. ENERGY#Total, SML#Total_in, ...).
+Rule1 ON Energy#Total DO Var1 %value% ENDON
+
+# 2) Alle 15 Minuten (900 s) senden. Timer via Rule2 + RuleTimer.
+Rule2
+  ON Rules#Timer=1 DO
+    Backlog
+      WebQuery "https://dein-portal.example/api/v1/readings" POST
+        [Authorization:"Bearer zw_pat_dein_token"][Content-Type:"application/json"]
+        {"meterId":"00000000-0000-0000-0000-000000000000","value":%var1%};
+      RuleTimer1 900
+  ENDON
+
+# 3) Regeln aktivieren und den ersten Timer starten.
+Rule1 1
+Rule2 1
+RuleTimer1 900
+
+# Hinweis: WebQuery-Argumente stehen in EINER Zeile. Die Zeilenumbrüche oben
+# dienen nur der Lesbarkeit – beim Einfügen in die Konsole zusammenführen.

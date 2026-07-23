@@ -1,0 +1,43 @@
+# =============================================================================
+# ESPHome -> Zählwerk (direkter POST, ohne Home Assistant)
+# -----------------------------------------------------------------------------
+# Sendet den Zählerstand aus einem ESPHome-Sensor alle 6 Stunden direkt an
+# Zählwerk. In dein bestehendes ESPHome-Gerät einbauen und die drei mit <<< >>>
+# markierten Stellen anpassen.
+#
+# Voraussetzung: ein Sensor mit dem aktuellen Zählerstand. Hier als Beispiel ein
+# Impuls-/Pulszähler `zaehlerstand`; ersetze ihn durch deinen realen Sensor.
+# =============================================================================
+
+esphome:
+  name: zaehlwerk-meter
+
+# HTTPS benötigt genügend Heap -> ESP32 empfohlen. Für reines HTTP genügt ESP8266.
+http_request:
+  useragent: esphome/zaehlwerk
+  timeout: 10s
+  verify_ssl: false        # true + Zertifikat, wenn dein Portal HTTPS mit gültigem Cert nutzt
+
+# Beispielsensor – durch deinen echten Zählerstands-Sensor ersetzen.
+sensor:
+  - platform: template
+    name: "Zählerstand"
+    id: zaehlerstand
+    unit_of_measurement: "kWh"
+    accuracy_decimals: 2
+    lambda: |-
+      // TODO: hier deinen echten Messwert zurückgeben.
+      return id(zaehlerstand).state;
+
+# Alle 6 Stunden übertragen.
+interval:
+  - interval: 6h
+    then:
+      - http_request.post:
+          url: "https://dein-portal.example/api/v1/readings"   # <<< Portal-URL >>>
+          headers:
+            Content-Type: "application/json"
+            Authorization: "Bearer zw_pat_dein_token"           # <<< PAT >>>
+          json: |-
+            root["meterId"] = "00000000-0000-0000-0000-000000000000";  // <<< Meter-ID >>>
+            root["value"] = id(zaehlerstand).state;

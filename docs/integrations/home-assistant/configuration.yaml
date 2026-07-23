@@ -1,0 +1,44 @@
+# =============================================================================
+# Zählwerk – Home Assistant Konfiguration
+# -----------------------------------------------------------------------------
+# In die HA-`configuration.yaml` übernehmen. URL und Token gehören NICHT hier
+# hinein, sondern in `secrets.yaml` (siehe unten) – dann bleiben sie aus Backups
+# und Screenshots heraus.
+#
+#   # secrets.yaml
+#   zaehlwerk_url:  "https://dein-portal.example/api/v1/readings"
+#   zaehlwerk_auth: "Bearer zw_pat_dein_echter_token"
+#
+# Danach: Entwicklerwerkzeuge -> YAML -> Konfiguration prüfen, dann neu laden.
+# =============================================================================
+
+rest_command:
+  # Generischer Aufruf: Meter-ID und Wert kommen als Variablen von der Automation
+  # bzw. dem Blueprint. So genügt EIN rest_command für beliebig viele Zähler.
+  zaehlwerk_push_reading:
+    url: !secret zaehlwerk_url
+    method: POST
+    headers:
+      Authorization: !secret zaehlwerk_auth
+    content_type: "application/json"
+    payload: >-
+      {"meterId": "{{ meter_id }}",
+       "value": {{ value | float }},
+       "timestamp": "{{ now().isoformat() }}"}
+
+# -----------------------------------------------------------------------------
+# Optionale manuelle Automation (Alternative zum Blueprint).
+# Überträgt den Sensor `sensor.stromzaehler_gesamt` täglich um 23:55 Uhr.
+# Meter-ID durch die UUID deines Zählers ersetzen.
+# -----------------------------------------------------------------------------
+automation:
+  - alias: "Zählwerk – Stromzähler übertragen"
+    trigger:
+      - platform: time
+        at: "23:55:00"
+    action:
+      - service: rest_command.zaehlwerk_push_reading
+        data:
+          meter_id: "00000000-0000-0000-0000-000000000000"
+          value: "{{ states('sensor.stromzaehler_gesamt') | float(0) }}"
+    mode: single
