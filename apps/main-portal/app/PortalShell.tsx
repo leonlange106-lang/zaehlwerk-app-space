@@ -52,6 +52,44 @@ import classes from "./PortalShell.module.css";
 // Auth screens render standalone (no nav/header chrome).
 const BARE_PATHS = ["/login", "/setup"];
 
+// Detect "embedded" mode: the app is being shown inside another frame — chiefly
+// Home Assistant Ingress, which renders the add-on in an iframe under the HA
+// panel (that already carries its own title/chrome). We treat any of these as
+// embedded: an explicit `?embedded=true` (remembered for the session so it
+// survives client-side navigation), or simply being framed (`self !== top`).
+// Purely client-side so it needs no Suspense boundary or server plumbing.
+function useEmbedded(): boolean {
+  const [embedded, setEmbedded] = useState(false);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setEmbedded(detectEmbedded());
+  }, []);
+  return embedded;
+}
+
+function detectEmbedded(): boolean {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("embedded") === "true") {
+      try {
+        sessionStorage.setItem("zw:embedded", "1");
+      } catch {
+        /* storage unavailable — frame detection below still applies */
+      }
+    }
+    let remembered = false;
+    try {
+      remembered = sessionStorage.getItem("zw:embedded") === "1";
+    } catch {
+      remembered = false;
+    }
+    return window.self !== window.top || remembered;
+  } catch {
+    // Cross-origin access to window.top throws → we are inside a foreign frame.
+    return true;
+  }
+}
+
 type NavItem = { label: string; href: string; icon: typeof IconStack2; exact?: boolean };
 
 // Per-app sidebar navigation. Keyed by app id; only apps with their own
@@ -169,6 +207,7 @@ export function PortalShell({
   const [mobileOpened, { toggle: toggleMobile, close: closeMobile }] = useDisclosure(false);
   const { colorScheme, toggleColorScheme } = useMantineColorScheme();
   const { data: session } = useSession();
+  const embedded = useEmbedded();
 
   // Navigating on a phone should dismiss the drawer so the target page is
   // actually visible instead of hidden behind the open navbar overlay.
@@ -217,13 +256,18 @@ export function PortalShell({
               />
             )}
             <AppSwitcher pathname={pathname} allowedAppIds={allowedAppIds} />
-            <UnstyledButton component={Link} href="/" className={classes.brand} aria-label="Zum App Space">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/mark-appspace.svg" alt="App Space" width={28} height={28} />
-              <Text fw={600} size="sm" className={classes.brandText}>
-                {activeApp ? activeApp.name : "App Space"}
-              </Text>
-            </UnstyledButton>
+            {/* When embedded (e.g. Home Assistant Ingress) the host panel already
+                shows a title, so we drop the duplicate brand mark/label but keep
+                the app switcher and nav so navigation stays fully intact. */}
+            {!embedded && (
+              <UnstyledButton component={Link} href="/" className={classes.brand} aria-label="Zum App Space">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/mark-appspace.svg" alt="App Space" width={28} height={28} />
+                <Text fw={600} size="sm" className={classes.brandText}>
+                  {activeApp ? activeApp.name : "App Space"}
+                </Text>
+              </UnstyledButton>
+            )}
           </Group>
 
           <TextInput

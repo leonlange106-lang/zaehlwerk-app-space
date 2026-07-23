@@ -58,6 +58,19 @@ const nextConfig: NextConfig = {
   },
 };
 
+// Framing policy. By default the dashboard refuses to be embedded anywhere
+// (frame-ancestors 'none' + X-Frame-Options: DENY) — the right stance for a
+// directly-accessed, same-origin tool. When served as a Home Assistant Ingress
+// add-on, HA renders the app inside an iframe under the HA origin, so framing
+// must be permitted or the panel stays blank. This is opt-in at BUILD time:
+//   HA_INGRESS=true            → allow same-origin framing ('self')
+//   FRAME_ANCESTORS="https://ha.local:8123"  → allow a specific ancestor
+// FRAME_ANCESTORS (when set) always wins so a non-standard HA origin can be
+// named explicitly.
+const FRAME_ANCESTORS =
+  process.env.FRAME_ANCESTORS?.trim() || (process.env.HA_INGRESS === "true" ? "'self'" : "'none'");
+const FRAMING_ALLOWED = FRAME_ANCESTORS !== "'none'";
+
 // Content-Security-Policy: Next's runtime and Mantine inject inline styles, and
 // Next's dev/hydration needs inline scripts, so 'unsafe-inline' is required for
 // style-src (and script-src in dev). Everything else is locked to same-origin.
@@ -65,7 +78,7 @@ const CSP = [
   "default-src 'self'",
   "base-uri 'self'",
   "object-src 'none'",
-  "frame-ancestors 'none'",
+  `frame-ancestors ${FRAME_ANCESTORS}`,
   "form-action 'self'",
   "img-src 'self' data: blob:",
   "font-src 'self' data:",
@@ -76,8 +89,11 @@ const CSP = [
 
 const SECURITY_HEADERS = [
   { key: "Content-Security-Policy", value: CSP },
-  // Defense in depth alongside CSP's frame-ancestors, for older browsers.
-  { key: "X-Frame-Options", value: "DENY" },
+  // Defense in depth alongside CSP's frame-ancestors, for older browsers. When
+  // framing is permitted (HA Ingress) we drop this legacy header entirely, since
+  // it can't express a single allowed ancestor and would otherwise re-block the
+  // iframe; CSP frame-ancestors is the authoritative control on modern browsers.
+  ...(FRAMING_ALLOWED ? [] : [{ key: "X-Frame-Options", value: "DENY" }]),
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   { key: "X-DNS-Prefetch-Control", value: "off" },
