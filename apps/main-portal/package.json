@@ -13,6 +13,7 @@
     "@mantine/core": "^7.17.8",
     "@mantine/hooks": "^7.17.8",
     "@mantine/notifications": "^7.17.8",
+    "@react-pdf/renderer": "4.5.1",
     "@tabler/icons-react": "^3.45.0",
     "@zaehlwerk/database": "workspace:^",
     "@zaehlwerk/updater": "workspace:^",
