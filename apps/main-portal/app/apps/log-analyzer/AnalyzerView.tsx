@@ -17,6 +17,7 @@ import {
 } from "@mantine/core";
 import {
   IconAlertCircle,
+  IconCrop,
   IconFileText,
   IconRefresh,
   IconSparkles,
@@ -40,6 +41,7 @@ import { LogCharts } from "./LogCharts";
 import { MetadataCard } from "./MetadataCard";
 import { EvaluationCard } from "./EvaluationCard";
 import { ParameterPanel } from "./ParameterPanel";
+import type { AxisSide } from "./lib/types";
 import classes from "./LogAnalyzer.module.css";
 
 // The analyzer workspace: drop/pick a CSV (or pick up a log handed over from
@@ -53,6 +55,9 @@ export function AnalyzerView() {
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const [spec, setSpec] = useState<VehicleSpec>(DEFAULT_VEHICLE_SPEC);
+  // Per-channel display overrides: which Y axis (left/right) and line colour.
+  const [axisById, setAxisById] = useState<Record<string, AxisSide>>({});
+  const [colorById, setColorById] = useState<Record<string, string>>({});
 
   // The vehicle/hardware profile lives in localStorage (client-only). Read it on
   // mount so the evaluation is judged against the user's actual setup.
@@ -66,6 +71,9 @@ export function AnalyzerView() {
     setActive(entry);
     setSelected(new Set(defaultSelection(entry.log.series)));
     setRange([0, Math.max(0, entry.log.time.length - 1)]);
+    // A fresh log starts with default axis/colour assignments.
+    setAxisById({});
+    setColorById({});
   }, []);
 
   // Pick up a log handed over from Remote Import or History (one-shot). This is a
@@ -147,12 +155,25 @@ export function AnalyzerView() {
     });
   }, []);
 
+  const setAxis = useCallback((key: string, side: AxisSide) => {
+    setAxisById((prev) => ({ ...prev, [key]: side }));
+  }, []);
+
+  const setColor = useCallback((key: string, color: string) => {
+    setColorById((prev) => ({ ...prev, [key]: color }));
+  }, []);
+
   // Automated pull rating / safety / parameter-completeness evaluation. Pure and
   // cheap; recomputed only when the log or the vehicle profile changes.
   const evaluation = useMemo(
     () => (active ? evaluateLogPull(active.log, spec) : null),
     [active, spec],
   );
+
+  // Crop the visible window to the detected pull, focusing on the WOT sweep.
+  const cropToPull = useCallback(() => {
+    if (evaluation) setRange([evaluation.window[0], evaluation.window[1]]);
+  }, [evaluation]);
 
   if (!active) {
     return (
@@ -258,6 +279,18 @@ export function AnalyzerView() {
             <Text size="xs" c="dimmed">
               {windowLabel}
             </Text>
+            {evaluation && evaluation.window[1] > evaluation.window[0] && (
+              <Button
+                variant="light"
+                size="compact-xs"
+                color="teal"
+                leftSection={<IconCrop size={13} />}
+                onClick={cropToPull}
+                data-testid="crop-to-pull"
+              >
+                Auf Pull zuschneiden
+              </Button>
+            )}
             <Button
               variant="subtle"
               size="compact-xs"
@@ -283,10 +316,29 @@ export function AnalyzerView() {
 
       <Grid gutter="lg">
         <GridCol span={{ base: 12, md: 3 }}>
-          <ParameterPanel series={log.series} selected={selected} onToggle={toggle} onToggleGroup={toggleGroup} />
+          <ParameterPanel
+            series={log.series}
+            selected={selected}
+            axisById={axisById}
+            colorById={colorById}
+            onToggle={toggle}
+            onToggleGroup={toggleGroup}
+            onAxis={setAxis}
+            onColor={setColor}
+          />
         </GridCol>
         <GridCol span={{ base: 12, md: 9 }}>
-          <LogCharts key={active.id} log={log} selectedKeys={[...selected]} range={range} />
+          <LogCharts
+            key={active.id}
+            log={log}
+            selectedKeys={[...selected]}
+            range={range}
+            axisById={axisById}
+            colorById={colorById}
+            pullRange={evaluation?.pullRange ?? null}
+            pullVerified={evaluation?.validity.status === "verified"}
+            violations={evaluation?.violations ?? []}
+          />
         </GridCol>
       </Grid>
     </Stack>

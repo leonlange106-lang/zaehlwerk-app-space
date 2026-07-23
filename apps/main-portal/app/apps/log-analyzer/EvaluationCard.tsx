@@ -45,22 +45,29 @@ export function EvaluationCard({
   evaluation: LogPullEvaluation;
   spec: VehicleSpec;
 }) {
-  const { validity, missing, alerts } = evaluation;
+  const { validity, missing, alerts, limits } = evaluation;
   const status = STATUS_META[validity.status];
+
+  const gearOk: boolean | null =
+    validity.singleGear === null
+      ? null
+      : validity.singleGear === false
+        ? false
+        : validity.gearInRange;
 
   const checks: { label: string; ok: boolean | null; value: string }[] = [
     {
-      label: "Konstanter Gang (kein Schaltvorgang)",
-      ok: validity.singleGear,
+      label: "Konstanter Vergleichsgang (3 oder 4)",
+      ok: gearOk,
       value: validity.gearValue !== null ? `Gang ${validity.gearValue}` : "—",
     },
     {
-      label: "Volllast (WOT ≥ 95% Pedal)",
+      label: `Volllast (WOT ≥ ${limits.wotThreshold}% Pedal)`,
       ok: validity.wot,
       value: fmtPct(validity.wotCoverage),
     },
     {
-      label: "Drehzahlfenster (≤ 2500 → ≥ 6000 RPM)",
+      label: `Drehzahlfenster (≤ ${limits.rpmStartMax} → ≥ ${limits.rpmEndMin} RPM)`,
       ok: validity.rpmSpanOk,
       value:
         validity.rpmStart !== null && validity.rpmEnd !== null

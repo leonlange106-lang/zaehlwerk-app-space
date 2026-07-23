@@ -72,7 +72,9 @@ export const PARAMETER_GROUPS: ParameterGroup[] = [
   },
 ];
 
-const OTHER_GROUP = { id: "other", label: "Other", color: "#868e96" } as const;
+// Every column that matches no known group lands here — nothing is dropped or
+// whitelisted away, so custom/rare channels stay fully selectable.
+const OTHER_GROUP = { id: "other", label: "Sonstige / Custom", color: "#868e96" } as const;
 
 /** All groups including the "Other" fallback, in display order. */
 export const ALL_GROUPS = [

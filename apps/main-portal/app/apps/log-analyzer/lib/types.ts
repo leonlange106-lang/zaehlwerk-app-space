@@ -2,6 +2,9 @@
 // module so both the pure parser (unit-tested), the API route (server) and the
 // React views (client) can import them without pulling in any runtime deps.
 
+/** Which Y axis a channel is plotted against within its group chart. */
+export type AxisSide = "left" | "right";
+
 /** A single named channel/parameter extracted from a datalog. */
 export interface LogSeries {
   /** Stable, slugified id derived from the column label (unique per log). */

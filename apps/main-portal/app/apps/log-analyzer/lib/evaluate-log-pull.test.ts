@@ -63,6 +63,26 @@ describe("evaluateLogPull — pull validity", () => {
     const { validity } = evaluateLogPull(log, SPEC);
     expect(validity.status).toBe("invalid");
   });
+
+  it("downgrades a clean sweep held in the wrong gear (5) to PARTIAL", () => {
+    const cols = verifiedPullColumns();
+    const gear = cols.find((c) => c.label === "Gear")!;
+    gear.values = gear.values.map(() => 5);
+    const { validity } = evaluateLogPull(makeLog(cols), SPEC);
+    expect(validity.singleGear).toBe(true);
+    expect(validity.gearInRange).toBe(false);
+    expect(validity.status).toBe("partial");
+    expect(validity.reasons.join(" ")).toMatch(/Vergleichsgang/);
+  });
+
+  it("accepts gear 4 as a valid dyno gear", () => {
+    const cols = verifiedPullColumns();
+    const gear = cols.find((c) => c.label === "Gear")!;
+    gear.values = gear.values.map(() => 4);
+    const { validity } = evaluateLogPull(makeLog(cols), SPEC);
+    expect(validity.gearInRange).toBe(true);
+    expect(validity.status).toBe("verified");
+  });
 });
 
 describe("evaluateLogPull — missing parameter hints", () => {
@@ -177,8 +197,46 @@ describe("evaluateLogPull — safety alerts", () => {
     expect(catless.alerts.find((a) => a.id === "egt-limit")).toBeUndefined();
   });
 
+  it("flags a fuel trim beyond the engine's tolerance (lean)", () => {
+    const stft = new Array(60).fill(2);
+    stft[40] = 14; // > ±10%
+    const { alerts } = evaluateLogPull(makeLog(verifiedPullColumns({ stft })), SPEC);
+    const trim = alerts.find((a) => a.id === "trim-stft");
+    expect(trim).toBeDefined();
+    expect(trim!.detail).toMatch(/mageres/);
+  });
+
   it("keeps a clean verified pull free of safety alerts", () => {
     const { alerts } = evaluateLogPull(makeLog(verifiedPullColumns()), SPEC);
     expect(alerts).toHaveLength(0);
+  });
+});
+
+describe("evaluateLogPull — overlays (violations & pull range)", () => {
+  it("pins a knock violation to the exact timestamp it occurred", () => {
+    const correction = new Array(60).fill(0);
+    correction[42] = -4.5;
+    const time = Array.from({ length: 60 }, (_, i) => i * 0.1);
+    const log = makeLog(verifiedPullColumns({ correction }), time);
+    const { violations } = evaluateLogPull(log, SPEC);
+    const knock = violations.find((v) => v.id.startsWith("knock"));
+    expect(knock).toBeDefined();
+    expect(knock!.sampleIndex).toBe(42);
+    expect(knock!.time).toBeCloseTo(4.2);
+    expect(knock!.severity).toBe("critical");
+  });
+
+  it("exposes a pull range spanning the detected sweep for a verified pull", () => {
+    const time = Array.from({ length: 60 }, (_, i) => i * 0.1);
+    const { pullRange, window } = evaluateLogPull(makeLog(verifiedPullColumns(), time), SPEC);
+    expect(pullRange).not.toBeNull();
+    expect(pullRange!.start).toBeCloseTo(time[window[0]]);
+    expect(pullRange!.end).toBeCloseTo(time[window[1]]);
+    expect(pullRange!.end).toBeGreaterThan(pullRange!.start);
+  });
+
+  it("has no violations on a clean pull", () => {
+    const { violations } = evaluateLogPull(makeLog(verifiedPullColumns()), SPEC);
+    expect(violations).toHaveLength(0);
   });
 });

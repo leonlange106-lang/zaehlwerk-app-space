@@ -48,13 +48,52 @@ describe("coerceSpec — defensive loading", () => {
   });
 
   it("keeps valid fields and replaces invalid ones", () => {
-    const coerced = coerceSpec({ catType: "catless", fuel: "bogus", turbo: "upgraded", hpfp: 5 });
+    const coerced = coerceSpec({
+      engineCode: "S55B30T0",
+      catType: "catless",
+      fuel: "bogus",
+      turbo: "upgraded",
+      hpfp: 5,
+    });
     const expected: VehicleSpec = {
+      ...DEFAULT_VEHICLE_SPEC,
+      engineCode: "S55B30T0",
       catType: "catless",
       fuel: DEFAULT_VEHICLE_SPEC.fuel,
       turbo: "upgraded",
       hpfp: DEFAULT_VEHICLE_SPEC.hpfp,
     };
     expect(coerced).toEqual(expected);
+  });
+
+  it("falls back to the default engine for an unknown engine code", () => {
+    const coerced = coerceSpec({ engineCode: "NOT_AN_ENGINE" });
+    expect(coerced.engineCode).toBe(DEFAULT_VEHICLE_SPEC.engineCode);
+  });
+
+  it("preserves an explicit null vehicle selection", () => {
+    const coerced = coerceSpec({ brand: null, series: null, model: null });
+    expect(coerced.brand).toBeNull();
+    expect(coerced.model).toBeNull();
+  });
+});
+
+describe("limitsForSpec — engine-driven baselines", () => {
+  it("derives a lower stock-boost ceiling for a small B48 than a twin-turbo S55", () => {
+    const b48 = limitsForSpec({ ...DEFAULT_VEHICLE_SPEC, engineCode: "B48B20M0" });
+    const s55 = limitsForSpec({ ...DEFAULT_VEHICLE_SPEC, engineCode: "S55B30T0" });
+    expect(b48.maxBoost).toBeLessThan(s55.maxBoost);
+  });
+
+  it("requires a higher redline sweep for the higher-revving S55", () => {
+    const b58 = limitsForSpec({ ...DEFAULT_VEHICLE_SPEC, engineCode: "B58B30M0" });
+    const s55 = limitsForSpec({ ...DEFAULT_VEHICLE_SPEC, engineCode: "S55B30T0" });
+    expect(s55.rpmEndMin).toBeGreaterThan(b58.rpmEndMin);
+  });
+
+  it("lifts the boost ceiling by the turbo-upgrade bonus", () => {
+    const stock = limitsForSpec({ ...DEFAULT_VEHICLE_SPEC, turbo: "stock" });
+    const up = limitsForSpec({ ...DEFAULT_VEHICLE_SPEC, turbo: "upgraded" });
+    expect(up.maxBoost).toBe(stock.maxBoost + 10);
   });
 });
