@@ -122,9 +122,15 @@ chmod 600 .env
 ## 6. Build and start
 
 ```sh
-docker compose -f docker-compose.prod.yml up -d --build
+GIT_SHA=$(git rev-parse HEAD) docker compose -f docker-compose.prod.yml up -d --build
 docker compose -f docker-compose.prod.yml logs -f main-portal
 ```
+
+The `GIT_SHA=…` prefix bakes the built commit into the image so the
+System-Update panel shows the version the app is **actually running**.
+Plain `docker compose … up -d --build` also works, but then the version
+badge reads "unknown". The self-update script (`scripts/update.sh`) sets
+this automatically.
 
 The app listens on port `3000`, but the database is still **empty** on the
 first run — you'll see `PrismaClientKnownRequestError: The table
@@ -220,6 +226,29 @@ docker run --rm -v zaehlwerk-db:/data -v "$PWD/backups":/backup \
 
 Run that on a cron schedule and copy the backups off the LXC.
 
+## Disk management
+
+Every `docker compose … up -d --build` — including each self-update — adds
+image layers and build cache. Over many rebuilds this **fills the disk**, and
+a build then dies with `ENOSPC: no space left on device` (often surfacing as
+a confusing `mkdir … ENOENT` during page prerendering). Reclaim space
+without touching your data:
+
+```sh
+df -h /                 # how full is the disk?
+docker system df        # what is Docker using?
+docker system prune -af # remove unused images + stopped containers + build cache
+docker builder prune -af
+
+# NOTE: never add --volumes here — that would delete the zaehlwerk-db volume
+# (your database). prune without it leaves named volumes untouched.
+```
+
+Then rebuild. If the disk stays under a few GB free even after pruning, grow
+the LXC's disk from the Proxmox host: `pct resize <vmid> rootfs +8G`. This
+stack (node_modules incl. react-pdf + build cache + the image) is comfortable
+with ~12–16 GB.
+
 ## Troubleshooting
 
 - **`git clone`/`git pull` fails with `Invalid username or token. Password
@@ -259,7 +288,18 @@ Run that on a cron schedule and copy the backups off the LXC.
   (a plain `restart` does **not** re-read `.env`).
 - **`/api/update/trigger` returns 503**: `UPDATE_TRIGGER_TOKEN` isn't set in
   `.env`.
-- **Update trigger runs but nothing changes**: check
-  `docker compose logs main-portal` around the trigger time — `scripts/update.sh`
-  writes its progress to stdout, which lands in the container logs since it's
-  spawned as a child process of the app.
+- **Update reports success / "up to date" but nothing changes**: the update
+  script runs `git pull` then `docker compose up -d --build`. If the pull
+  succeeds but the rebuild fails (most commonly a full disk — see Disk
+  management), the running container is never replaced, so the app stays on
+  the old code. The version badge now reflects the *running build* (baked-in
+  `APP_GIT_SHA`), so it will honestly keep showing "update available" in this
+  case. Read the update log to see exactly why the rebuild failed:
+  ```sh
+  docker compose -f docker-compose.prod.yml exec main-portal cat /data/update.log
+  ```
+  (`scripts/update.sh` writes all its output there — the trigger endpoint runs
+  it detached, so it does *not* appear in the container logs.)
+- **Version badge shows "unknown"**: the image was built without `GIT_SHA`.
+  Rebuild with the `GIT_SHA=$(git rev-parse HEAD)` prefix from section 6 (or
+  just let a self-update do it — `scripts/update.sh` always sets it).

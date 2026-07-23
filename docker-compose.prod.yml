@@ -7,6 +7,12 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        # Baked into the image as APP_GIT_SHA so the app reports the build it's
+        # actually running. scripts/update.sh sets GIT_SHA before rebuilding;
+        # for a manual build, prefix the command:
+        #   GIT_SHA=$(git rev-parse HEAD) docker compose -f docker-compose.prod.yml up -d --build
+        GIT_SHA: ${GIT_SHA:-unknown}
     image: zaehlwerk-main-portal:latest
     container_name: zaehlwerk-main-portal
     restart: unless-stopped

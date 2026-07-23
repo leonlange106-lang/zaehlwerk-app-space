@@ -11,8 +11,16 @@ export interface CheckForUpdatesOptions {
   repo: string;
   /** Branch to compare against. Defaults to "main". */
   branch?: string;
-  /** Local git checkout to read the current commit from. */
-  cwd: string;
+  /**
+   * SHA of the **currently running build**, if known (e.g. baked into the
+   * image at build time). Prefer this over reading git: the git checkout can
+   * be pulled ahead of the running build (e.g. a pull succeeded but the
+   * rebuild failed), and comparing against the checkout would then wrongly
+   * report "up to date" while the app actually still runs old code.
+   */
+  currentSha?: string;
+  /** Local git checkout to read the current commit from — fallback when `currentSha` is absent. */
+  cwd?: string;
 }
 
 export interface UpdateCheckResult {
@@ -40,8 +48,19 @@ export interface UpdateCheckResult {
 export async function checkForUpdates(options: CheckForUpdatesOptions): Promise<UpdateCheckResult> {
   const branch = options.branch ?? "main";
 
+  // Prefer the baked running-build SHA; only fall back to reading the git
+  // checkout when it isn't known.
+  const localPromise =
+    options.currentSha && options.currentSha !== "unknown"
+      ? Promise.resolve({
+          sha: options.currentSha,
+          shortSha: options.currentSha.slice(0, 7),
+          branch,
+        })
+      : getCurrentCommit(options.cwd ?? process.cwd());
+
   const [local, latestCommit, latestRelease] = await Promise.all([
-    getCurrentCommit(options.cwd),
+    localPromise,
     fetchLatestCommit(options.owner, options.repo, branch),
     fetchLatestRelease(options.owner, options.repo).catch(() => null),
   ]);

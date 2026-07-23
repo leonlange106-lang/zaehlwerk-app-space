@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { checkForUpdates } from "@zaehlwerk/updater";
-import { getRepoRoot } from "../../../lib/version";
+import { getRepoRoot, getRunningBuildSha } from "../../../lib/version";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +13,9 @@ export async function GET() {
       owner: REPO_OWNER,
       repo: REPO_NAME,
       branch: process.env.UPDATE_BRANCH ?? "main",
+      // Compare GitHub against the actually-running build, not the (possibly
+      // already-pulled-ahead) git checkout — falls back to git when unbaked.
+      currentSha: getRunningBuildSha(),
       cwd: getRepoRoot(),
     });
     return NextResponse.json(result);

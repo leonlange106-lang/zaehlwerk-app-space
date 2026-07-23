@@ -51,6 +51,13 @@ WORKDIR /app
 ENV NODE_ENV=production
 RUN apk add --no-cache git docker-cli docker-cli-compose
 
+# Commit this image was built from, baked in so the app reports the version it
+# is ACTUALLY running (not the git checkout, which a pull can advance past a
+# failed rebuild). Passed via docker-compose build.args from scripts/update.sh
+# (`GIT_SHA=$(git rev-parse HEAD)`); "unknown" if a manual build omits it.
+ARG GIT_SHA=unknown
+ENV APP_GIT_SHA=$GIT_SHA
+
 COPY --from=builder /repo/apps/main-portal/.next/standalone ./
 COPY --from=builder /repo/apps/main-portal/.next/static ./apps/main-portal/.next/static
 COPY --from=builder /repo/apps/main-portal/public ./apps/main-portal/public
