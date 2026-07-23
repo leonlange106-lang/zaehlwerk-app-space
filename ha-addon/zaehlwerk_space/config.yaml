@@ -6,7 +6,7 @@
 name: "Zählwerk App Space"
 slug: "zaehlwerk_space"
 description: "Native Ingress Integration for Zählwerk App Space"
-version: "1.0.0"
+version: "1.0.1"
 # Multi-arch: the base image (nginx:alpine) is available for both.
 arch:
   - amd64

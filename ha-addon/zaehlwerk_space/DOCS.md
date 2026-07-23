@@ -49,17 +49,14 @@ sidebar (icon `mdi:gauge`).
 ## Required app build flag
 
 Because HA renders the panel in an **iframe**, the app must permit framing. The
-app ships with `frame-ancestors 'none'` + `X-Frame-Options: DENY` by default
-(strict, for direct access). Build the Next.js app in the LXC with:
+app ships strict by default (`frame-ancestors 'none'` + `X-Frame-Options: DENY`).
 
-```bash
-HA_INGRESS=true pnpm --filter main-portal build
-```
-
-This relaxes the framing policy to `frame-ancestors 'self'` and drops
-`X-Frame-Options`, so Home Assistant can embed it. To allow a *specific* HA
-origin instead of same-origin, set `FRAME_ANCESTORS="https://homeassistant.local:8123"`
-at build time (it takes precedence over `HA_INGRESS`).
+**You do not need to rebuild the app for Ingress.** This add-on's Nginx strips
+the upstream framing headers and re-emits the CSP with `frame-ancestors 'self'`,
+so the panel renders out of the box — no `HA_INGRESS` build flag, nothing to
+change in the LXC. (The optional `HA_INGRESS=true` / `FRAME_ANCESTORS=…` build
+flags still exist if you prefer to relax it at the app instead — e.g. for the
+`panel_iframe` fallback below, which does **not** pass through this add-on.)
 
 The app also detects the embedded context automatically (it's framed, or via
 `?embedded=true`) and hides its duplicate brand/title, since the HA panel already
@@ -78,7 +75,7 @@ generic reverse proxy cannot reliably rewrite the absolute paths that Next's
 client-side router builds at runtime. If you hit blank/asset-404 panels, the
 robust options are:
 
-1. **Direct panel (simplest, fully working):** instead of Ingress, add a
+1. **Direct panel (simplest, always works):** instead of Ingress, add a
    `panel_iframe` in Home Assistant `configuration.yaml` pointing straight at the
    LXC app:
 
@@ -91,12 +88,22 @@ robust options are:
        require_admin: false
    ```
 
-   You still get a native sidebar panel; you lose HA's auth-gating in front of
-   the app (the app has its own login).
+   Because HA now frames the app **cross-origin** (HA host → LXC host), the
+   add-on's Nginx is out of the loop, so the app itself must allow the HA origin.
+   Build it once in the LXC naming your HA origin:
+
+   ```bash
+   FRAME_ANCESTORS="'self' http://homeassistant.local:8123" pnpm --filter main-portal build
+   ```
+
+   (Use your real HA URL/port; add both `http://…` and `https://…` variants if
+   you reach HA either way.) You get a native sidebar panel and no Ingress
+   sub-path issue; you lose HA's auth-gating in front of the app (the app has its
+   own login).
 
 2. **Reverse proxy at a stable path / subdomain** (e.g. via the HA *NGINX Proxy
    Manager* add-on or your router), then use `panel_iframe` against that URL.
 
-Use whichever fits your network. The Ingress add-on here is the tidiest option
-where the asset paths resolve (same-origin), and the two fallbacks above always
-work.
+Use whichever fits your network. Try Ingress first (nothing to build); if the
+panel stays blank due to the asset sub-path issue, switch to the `panel_iframe`
+fallback, which always works.
