@@ -13,6 +13,7 @@ import {
   Loader,
   PasswordInput,
   Progress,
+  ScrollArea,
   Stack,
   Text,
   TextInput,
@@ -21,13 +22,17 @@ import {
 import {
   IconAlertCircle,
   IconCheck,
+  IconChevronDown,
+  IconChevronUp,
   IconCircle,
   IconCircleCheck,
   IconCircleX,
   IconExternalLink,
   IconRefresh,
   IconRocket,
+  IconTerminal2,
 } from "@tabler/icons-react";
+import classes from "./EinstellungenView.module.css";
 import type { LocalCommitInfo, UpdateCheckResult } from "@zaehlwerk/updater";
 import type { listLocations } from "../lib/zaehler-actions";
 import { createLocationAction } from "../lib/location-actions";
@@ -231,10 +236,61 @@ function UpdateProgress({ phase }: { phase: UpdatePhase }) {
   );
 }
 
+/**
+ * Read-only live tail of the server's /data/update.log. While an update is
+ * `active` it re-fetches every 1.5s; the log lives on the persistent volume, so
+ * a failed fetch during the container restart is transient and the full log
+ * reappears once the new container answers.
+ */
+function LiveUpdateLog({ active }: { active: boolean }) {
+  const [text, setText] = useState("");
+  const viewportRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchLog() {
+      try {
+        const response = await fetch("/api/update/log", { cache: "no-store" });
+        if (!response.ok || cancelled) return;
+        const body = await response.text();
+        if (!cancelled) setText(body);
+      } catch {
+        // Server is likely being recreated mid-update — keep the last content
+        // and let the next tick pick the log back up.
+      }
+    }
+    fetchLog();
+    if (!active) return () => {
+      cancelled = true;
+    };
+    const id = setInterval(fetchLog, 1500);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [active]);
+
+  // Stick to the bottom as new lines stream in.
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (viewport) viewport.scrollTo({ top: viewport.scrollHeight });
+  }, [text]);
+
+  return (
+    <ScrollArea h={300} viewportRef={viewportRef} className={classes.logScroll} type="auto">
+      <pre className={classes.logPre}>
+        {text ||
+          "Noch keine Log-Ausgabe. Sobald ein Update läuft, erscheint hier live das komplette Server-Protokoll (git pull, Migration, Build, Neustart)."}
+      </pre>
+    </ScrollArea>
+  );
+}
+
 function UpdateSettingsCard({ versionInfo }: { versionInfo: LocalCommitInfo | null }) {
   const [checkState, setCheckState] = useState<CheckState>({ status: "idle" });
   const [phase, setPhase] = useState<UpdatePhase>({ kind: "idle" });
   const [token, setToken] = useState("");
+  const [logOpen, setLogOpen] = useState(false);
 
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastStepRef = useRef(1);
@@ -336,6 +392,7 @@ function UpdateSettingsCard({ versionInfo }: { versionInfo: LocalCommitInfo | nu
     stopPolling();
     sawBuildingRef.current = false;
     lastStepRef.current = 1;
+    setLogOpen(true);
     setPhase({ kind: "running", step: 1, message: "Update wird gestartet…" });
 
     void (async () => {
@@ -469,6 +526,26 @@ function UpdateSettingsCard({ versionInfo }: { versionInfo: LocalCommitInfo | nu
           )}
         </Stack>
       )}
+
+      <Group justify="space-between" align="center" mt="md" pt="md" className={classes.logDivider}>
+        <Group gap={6}>
+          <IconTerminal2 size={15} />
+          <Text size="sm" fw={600}>
+            Server-Log (live)
+          </Text>
+          {(phase.kind === "running" || phase.kind === "restarting") && <Loader size={12} color="slate" />}
+        </Group>
+        <Button
+          variant="subtle"
+          color="slate"
+          size="xs"
+          rightSection={logOpen ? <IconChevronUp size={14} /> : <IconChevronDown size={14} />}
+          onClick={() => setLogOpen((open) => !open)}
+        >
+          {logOpen ? "Ausblenden" : "Anzeigen"}
+        </Button>
+      </Group>
+      {logOpen && <LiveUpdateLog active={phase.kind === "running" || phase.kind === "restarting"} />}
     </Card>
   );
 }
