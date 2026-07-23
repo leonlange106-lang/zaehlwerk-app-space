@@ -10,7 +10,9 @@ import {
   Group,
   List,
   ListItem,
+  Loader,
   PasswordInput,
+  Progress,
   Stack,
   Text,
   TextInput,
@@ -19,6 +21,9 @@ import {
 import {
   IconAlertCircle,
   IconCheck,
+  IconCircle,
+  IconCircleCheck,
+  IconCircleX,
   IconExternalLink,
   IconRefresh,
   IconRocket,
@@ -127,16 +132,188 @@ type CheckState =
   | { status: "error"; message: string }
   | { status: "done"; result: UpdateCheckResult };
 
-type TriggerState =
-  | { status: "idle" }
-  | { status: "loading" }
-  | { status: "error"; message: string }
-  | { status: "done" };
+// Fixed checklist shown during an update; `step` in the phase is the index of
+// the currently-active entry.
+const UPDATE_STEPS = [
+  "Update angefordert",
+  "Neuer Code geholt (git pull)",
+  "Neue Version wird gebaut",
+  "Anwendung startet neu",
+  "Erfolgreich – neue Version läuft",
+];
+
+type UpdatePhase =
+  | { kind: "idle" }
+  | { kind: "running"; step: number; message: string }
+  | { kind: "restarting" }
+  | { kind: "success" }
+  | { kind: "failed"; step: number; message: string };
+
+/** Maps the server's update-status stage to the active checklist index. */
+function stageToStep(stage: string): number {
+  switch (stage) {
+    case "started":
+    case "pulling":
+      return 1;
+    case "building":
+      return 2;
+    default:
+      return 1;
+  }
+}
+
+function activeStep(phase: UpdatePhase): number {
+  switch (phase.kind) {
+    case "running":
+      return phase.step;
+    case "restarting":
+      return 3;
+    case "success":
+      return UPDATE_STEPS.length;
+    case "failed":
+      return phase.step;
+    default:
+      return 0;
+  }
+}
+
+function UpdateProgress({ phase }: { phase: UpdatePhase }) {
+  const active = activeStep(phase);
+  const failed = phase.kind === "failed";
+  const success = phase.kind === "success";
+  const percent = success ? 100 : Math.round((active / UPDATE_STEPS.length) * 100);
+
+  return (
+    <Stack gap="sm">
+      <Progress
+        value={percent}
+        color={failed ? "red" : success ? "green" : "slate"}
+        animated={!failed && !success}
+        striped={!failed && !success}
+        radius="sm"
+      />
+      <Stack gap={6}>
+        {UPDATE_STEPS.map((label, index) => {
+          const isDone = index < active;
+          const isActiveStep = index === active && !success;
+          const isFailedStep = failed && index === active;
+          return (
+            <Group key={label} gap="xs" wrap="nowrap">
+              {isFailedStep ? (
+                <IconCircleX size={18} color="var(--mantine-color-red-6)" />
+              ) : isDone ? (
+                <IconCircleCheck size={18} color="var(--mantine-color-green-6)" />
+              ) : isActiveStep ? (
+                <Loader size={14} color="slate" />
+              ) : (
+                <IconCircle size={18} color="var(--mantine-color-gray-4)" />
+              )}
+              <Text size="sm" c={isDone || isActiveStep || isFailedStep ? undefined : "dimmed"} fw={isActiveStep ? 600 : 400}>
+                {label}
+              </Text>
+            </Group>
+          );
+        })}
+      </Stack>
+      {phase.kind === "running" && phase.message && (
+        <Text size="xs" c="dimmed">
+          {phase.message}
+        </Text>
+      )}
+      {phase.kind === "restarting" && (
+        <Text size="xs" c="dimmed">
+          Der Server wird neu gestartet — die Seite verbindet sich automatisch neu…
+        </Text>
+      )}
+    </Stack>
+  );
+}
 
 function UpdateSettingsCard({ versionInfo }: { versionInfo: LocalCommitInfo | null }) {
   const [checkState, setCheckState] = useState<CheckState>({ status: "idle" });
-  const [triggerState, setTriggerState] = useState<TriggerState>({ status: "idle" });
+  const [phase, setPhase] = useState<UpdatePhase>({ kind: "idle" });
   const [token, setToken] = useState("");
+
+  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastStepRef = useRef(1);
+  const sawBuildingRef = useRef(false);
+  const restartStartRef = useRef(0);
+
+  function stopPolling() {
+    if (pollRef.current) {
+      clearTimeout(pollRef.current);
+      pollRef.current = null;
+    }
+  }
+
+  // Clear any pending timer if the component unmounts mid-update.
+  useEffect(() => stopPolling, []);
+
+  async function pollStatus() {
+    try {
+      const response = await fetch("/api/update/status", { cache: "no-store" });
+      const data = await response.json();
+      if (data.stage === "failed") {
+        setPhase({ kind: "failed", step: lastStepRef.current, message: data.message ?? "Update fehlgeschlagen." });
+        stopPolling();
+        return;
+      }
+      if (data.stage === "done") {
+        setPhase({ kind: "success" });
+        stopPolling();
+        return;
+      }
+      if (data.stage === "building") sawBuildingRef.current = true;
+      if (data.stage && data.stage !== "idle") {
+        const step = stageToStep(data.stage);
+        lastStepRef.current = step;
+        setPhase({ kind: "running", step, message: data.message ?? "" });
+      }
+      pollRef.current = setTimeout(pollStatus, 2000);
+    } catch {
+      // Connection lost. If we already reached the build stage, the container
+      // is being torn down and recreated — switch to waiting for it to return.
+      if (sawBuildingRef.current) {
+        enterRestarting();
+      } else {
+        pollRef.current = setTimeout(pollStatus, 2000);
+      }
+    }
+  }
+
+  function enterRestarting() {
+    lastStepRef.current = 3;
+    restartStartRef.current = Date.now();
+    setPhase({ kind: "restarting" });
+    pollRef.current = setTimeout(pollRestart, 3000);
+  }
+
+  async function pollRestart() {
+    try {
+      const response = await fetch("/api/update/check", { cache: "no-store" });
+      if (response.ok) {
+        const data = await response.json();
+        if (data.updateAvailable === false) {
+          setPhase({ kind: "success" });
+          setCheckState({ status: "done", result: data as UpdateCheckResult });
+          stopPolling();
+          return;
+        }
+      }
+    } catch {
+      // still restarting
+    }
+    if (Date.now() - restartStartRef.current > 5 * 60_000) {
+      setPhase({
+        kind: "failed",
+        step: 3,
+        message: "Neustart dauert ungewöhnlich lange. Bitte /data/update.log auf dem Server prüfen.",
+      });
+      stopPolling();
+      return;
+    }
+    pollRef.current = setTimeout(pollRestart, 3000);
+  }
 
   async function handleCheck() {
     setCheckState({ status: "loading" });
@@ -153,22 +330,28 @@ function UpdateSettingsCard({ versionInfo }: { versionInfo: LocalCommitInfo | nu
     }
   }
 
-  async function handleTrigger() {
-    setTriggerState({ status: "loading" });
-    try {
-      const response = await fetch("/api/update/trigger", {
-        method: "POST",
-        headers: { "x-update-token": token },
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        setTriggerState({ status: "error", message: data.error ?? "Update konnte nicht gestartet werden." });
-        return;
+  function handleTrigger() {
+    stopPolling();
+    sawBuildingRef.current = false;
+    lastStepRef.current = 1;
+    setPhase({ kind: "running", step: 1, message: "Update wird gestartet…" });
+
+    void (async () => {
+      try {
+        const response = await fetch("/api/update/trigger", {
+          method: "POST",
+          headers: { "x-update-token": token },
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          setPhase({ kind: "failed", step: 0, message: data.error ?? "Update konnte nicht gestartet werden." });
+          return;
+        }
+        pollRef.current = setTimeout(pollStatus, 1500);
+      } catch {
+        setPhase({ kind: "failed", step: 0, message: "Update konnte nicht gestartet werden (Netzwerkfehler)." });
       }
-      setTriggerState({ status: "done" });
-    } catch {
-      setTriggerState({ status: "error", message: "Update konnte nicht gestartet werden (Netzwerkfehler)." });
-    }
+    })();
   }
 
   const updateAvailable = checkState.status === "done" && checkState.result.updateAvailable;
@@ -246,32 +429,40 @@ function UpdateSettingsCard({ versionInfo }: { versionInfo: LocalCommitInfo | nu
             </Button>
           </Alert>
 
-          <PasswordInput
-            label="Update-Token"
-            description="Muss mit UPDATE_TRIGGER_TOKEN auf dem Server übereinstimmen"
-            placeholder="Token eingeben"
-            value={token}
-            onChange={(event) => setToken(event.currentTarget.value)}
-          />
+          {phase.kind === "idle" && (
+            <>
+              <PasswordInput
+                label="Update-Token"
+                description="Muss mit UPDATE_TRIGGER_TOKEN auf dem Server übereinstimmen"
+                placeholder="Token eingeben"
+                value={token}
+                onChange={(event) => setToken(event.currentTarget.value)}
+              />
+              <Button
+                color="slate"
+                leftSection={<IconRocket size={16} />}
+                disabled={!token}
+                onClick={handleTrigger}
+              >
+                Update jetzt starten (git pull + Rebuild)
+              </Button>
+            </>
+          )}
 
-          <Button
-            color="slate"
-            leftSection={<IconRocket size={16} />}
-            disabled={!token || triggerState.status === "done"}
-            loading={triggerState.status === "loading"}
-            onClick={handleTrigger}
-          >
-            Update jetzt starten (git pull + Rebuild)
-          </Button>
+          {phase.kind !== "idle" && <UpdateProgress phase={phase} />}
 
-          {triggerState.status === "error" && (
-            <Alert color="red" icon={<IconAlertCircle size={16} />} variant="light">
-              {triggerState.message}
+          {phase.kind === "success" && (
+            <Alert color="green" icon={<IconCheck size={16} />} variant="light">
+              Update erfolgreich abgeschlossen — die App läuft jetzt auf der neuen Version.
             </Alert>
           )}
-          {triggerState.status === "done" && (
-            <Alert color="green" icon={<IconCheck size={16} />} variant="light">
-              Update gestartet — der Server lädt in Kürze mit der neuen Version neu.
+          {phase.kind === "failed" && (
+            <Alert color="red" icon={<IconAlertCircle size={16} />} variant="light">
+              {phase.message}
+              <Text size="xs" mt={4}>
+                Vollständiges Protokoll auf dem Server:{" "}
+                <Code>docker compose -f docker-compose.prod.yml exec main-portal cat /data/update.log</Code>
+              </Text>
             </Alert>
           )}
         </Stack>
