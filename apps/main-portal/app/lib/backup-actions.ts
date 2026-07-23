@@ -234,8 +234,8 @@ export async function importMeter(jsonText: string, choice: LocationChoice): Pro
       await currentActor(),
       `Zähler „${zaehler.name}": ${ablesungen.length} Ablesungen, ${tarife.length} Tarife`,
     );
-    revalidatePath("/zaehler");
-    revalidatePath("/");
+    revalidatePath("/apps/zaehlwerk/zaehler");
+    revalidatePath("/apps/zaehlwerk");
     return {
       success: true,
       message: `Zähler „${zaehler.name}“ importiert: ${ablesungen.length} Ablesungen, ${tarife.length} Tarife.`,
@@ -303,8 +303,8 @@ export async function importReadings(
     await currentActor(),
     `${valid.length} Ablesungen (CSV) in Zähler ${zaehlerId}`,
   );
-  revalidatePath(`/zaehler/${zaehlerId}`);
-  revalidatePath("/");
+  revalidatePath(`/apps/zaehlwerk/zaehler/${zaehlerId}`);
+  revalidatePath("/apps/zaehlwerk");
   const suffix = skipped > 0 ? ` (${skipped} ungültige übersprungen)` : "";
   return { success: true, message: `${valid.length} Ablesungen importiert${suffix}.` };
 }

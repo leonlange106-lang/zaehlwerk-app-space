@@ -137,8 +137,8 @@ export async function createZaehlerAction(
     return { success: false, error: "Der Zähler konnte nicht angelegt werden." };
   }
 
-  revalidatePath("/zaehler");
-  revalidatePath("/");
+  revalidatePath("/apps/zaehlwerk/zaehler");
+  revalidatePath("/apps/zaehlwerk");
   return { success: true };
 }
 
@@ -171,9 +171,9 @@ export async function updateZaehlerAction(
     return { success: false, error: "Die Änderungen konnten nicht gespeichert werden." };
   }
 
-  revalidatePath(`/zaehler/${id}`);
-  revalidatePath("/zaehler");
-  revalidatePath("/");
+  revalidatePath(`/apps/zaehlwerk/zaehler/${id}`);
+  revalidatePath("/apps/zaehlwerk/zaehler");
+  revalidatePath("/apps/zaehlwerk");
   return { success: true };
 }
 
@@ -197,8 +197,8 @@ export async function deleteZaehlerAction(
     return { success: false, error: "Der Zähler konnte nicht gelöscht werden." };
   }
 
-  revalidatePath("/zaehler");
-  revalidatePath("/");
+  revalidatePath("/apps/zaehlwerk/zaehler");
+  revalidatePath("/apps/zaehlwerk");
   return { success: true };
 }
 
@@ -233,7 +233,7 @@ export async function createTarifAction(
     return { success: false, error: "Der Tarif konnte nicht gespeichert werden." };
   }
 
-  revalidatePath(`/zaehler/${parsed.data.zaehlerId}`);
+  revalidatePath(`/apps/zaehlwerk/zaehler/${parsed.data.zaehlerId}`);
   return { success: true };
 }
 
@@ -257,7 +257,7 @@ export async function deleteTarifAction(
     return { success: false, error: "Der Tarif konnte nicht gelöscht werden." };
   }
 
-  if (typeof zaehlerId === "string") revalidatePath(`/zaehler/${zaehlerId}`);
+  if (typeof zaehlerId === "string") revalidatePath(`/apps/zaehlwerk/zaehler/${zaehlerId}`);
   return { success: true };
 }
 
@@ -294,9 +294,9 @@ export async function createAblesungAction(
     return { success: false, error: "Der Zählerstand konnte nicht gespeichert werden." };
   }
 
-  revalidatePath("/zaehler");
-  revalidatePath(`/zaehler/${parsed.data.zaehlerId}`);
-  revalidatePath("/");
+  revalidatePath("/apps/zaehlwerk/zaehler");
+  revalidatePath(`/apps/zaehlwerk/zaehler/${parsed.data.zaehlerId}`);
+  revalidatePath("/apps/zaehlwerk");
   return { success: true };
 }
 
@@ -346,9 +346,9 @@ export async function updateAblesungAction(
     return { success: false, error: "Die Ablesung konnte nicht gespeichert werden." };
   }
 
-  if (typeof zaehlerId === "string") revalidatePath(`/zaehler/${zaehlerId}`);
-  revalidatePath("/zaehler");
-  revalidatePath("/");
+  if (typeof zaehlerId === "string") revalidatePath(`/apps/zaehlwerk/zaehler/${zaehlerId}`);
+  revalidatePath("/apps/zaehlwerk/zaehler");
+  revalidatePath("/apps/zaehlwerk");
   return { success: true };
 }
 
@@ -373,8 +373,8 @@ export async function deleteAblesungAction(
     return { success: false, error: "Die Ablesung konnte nicht gelöscht werden." };
   }
 
-  if (typeof zaehlerId === "string") revalidatePath(`/zaehler/${zaehlerId}`);
-  revalidatePath("/zaehler");
-  revalidatePath("/");
+  if (typeof zaehlerId === "string") revalidatePath(`/apps/zaehlwerk/zaehler/${zaehlerId}`);
+  revalidatePath("/apps/zaehlwerk/zaehler");
+  revalidatePath("/apps/zaehlwerk");
   return { success: true };
 }

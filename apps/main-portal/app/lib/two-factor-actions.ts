@@ -65,7 +65,7 @@ export async function confirmTwoFactor(code: string): Promise<ActionState> {
   }
 
   await prisma.user.update({ where: { id: user.id }, data: { twoFactorEnabled: true } });
-  revalidatePath("/einstellungen");
+  revalidatePath("/settings");
   return { success: true };
 }
 
@@ -95,6 +95,6 @@ export async function disableTwoFactor(code: string): Promise<ActionState> {
     where: { id: user.id },
     data: { twoFactorEnabled: false, twoFactorSecret: null },
   });
-  revalidatePath("/einstellungen");
+  revalidatePath("/settings");
   return { success: true };
 }

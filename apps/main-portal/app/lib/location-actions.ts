@@ -26,8 +26,8 @@ export async function createLocationAction(
     return { success: false, error: "Der Standort konnte nicht angelegt werden." };
   }
 
-  revalidatePath("/einstellungen");
-  revalidatePath("/zaehler");
+  revalidatePath("/apps/zaehlwerk/einstellungen");
+  revalidatePath("/apps/zaehlwerk/zaehler");
   return { success: true };
 }
 
@@ -62,8 +62,8 @@ export async function updateLocationAction(
     return { success: false, error: "Der Standort konnte nicht gespeichert werden." };
   }
 
-  revalidatePath("/einstellungen");
-  revalidatePath("/zaehler");
+  revalidatePath("/apps/zaehlwerk/einstellungen");
+  revalidatePath("/apps/zaehlwerk/zaehler");
   return { success: true };
 }
 
@@ -95,7 +95,7 @@ export async function deleteLocationAction(
     return { success: false, error: "Der Standort konnte nicht gelöscht werden." };
   }
 
-  revalidatePath("/einstellungen");
-  revalidatePath("/zaehler");
+  revalidatePath("/apps/zaehlwerk/einstellungen");
+  revalidatePath("/apps/zaehlwerk/zaehler");
   return { success: true };
 }

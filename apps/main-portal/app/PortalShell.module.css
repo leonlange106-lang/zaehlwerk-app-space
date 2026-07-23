@@ -26,6 +26,18 @@
   background: light-dark(var(--mantine-color-gray-1), var(--mantine-color-dark-5));
 }
 
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 6px 2px 2px;
+  border-radius: var(--mantine-radius-sm);
+}
+
+.brand:hover {
+  background: light-dark(var(--mantine-color-gray-1), var(--mantine-color-dark-5));
+}
+
 .brandText {
   white-space: nowrap;
 }

@@ -24,7 +24,7 @@ export async function createBackupNow(): Promise<GovernanceResult> {
       `${result.jsonName}${result.sqliteName ? ` + ${result.sqliteName}` : ""}` +
         (pruned > 0 ? ` (${pruned} alte gelöscht)` : ""),
     );
-    revalidatePath("/einstellungen");
+    revalidatePath("/settings");
     const suffix = pruned > 0 ? ` ${pruned} veraltete Sicherung(en) entfernt.` : "";
     return { success: true, message: `Backup erstellt: ${result.jsonName}.${suffix}` };
   } catch (error) {
@@ -38,7 +38,7 @@ export async function deleteBackup(name: string): Promise<GovernanceResult> {
   const ok = await deleteSnapshot(name);
   if (!ok) return { success: false, message: "Die Sicherung konnte nicht gelöscht werden." };
   await recordAuditEvent(AUDIT_ACTIONS.backupDelete, admin.email, name);
-  revalidatePath("/einstellungen");
+  revalidatePath("/settings");
   return { success: true, message: "Sicherung gelöscht." };
 }
 
@@ -56,7 +56,7 @@ export async function updateBackupPolicy(patch: {
     `Auto ${policy.autoEnabled ? "an" : "aus"}, alle ${policy.intervalHours}h, ` +
       `${policy.retentionDays === 0 ? "unbegrenzte" : policy.retentionDays + "-Tage-"}Aufbewahrung`,
   );
-  revalidatePath("/einstellungen");
+  revalidatePath("/settings");
   return { success: true, message: "Backup-Richtlinie gespeichert." };
 }
 
@@ -65,7 +65,7 @@ export async function runVacuum(): Promise<GovernanceResult> {
   try {
     const { freedBytes } = await vacuumDatabase();
     await recordAuditEvent(AUDIT_ACTIONS.dbVacuum, admin.email, `${freedBytes} Bytes freigegeben`);
-    revalidatePath("/einstellungen");
+    revalidatePath("/settings");
     const freed = freedBytes > 0 ? ` ${formatBytes(freedBytes)} freigegeben.` : "";
     return { success: true, message: `VACUUM abgeschlossen.${freed}` };
   } catch (error) {

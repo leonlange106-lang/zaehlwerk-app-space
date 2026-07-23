@@ -68,7 +68,7 @@ export async function createApiToken(
   }
 
   await recordAuditEvent(AUDIT_ACTIONS.tokenCreate, user.email, `„${trimmed}"`);
-  revalidatePath("/einstellungen");
+  revalidatePath("/settings");
   return { success: true, token };
 }
 
@@ -85,6 +85,6 @@ export async function deleteApiToken(id: string): Promise<{ success: boolean; er
   }
 
   await recordAuditEvent(AUDIT_ACTIONS.tokenDelete, user.email, id);
-  revalidatePath("/einstellungen");
+  revalidatePath("/settings");
   return { success: true };
 }

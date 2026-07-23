@@ -1,12 +1,13 @@
 <div align="center">
 
-# Zählwerk App-Space
+<img src="./docs/assets/logo-appspace.svg" alt="App Space" height="72" />
 
-**Selbst gehostetes Verbrauchs- und Zähler-Management für Strom, Gas, Wasser & PV.**
+### Modulare, selbst gehostete Multi-App-Plattform
 
-Erfasse Zählerstände (manuell oder automatisch via Smart Home), verfolge
-Verbräuche und Kosten, erstelle Berichte/PDF-Exporte und prognostiziere den
-Jahresverbrauch – alles in einer Instanz, die dir gehört.
+Ein Portal nach dem **Hub-and-Spoke-Prinzip**: ein zentraler App Launcher, unter
+dem eigenständige Apps laufen. Aktuell an Bord – **Zählwerk** (Verbrauchs- &
+Zähler-Management für Strom, Gas, Wasser & PV) und **MGflasher Log Analyzer**
+(in Vorbereitung).
 
 ![Version](https://img.shields.io/badge/version-1.0.0-1f6feb)
 ![Next.js](https://img.shields.io/badge/Next.js-16-black)
@@ -18,7 +19,24 @@ Jahresverbrauch – alles in einer Instanz, die dir gehört.
 
 ---
 
-## Features
+## Apps
+
+<table>
+<tr>
+<td align="center" width="120"><img src="./docs/assets/icon-zaehlwerk.svg" width="56" height="56" alt="Zählwerk" /></td>
+<td><strong>Zählwerk</strong> — <code>/apps/zaehlwerk</code><br/>Zähler & Standorte, Verbrauch & Kosten, Tarife, Berichte/PDF-Export, Smart-Home-Erfassung und Jahresprognose.</td>
+</tr>
+<tr>
+<td align="center"><img src="./docs/assets/icon-log-analyzer.svg" width="56" height="56" alt="MGflasher Log Analyzer" /></td>
+<td><strong>MGflasher Log Analyzer</strong> — <code>/apps/log-analyzer</code> · <em>in Vorbereitung</em><br/>Fahrzeug-Datenlogs importieren, auswerten und visualisieren.</td>
+</tr>
+</table>
+
+Plattformweite Funktionen (Login/2FA, Benutzer & Rollen, System-Updates,
+Backups, Audit-Logs) liegen in den **Plattform-Einstellungen** (`/settings`);
+app-spezifische Optionen jeweils in den App-Einstellungen.
+
+## Zählwerk – Features
 
 - **Zähler & Standorte** – beliebig viele Zähler (Strom, Gas, Wasser, PV-Erzeugung/-Einspeisung, Custom), Standorten zugeordnet, mit Farben/Icons.
 - **Ablesungen & Verbrauch** – Zählerstände erfassen; der Verbrauch wird aus den Differenzen abgeleitet. Robuste Behandlung von **Zählertausch** (Startwert neu) und unplausiblen Werten.
