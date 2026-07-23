@@ -27,10 +27,12 @@ import {
 } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
 import {
+  IconArrowsDiff,
   IconBell,
   IconChartBar,
   IconChartHistogram,
   IconClockHour4,
+  IconEngine,
   IconGitCommit,
   IconLayoutDashboard,
   IconLayoutGrid,
@@ -63,7 +65,9 @@ const APP_NAV: Record<string, NavItem[]> = {
   ],
   "log-analyzer": [
     { label: "Analyzer", href: "/apps/log-analyzer", icon: IconChartHistogram, exact: true },
+    { label: "Log-Vergleich", href: "/apps/log-analyzer/compare", icon: IconArrowsDiff },
     { label: "Remote-Import", href: "/apps/log-analyzer/remote", icon: IconWorldDownload },
+    { label: "Fahrzeug-Profil", href: "/apps/log-analyzer/specs", icon: IconEngine },
     { label: "Log-Historie", href: "/apps/log-analyzer/history", icon: IconClockHour4 },
   ],
 };
