@@ -29,6 +29,8 @@ import { useDisclosure } from "@mantine/hooks";
 import {
   IconBell,
   IconChartBar,
+  IconChartHistogram,
+  IconClockHour4,
   IconGitCommit,
   IconLayoutDashboard,
   IconLayoutGrid,
@@ -38,6 +40,7 @@ import {
   IconSettings,
   IconStack2,
   IconSun,
+  IconWorldDownload,
 } from "@tabler/icons-react";
 import { USER_ROLE_LABELS } from "@zaehlwerk/database/shared";
 import type { UserRole } from "@zaehlwerk/database/shared";
@@ -57,6 +60,11 @@ const APP_NAV: Record<string, NavItem[]> = {
     { label: "Zähler", href: "/apps/zaehlwerk/zaehler", icon: IconStack2 },
     { label: "Berichte", href: "/apps/zaehlwerk/berichte", icon: IconChartBar },
     { label: "App-Einstellungen", href: "/apps/zaehlwerk/einstellungen", icon: IconSettings },
+  ],
+  "log-analyzer": [
+    { label: "Analyzer", href: "/apps/log-analyzer", icon: IconChartHistogram, exact: true },
+    { label: "Remote-Import", href: "/apps/log-analyzer/remote", icon: IconWorldDownload },
+    { label: "Log-Historie", href: "/apps/log-analyzer/history", icon: IconClockHour4 },
   ],
 };
 

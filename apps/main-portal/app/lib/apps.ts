@@ -33,7 +33,7 @@ export const APPS: AppDefinition[] = [
     href: "/apps/log-analyzer",
     icon: "/icon-log-analyzer.svg",
     accent: "#fd7e14",
-    available: false,
+    available: true,
     match: "/apps/log-analyzer",
   },
 ];

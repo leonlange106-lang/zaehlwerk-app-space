@@ -270,6 +270,10 @@ export function UserManagementCard({ users, currentUserId }: { users: AppUser[];
       <Title order={6} mb="xs">
         Neuen Benutzer anlegen
       </Title>
+      <Text size="xs" c="dimmed" mb="sm">
+        Kein Passwort nötig: Der Account wird mit einem Temp-Passwort angelegt. Beim ersten Login
+        (nur mit E-Mail) vergibt der Benutzer selbst ein Passwort, bevor er die App nutzen kann.
+      </Text>
       <form action={createFormAction} ref={formRef}>
         <Stack gap="sm">
           <Group grow align="flex-start">
@@ -277,7 +281,6 @@ export function UserManagementCard({ users, currentUserId }: { users: AppUser[];
             <TextInput name="name" label="Name (optional)" placeholder="Vor- und Nachname" />
           </Group>
           <Group grow align="flex-start">
-            <PasswordInput name="password" label="Passwort" description="Mind. 8 Zeichen" required />
             <Select
               name="role"
               label="Rolle"

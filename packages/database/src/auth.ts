@@ -29,11 +29,14 @@ export const setupAdminSchema = z.object({
   password: passwordSchema,
 });
 
-/** Creating a user via the admin user management. */
+/**
+ * Creating a user via the admin user management. No password here: new accounts
+ * are created with a temp password and the user sets their own on first login
+ * (see `mustSetPassword`).
+ */
 export const userCreateSchema = z.object({
   email: emailSchema,
   name: nameSchema,
-  password: passwordSchema,
   role: z.enum(["ADMIN", "USER"]),
 });
 

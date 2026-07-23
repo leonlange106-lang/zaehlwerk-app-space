@@ -57,7 +57,32 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           }
           if (!verifyTotp(secret, String(credentials?.code ?? ""))) return null;
 
-          return { id: user.id, email: user.email, name: user.name ?? undefined, role: user.role };
+          return {
+            id: user.id,
+            email: user.email,
+            name: user.name ?? undefined,
+            role: user.role,
+            mustSetPassword: user.mustSetPassword,
+          };
+        }
+
+        // First login of a temp-password account: no password is verified — the
+        // account was created with a random temp hash and mustSetPassword=true.
+        // A session is issued, but the middleware then forces /set-password
+        // before any app is usable. Passwordless auth is ONLY valid while the
+        // flag is set; once a real password exists this path returns null.
+        if (mode === "firstlogin") {
+          const email = String(credentials?.email ?? "").trim().toLowerCase();
+          if (!email) return null;
+          const user = await prisma.user.findUnique({ where: { email } });
+          if (!user || !user.mustSetPassword) return null;
+          return {
+            id: user.id,
+            email: user.email,
+            name: user.name ?? undefined,
+            role: user.role,
+            mustSetPassword: true,
+          };
         }
 
         // First factor: email + password.
@@ -73,7 +98,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         // client is expected to complete the second factor at /login/2fa.
         if (user.twoFactorEnabled) return null;
 
-        return { id: user.id, email: user.email, name: user.name ?? undefined, role: user.role };
+        return {
+          id: user.id,
+          email: user.email,
+          name: user.name ?? undefined,
+          role: user.role,
+          mustSetPassword: user.mustSetPassword,
+        };
       },
     }),
   ],

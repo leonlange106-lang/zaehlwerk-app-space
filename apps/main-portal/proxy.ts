@@ -50,6 +50,14 @@ export default auth((req) => {
     return NextResponse.redirect(loginUrl);
   }
 
+  // Temp-password accounts must set their own password before anything else.
+  // Everything is off-limits except the setup page itself (whose server action
+  // POSTs to the same path) — the /api/auth namespace (needed for sign-out) is
+  // already allowed above as a public API.
+  if (req.auth?.user?.mustSetPassword && pathname !== "/set-password") {
+    return NextResponse.redirect(new URL("/set-password", req.nextUrl));
+  }
+
   return NextResponse.next();
 });
 

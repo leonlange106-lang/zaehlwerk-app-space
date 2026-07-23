@@ -6,11 +6,14 @@ import type { UserRole } from "@zaehlwerk/database/shared";
 declare module "next-auth" {
   interface User {
     role?: UserRole;
+    /** True while the account still holds a temp password (must set its own). */
+    mustSetPassword?: boolean;
   }
   interface Session {
     user: {
       id: string;
       role: UserRole;
+      mustSetPassword?: boolean;
     } & DefaultSession["user"];
   }
 }
@@ -19,5 +22,6 @@ declare module "next-auth/jwt" {
   interface JWT {
     id?: string;
     role?: UserRole;
+    mustSetPassword?: boolean;
   }
 }
