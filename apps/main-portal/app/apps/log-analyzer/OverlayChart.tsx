@@ -12,6 +12,7 @@ import {
   YAxis,
 } from "recharts";
 import type { OverlaySeries } from "./lib/compare-logs";
+import { SERIES_COLORS } from "./ChartLegend";
 import classes from "./LogAnalyzer.module.css";
 
 // The overlay chart: both logs' selected channel on one shared X axis (elapsed
@@ -23,8 +24,8 @@ import classes from "./LogAnalyzer.module.css";
 // The tooltip is synchronized by construction: one chart, one X axis, so a
 // single hover reports every trace's value at that same sample point.
 
-const COLOR_A = "var(--mantine-color-orange-6)";
-const COLOR_B = "var(--mantine-color-blue-6)";
+const COLOR_A = SERIES_COLORS.primary;
+const COLOR_B = SERIES_COLORS.secondary;
 
 export function OverlayChart({
   overlay,
@@ -71,7 +72,7 @@ export function OverlayChart({
             {showZero && (
               <ReferenceLine
                 x={0}
-                stroke="var(--mantine-color-dimmed)"
+                stroke={SERIES_COLORS.reference}
                 strokeDasharray="4 4"
                 label={{ value: "WOT", fontSize: 10, position: "top" }}
               />

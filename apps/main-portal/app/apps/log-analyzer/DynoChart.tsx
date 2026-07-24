@@ -13,6 +13,7 @@ import {
   YAxis,
 } from "recharts";
 import type { DynoChartRow, DynoCurve, DynoOutput } from "./lib/dyno-engine";
+import { SERIES_COLORS } from "./ChartLegend";
 import classes from "./LogAnalyzer.module.css";
 
 // The dyno plot: engine speed on X, power (PS) on the left axis and torque (Nm)
@@ -21,9 +22,9 @@ import classes from "./LogAnalyzer.module.css";
 // is drawn as a thin dotted line: where the two methods agree, the estimate is
 // trustworthy; where they diverge, the vehicle profile (or the road) is off.
 
-const POWER_COLOR = "var(--mantine-color-orange-6)";
-const TORQUE_COLOR = "var(--mantine-color-blue-6)";
-const REF_COLOR = "var(--mantine-color-gray-5)";
+const POWER_COLOR = SERIES_COLORS.primary;
+const TORQUE_COLOR = SERIES_COLORS.secondary;
+const REF_COLOR = SERIES_COLORS.reference;
 
 export function DynoChart({
   rows,
