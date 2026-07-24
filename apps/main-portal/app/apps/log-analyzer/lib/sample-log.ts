@@ -47,6 +47,7 @@ export function makeSampleCsv(opts: SampleOptions = {}): string {
       "LPFP Pressure (bar)",
       "STFT (%)",
       "LTFT (%)",
+      "Lambda Actual (λ)",
       "IAT (°C)",
       "EGT (°C)",
       "Gear",
@@ -75,13 +76,31 @@ export function makeSampleCsv(opts: SampleOptions = {}): string {
     const lpfp = +(5 + spool * 0.6).toFixed(2);
     const stft = +(Math.sin(p * 20) * 3).toFixed(2);
     const ltft = +(-2 + p * 1).toFixed(2);
+    // Enrichment ramps in with boost: ~1.0 off-load down to ~0.85 at full load —
+    // safely rich of the WOT lean limit, so the sample stays alert-free.
+    const lambda = +(1.0 - spool * 0.15).toFixed(3);
     const iat = Math.round(28 + p * (peakIat - 28));
     const egt = Math.round(400 + spool * 450 + Math.max(0, p - 0.7) * 60);
     const gear = 3;
     rows.push(
-      [t, rpm, pedal, boostTarget, boostActual, wgdc, ignition, correction, hpfp, lpfp, stft, ltft, iat, egt, gear].join(
-        ",",
-      ),
+      [
+        t,
+        rpm,
+        pedal,
+        boostTarget,
+        boostActual,
+        wgdc,
+        ignition,
+        correction,
+        hpfp,
+        lpfp,
+        stft,
+        ltft,
+        lambda,
+        iat,
+        egt,
+        gear,
+      ].join(","),
     );
   }
 

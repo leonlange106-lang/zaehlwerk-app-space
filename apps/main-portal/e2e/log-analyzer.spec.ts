@@ -238,6 +238,43 @@ test.describe("Log Analyzer: dual-log comparison", () => {
 
     await expectNoHorizontalScroll(page);
   });
+
+  test("the overlay switches between the RPM and the WOT-aligned time axis", async ({ page }) => {
+    await page.goto("/apps/log-analyzer/compare");
+    await page.getByRole("button", { name: "Beispiel" }).nth(0).click();
+    await page.getByRole("button", { name: "Beispiel" }).nth(1).click();
+    await expect(page.getByTestId("diff-cards")).toBeVisible();
+
+    // Alignment only applies to the time axis, so it starts disabled on RPM.
+    const align = page.getByTestId("overlay-align");
+    await expect(align.getByRole("radio", { name: "WOT-Start (t=0)" })).toBeDisabled();
+
+    await page.getByTestId("overlay-axis").getByText("Zeit (s)").click();
+    await expect(align.getByRole("radio", { name: "WOT-Start (t=0)" })).toBeEnabled();
+    await expect(page.locator(".recharts-surface").first()).toBeVisible();
+
+    // Both alignment modes render; the aligned one marks t = 0.
+    await expect(page.locator("text=WOT").first()).toBeVisible();
+    await align.getByText("Roh-Zeitachse").click();
+    await expect(page.locator(".recharts-surface").first()).toBeVisible();
+
+    await expectNoHorizontalScroll(page);
+  });
+
+  test("boost overlays target as a companion trace on all four lines", async ({ page }) => {
+    await page.goto("/apps/log-analyzer/compare");
+    await page.getByRole("button", { name: "Beispiel" }).nth(0).click();
+    await page.getByRole("button", { name: "Beispiel" }).nth(1).click();
+    await expect(page.getByTestId("diff-cards")).toBeVisible();
+
+    // Boost is the default channel: A/B actual + A/B target = four line traces.
+    await expect(page.locator(".recharts-line")).toHaveCount(4);
+    await expect(page.getByText(/gepunktet: Target/)).toBeVisible();
+
+    // A single-trace channel drops back to two lines.
+    await page.getByTestId("overlay-channel").getByText("WGDC").click();
+    await expect(page.locator(".recharts-line")).toHaveCount(2);
+  });
 });
 
 test.describe("Log Analyzer: vehicle & hardware profile", () => {

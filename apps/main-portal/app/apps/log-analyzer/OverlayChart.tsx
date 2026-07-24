@@ -5,6 +5,7 @@ import {
   CartesianGrid,
   Line,
   LineChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -13,12 +14,27 @@ import {
 import type { OverlaySeries } from "./lib/compare-logs";
 import classes from "./LogAnalyzer.module.css";
 
-// A single overlay chart plotting both logs' selected channel on one shared X
-// axis (RPM). Log A is a solid line, Log B a dashed line — the "colour + line
-// style" differentiation from the spec — so the two are legible even where they
-// cross. The synchronized cursor is inherent: one chart, one X axis.
+// The overlay chart: both logs' selected channel on one shared X axis (elapsed
+// time from the WOT start, or RPM). Log A is drawn solid, Log B dashed — the
+// "line style + colour" differentiation — so the two stay legible where they
+// cross. Channels with a companion trace (Boost Target) add a third and fourth
+// thin dotted line in the same per-log colour.
+//
+// The tooltip is synchronized by construction: one chart, one X axis, so a
+// single hover reports every trace's value at that same sample point.
 
-export function OverlayChart({ overlay }: { overlay: OverlaySeries }) {
+const COLOR_A = "var(--mantine-color-orange-6)";
+const COLOR_B = "var(--mantine-color-blue-6)";
+
+export function OverlayChart({
+  overlay,
+  nameA,
+  nameB,
+}: {
+  overlay: OverlaySeries;
+  nameA: string;
+  nameB: string;
+}) {
   if (overlay.points.length === 0) {
     return (
       <Text c="dimmed" ta="center" size="sm" py="lg">
@@ -28,6 +44,13 @@ export function OverlayChart({ overlay }: { overlay: OverlaySeries }) {
   }
 
   const unitSuffix = overlay.unit ? ` ${overlay.unit}` : "";
+  const isTime = overlay.axis === "time";
+  const fmtX = (v: number): string =>
+    isTime ? `${(Math.round(v * 100) / 100).toLocaleString("de-DE")}` : `${Math.round(v)}`;
+  const ref = overlay.refLabel ?? "Target";
+  // A t = 0 marker only means something on the aligned time axis.
+  const showZero =
+    isTime && overlay.points[0].x < 0 && overlay.points[overlay.points.length - 1].x > 0;
 
   return (
     <div className={classes.chartClip}>
@@ -39,26 +62,34 @@ export function OverlayChart({ overlay }: { overlay: OverlaySeries }) {
               dataKey="x"
               type="number"
               domain={["dataMin", "dataMax"]}
-              tickFormatter={(v) => `${Math.round(Number(v))}`}
+              tickFormatter={(v) => fmtX(Number(v))}
               tick={{ fontSize: 11 }}
               minTickGap={32}
               label={{ value: overlay.xLabel, position: "insideBottomRight", offset: -2, fontSize: 11 }}
             />
             <YAxis tick={{ fontSize: 11 }} width={44} />
+            {showZero && (
+              <ReferenceLine
+                x={0}
+                stroke="var(--mantine-color-dimmed)"
+                strokeDasharray="4 4"
+                label={{ value: "WOT", fontSize: 10, position: "top" }}
+              />
+            )}
             <Tooltip
               isAnimationActive={false}
-              labelFormatter={(v) => `${overlay.xLabel} = ${Math.round(Number(v))}`}
+              labelFormatter={(v) => `${overlay.xLabel} = ${fmtX(Number(v))}`}
               formatter={(value, name) => {
                 const num = typeof value === "number" ? value : Number(value);
-                return [`${Number.isFinite(num) ? Math.round(num * 10) / 10 : "—"}${unitSuffix}`, name];
+                return [`${Number.isFinite(num) ? Math.round(num * 100) / 100 : "—"}${unitSuffix}`, name];
               }}
               contentStyle={{ fontSize: 12, borderRadius: 8 }}
             />
             <Line
               type="monotone"
               dataKey="a"
-              name="Log A"
-              stroke="var(--mantine-color-orange-6)"
+              name={`${nameA} (A)`}
+              stroke={COLOR_A}
               dot={false}
               strokeWidth={1.8}
               isAnimationActive={false}
@@ -67,14 +98,42 @@ export function OverlayChart({ overlay }: { overlay: OverlaySeries }) {
             <Line
               type="monotone"
               dataKey="b"
-              name="Log B"
-              stroke="var(--mantine-color-blue-6)"
+              name={`${nameB} (B)`}
+              stroke={COLOR_B}
               strokeDasharray="6 4"
               dot={false}
               strokeWidth={1.8}
               isAnimationActive={false}
               connectNulls
             />
+            {overlay.hasRef && (
+              <Line
+                type="monotone"
+                dataKey="aRef"
+                name={`${nameA} · ${ref}`}
+                stroke={COLOR_A}
+                strokeDasharray="2 3"
+                dot={false}
+                strokeWidth={1.2}
+                opacity={0.75}
+                isAnimationActive={false}
+                connectNulls
+              />
+            )}
+            {overlay.hasRef && (
+              <Line
+                type="monotone"
+                dataKey="bRef"
+                name={`${nameB} · ${ref}`}
+                stroke={COLOR_B}
+                strokeDasharray="2 3"
+                dot={false}
+                strokeWidth={1.2}
+                opacity={0.75}
+                isAnimationActive={false}
+                connectNulls
+              />
+            )}
           </LineChart>
         </ResponsiveContainer>
       </div>

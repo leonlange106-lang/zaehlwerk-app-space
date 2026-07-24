@@ -20,7 +20,9 @@ export type ChannelRole =
   | "hpfpActual"
   | "egt"
   | "iat"
-  | "lambda";
+  | "lambda"
+  | "ignitionTiming"
+  | "wgdc";
 
 // Order matters within each role: the first matching series wins. The `actual`
 // vs `target` split is intentionally strict so a "Boost Target" column never
@@ -63,6 +65,27 @@ const ROLE_MATCHERS: Record<ChannelRole, RegExp[]> = {
     /\blambda\b/i,
     /\bλ\b/i,
   ],
+  // ABSOLUTE ignition advance (a positive crank angle), as opposed to the
+  // per-cylinder *correction* channels below. The two read almost identically
+  // in raw label text ("Ignition Timing" vs "Ignition Timing Correction"), so
+  // this role is resolved with an explicit correction-guard (see below) — never
+  // by matcher order alone.
+  ignitionTiming: [
+    /(ign(ition)?|timing).*(advance|angle)/i,
+    /z(ü|ue)ndwinkel/i,
+    /(ign(ition)?|timing).*(actual|ist|final|base)/i,
+    /^ign(ition)?\b/i,
+    /^timing\b/i,
+  ],
+  // Wastegate duty cycle — the boost-control actuator command, in %. Both the
+  // electronic (BMW "WGDC") and pneumatic ("Boost Control Duty") namings appear.
+  wgdc: [
+    /\bwgdc\b/i,
+    /(wastegate|waste\s*gate|\bwg\b).*(duty|dc\b|position|pos\b)/i,
+    /(duty|dc)\b.*(wastegate|waste\s*gate|\bwg\b)/i,
+    /boost.*control.*(duty|valve)/i,
+    /ladedruck.*(regelventil|steller|tastverh)/i,
+  ],
 };
 
 // Timing/knock corrections deserve special handling: a car logs one channel per
@@ -83,9 +106,21 @@ const TIMING_CORRECTION_MATCHERS: RegExp[] = [
 // any label that reads as a count/detection/status/flag rather than an angle.
 const TIMING_CORRECTION_EXCLUDE = /detection|count|counter|\bevents?\b|status|\bflag\b/i;
 
-function firstMatch(series: LogSeries[], matchers: RegExp[]): LogSeries | null {
+/** Reads as an actuator duty/position command (a %), not a measured pressure. */
+const DUTY_LABEL = /\bwgdc\b|duty|tastverh|\bdc\b/i;
+
+/** True when a label reads as a timing/knock CORRECTION rather than a plain angle. */
+function isTimingCorrectionLabel(label: string): boolean {
+  return TIMING_CORRECTION_MATCHERS.some((re) => re.test(label)) && !TIMING_CORRECTION_EXCLUDE.test(label);
+}
+
+function firstMatch(
+  series: LogSeries[],
+  matchers: RegExp[],
+  reject?: (s: LogSeries) => boolean,
+): LogSeries | null {
   for (const re of matchers) {
-    const hit = series.find((s) => re.test(s.label));
+    const hit = series.find((s) => re.test(s.label) && !(reject?.(s) ?? false));
     if (hit) return hit;
   }
   return null;
@@ -106,6 +141,10 @@ export interface ResolvedChannels {
   iat: LogSeries | null;
   /** Measured air/fuel ratio (λ or AFR — normalise via `toLambda`). */
   lambda: LogSeries | null;
+  /** Absolute ignition advance (positive crank angle) — never a correction. */
+  ignitionTiming: LogSeries | null;
+  /** Wastegate duty cycle (%). */
+  wgdc: LogSeries | null;
   /** Every timing/knock-correction channel found (one per cylinder, typically). */
   timingCorrections: LogSeries[];
 }
@@ -117,8 +156,8 @@ export function resolveChannels(log: ParsedLog): ResolvedChannels {
 
   // Resolve the strict single roles first and remember what we consumed, so a
   // correction channel can't also be claimed as a plain "timing" role, etc.
-  const single = (role: ChannelRole): LogSeries | null => {
-    const hit = firstMatch(s, ROLE_MATCHERS[role]);
+  const single = (role: ChannelRole, reject?: (x: LogSeries) => boolean): LogSeries | null => {
+    const hit = firstMatch(s, ROLE_MATCHERS[role], reject);
     if (hit) used.add(hit.key);
     return hit;
   };
@@ -127,7 +166,10 @@ export function resolveChannels(log: ParsedLog): ResolvedChannels {
   const throttle = single("throttle");
   const gear = single("gear");
   const boostTarget = single("boostTarget");
-  const boostActual = single("boostActual");
+  // Guarded against the actuator: "Boost Control Duty" / "Boost Pressure WGDC"
+  // would otherwise be caught by the catch-all `^boost` matcher and plotted as
+  // a pressure, and never reach the wgdc role (resolved further down).
+  const boostActual = single("boostActual", (x) => DUTY_LABEL.test(x.label));
   const stft = single("stft");
   const ltft = single("ltft");
   const hpfpTarget = single("hpfpTarget");
@@ -135,13 +177,13 @@ export function resolveChannels(log: ParsedLog): ResolvedChannels {
   const egt = single("egt");
   const iat = single("iat");
   const lambda = single("lambda");
+  // Guarded: a correction/knock channel must never be claimed as the absolute
+  // advance — it would both mis-plot the overlay and silently drop that cylinder
+  // from `timingCorrections` (which excludes everything already `used`).
+  const ignitionTiming = single("ignitionTiming", (x) => isTimingCorrectionLabel(x.label));
+  const wgdc = single("wgdc");
 
-  const timingCorrections = s.filter(
-    (x) =>
-      !used.has(x.key) &&
-      TIMING_CORRECTION_MATCHERS.some((re) => re.test(x.label)) &&
-      !TIMING_CORRECTION_EXCLUDE.test(x.label),
-  );
+  const timingCorrections = s.filter((x) => !used.has(x.key) && isTimingCorrectionLabel(x.label));
 
   return {
     rpm,
@@ -156,6 +198,8 @@ export function resolveChannels(log: ParsedLog): ResolvedChannels {
     egt,
     iat,
     lambda,
+    ignitionTiming,
+    wgdc,
     timingCorrections,
   };
 }

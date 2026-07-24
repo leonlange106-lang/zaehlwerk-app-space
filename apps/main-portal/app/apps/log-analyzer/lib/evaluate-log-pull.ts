@@ -263,7 +263,7 @@ function scorePull(pull: DetectedPull, rpm: LogSeries | null): number {
  * When several WOT runs exist the strongest legal one wins. Falls back to the
  * RPM-sweep window when there is no pedal channel or no WOT run at all.
  */
-function detectPull(log: ParsedLog, ch: ResolvedChannels): DetectedPull {
+export function detectPull(log: ParsedLog, ch: ResolvedChannels): DetectedPull {
   const last = log.time.length - 1;
   const pedal = ch.throttle; // resolves to the accelerator pedal (preferred)
   const gear = ch.gear;
