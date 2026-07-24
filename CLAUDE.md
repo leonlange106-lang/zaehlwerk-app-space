@@ -28,6 +28,7 @@ Monorepo (pnpm + Turbo) for the Zählwerk App-Space dashboard. German UI.
 - **System Update:** `lib/update-status.ts` + `lib/update-state.ts`, SSE/API `api/system/update/`, UI `settings/SettingsView.tsx`; shell `scripts/update.sh` + `scripts/deploy-swap.sh`.
 - **Admin / metrics:** `AdminPanel.tsx`, `lib/system-metrics.ts`, `api/system/metrics/` + `api/system/cache/clear/`; mounted in `page.tsx` (admin-only).
 - **Auth/roles:** `lib/auth-helpers.ts` (`getSessionUser`, `requireAdmin`); audit `lib/audit.ts`. **Prisma schema:** `packages/database/prisma/schema.prisma`.
+- **Automated log ingestion:** API `api/v1/logs/ingest/` (auth `lib/ingestion-auth.ts` — `X-API-Key`/Bearer, `IngestionKey` model + `INGESTION_API_KEY` env bootstrap; keys managed in `lib/ingestion-key-actions.ts` + `settings/IngestionKeyCard.tsx`). Orchestration `lib/log-ingest.ts` (SHA-256 dedup via `LogFile.contentHash`). Watch-folder `apps/log-analyzer/watcher/` (polling; `LOG_WATCH_DIR`, started in `instrumentation.ts`). Realtime `lib/log-events.ts` bus → SSE `api/apps/log-analyzer/logs/stream/` → `HistoryView` toast.
 
 ## Gotchas (non-obvious)
 - **Schema changes apply on deploy** via the self-update's `prisma db push` — a running System Update is required before new columns/tables exist in prod. The generated Prisma client is git-ignored (rebuilt on build).

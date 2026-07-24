@@ -224,6 +224,11 @@ model LogFile {
   status     String   @default("invalid")
   /// Hardware-Health aus den Safety-Alerts: "safe" | "caution" | "danger".
   health     String   @default("safe")
+  /// SHA-256 des Roh-CSV (hex) — zur Deduplizierung automatischer Importe
+  /// (Ingestion-API / Watch-Folder). Manuelle Uploads setzen ihn ebenfalls.
+  contentHash String?
+  /// Freitext-Notiz aus dem Ingestion-Request (optional).
+  notes       String?
   /// Aus dem Dateinamen geparster Fahr-Zeitpunkt (für chronologische Sortierung).
   recordedAt DateTime?
   /// Real gefahrene Oktanzahl / Kraftstoff (frei, z.B. "100 RON", "E85").
@@ -234,5 +239,24 @@ model LogFile {
 
   @@index([recordedAt])
   @@index([createdAt])
+  @@index([contentHash])
   @@map("log_files")
+}
+
+/// API-Key für die automatisierte Log-Ingestion (Watch-Folder, Home Assistant,
+/// cURL, Sync-Skripte). Wie bei den PATs wird ausschließlich der SHA-256-Hash
+/// gespeichert; der Klartext (`zw_ing_…`) wird nur einmalig bei Erstellung
+/// angezeigt. Keys sind instanzweit (nicht an einen Benutzer gebunden) und
+/// werden von Admins verwaltet.
+model IngestionKey {
+  id         String    @id @default(uuid())
+  name       String
+  keyHash    String    @unique
+  lastUsedAt DateTime?
+  expiresAt  DateTime?
+  /// Widerrufen — bleibt als Audit-Spur bestehen, wird aber nicht mehr akzeptiert.
+  revoked    Boolean   @default(false)
+  createdAt  DateTime  @default(now())
+
+  @@map("ingestion_keys")
 }

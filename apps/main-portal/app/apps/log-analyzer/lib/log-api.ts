@@ -14,6 +14,7 @@ export interface LogSummaryDTO {
   vehicle: string | null;
   status: PullStatus;
   health: PullHealth;
+  notes: string | null;
   recordedAt: string | null;
   octane: string | null;
   tags: string[];

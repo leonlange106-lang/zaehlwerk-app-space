@@ -43,6 +43,8 @@ import { SystemBackupCard } from "./SystemBackupCard";
 import { UserManagementCard } from "./UserManagementCard";
 import { SecurityCard } from "./SecurityCard";
 import { ApiTokenCard } from "./ApiTokenCard";
+import { IngestionKeyCard } from "./IngestionKeyCard";
+import type { IngestionKeySummary } from "@/app/lib/ingestion-key-actions";
 import { BackupPolicyCard } from "./BackupPolicyCard";
 import { DatabaseMaintenanceCard } from "./DatabaseMaintenanceCard";
 import { AuditLogCard } from "./AuditLogCard";
@@ -68,6 +70,7 @@ export function SettingsView({
   users,
   twoFactorEnabled,
   apiTokens,
+  ingestionKeys,
   governance,
 }: {
   versionInfo: LocalCommitInfo | null;
@@ -75,6 +78,7 @@ export function SettingsView({
   users: AppUser[];
   twoFactorEnabled: boolean;
   apiTokens: ApiTokenSummary[];
+  ingestionKeys: IngestionKeySummary[];
   governance: GovernanceData | null;
 }) {
   const isAdmin = currentUser?.role === "ADMIN";
@@ -91,6 +95,7 @@ export function SettingsView({
 
       {currentUser && <SecurityCard twoFactorEnabled={twoFactorEnabled} />}
       {currentUser && <ApiTokenCard tokens={apiTokens} />}
+      {isAdmin && <IngestionKeyCard keys={ingestionKeys} />}
       {isAdmin && currentUser && <UserManagementCard users={users} currentUserId={currentUser.id} />}
       <SystemBackupCard />
       {isAdmin && governance && (

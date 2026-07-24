@@ -53,6 +53,18 @@ services:
       REPO_ROOT: /repo
       UPDATE_SCRIPT_PATH: /repo/scripts/update.sh
       COMPOSE_FILE: docker-compose.prod.yml
+      # Automated log-ingestion watch-folder. CSVs dropped in this directory are
+      # parsed, evaluated, stored and moved to <dir>/processed (or /failed). It
+      # lives inside the persistent /data volume by default, so no extra mount is
+      # needed. Set to an empty string to disable the watcher. For a Home
+      # Assistant OS share, set LOG_WATCH_DIR=/share/log-analyzer and enable the
+      # commented bind mount below.
+      LOG_WATCH_DIR: ${LOG_WATCH_DIR:-/data/watch}
+      # Optional bootstrap API key for POST /api/v1/logs/ingest, so a fresh HAOS
+      # deployment can authenticate before any DB-managed key is minted in the
+      # Settings UI. Generate with `openssl rand -hex 32`. Leave empty to require
+      # a DB-managed key (X-API-Key header).
+      INGESTION_API_KEY: ${INGESTION_API_KEY:-}
     volumes:
       # Persists the SQLite database across container recreations.
       - zaehlwerk-db:/data
@@ -64,6 +76,11 @@ services:
       # container root-equivalent access to the host — see DEPLOYMENT.md
       # before exposing this service beyond a trusted network.
       - /var/run/docker.sock:/var/run/docker.sock
+      # Optional: expose a Home Assistant OS / host shared folder to the
+      # watch-folder importer, then set LOG_WATCH_DIR=/share/log-analyzer above.
+      # The default LOG_WATCH_DIR (/data/watch) needs no extra mount — it already
+      # lives inside the zaehlwerk-db volume.
+      # - /srv/homeassistant/share/log-analyzer:/share/log-analyzer
     healthcheck:
       # Probe the cheap /api/health liveness endpoint (no DB, no network) via
       # node's global fetch — node is guaranteed present in the runtime image,

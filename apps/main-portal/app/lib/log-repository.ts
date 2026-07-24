@@ -21,11 +21,20 @@ import type { PullHealth, PullStatus } from "../apps/log-analyzer/lib/evaluate-l
 
 export type { PullStatus, PullHealth };
 
+/** How a log entered the system. "ingest"/"watch" are the automated paths. */
+export type LogSource = "upload" | "remote" | "ingest" | "watch";
+
 export interface LogUploadInput {
   name: string;
   csv: string;
-  source?: "upload" | "remote";
+  source?: LogSource;
   sourceUrl?: string | null;
+  /** SHA-256 (hex) of the raw CSV — persisted for dedup of automated imports. */
+  contentHash?: string | null;
+  /** Free-text note (e.g. from an ingestion request). */
+  notes?: string | null;
+  /** Explicit vehicle override; when absent the value parsed from the CSV wins. */
+  vehicle?: string | null;
 }
 
 /** Row shown in the log overview (no bulky CSV). */
@@ -39,6 +48,7 @@ export interface LogSummary {
   vehicle: string | null;
   status: PullStatus;
   health: PullHealth;
+  notes: string | null;
   /** Drive time parsed from the filename (ISO), or null. */
   recordedAt: string | null;
   octane: string | null;
@@ -104,6 +114,7 @@ type LogRow = {
   vehicle: string | null;
   status: string;
   health: string;
+  notes: string | null;
   recordedAt: Date | null;
   octane: string | null;
   tags: string;
@@ -146,6 +157,7 @@ function toSummary(row: LogRow): LogSummary {
     vehicle: row.vehicle,
     status,
     health,
+    notes: row.notes,
     recordedAt: row.recordedAt ? row.recordedAt.toISOString() : null,
     octane: row.octane,
     tags: splitTags(row.tags),
@@ -167,12 +179,15 @@ export async function createLogs(inputs: LogUploadInput[]): Promise<LogSummary[]
         csv: input.csv,
         rowCount: d.rowCount,
         vin: d.vin,
-        vehicle: d.vehicle,
+        // An explicit vehicle override wins over the value parsed from the CSV.
+        vehicle: input.vehicle ?? d.vehicle,
         mapVersion: d.mapVersion,
         software: d.software,
         loggedAt: d.loggedAt,
         status: d.status,
         health: d.health,
+        contentHash: input.contentHash ?? null,
+        notes: input.notes ?? null,
         // Drive time & octane pre-filled from the filename when present.
         recordedAt: fromName.recordedAt,
         octane: fromName.octane,
@@ -181,6 +196,19 @@ export async function createLogs(inputs: LogUploadInput[]): Promise<LogSummary[]
     created.push(toSummary(row));
   }
   return created;
+}
+
+/**
+ * Find an already-stored log by its raw-CSV SHA-256 hash — the dedup check for
+ * automated ingestion (API / watch-folder), so the same file dropped twice is
+ * only imported once. Returns the existing summary, or null when unseen.
+ */
+export async function findLogByContentHash(contentHash: string): Promise<LogSummary | null> {
+  const row = await prisma.logFile.findFirst({
+    where: { contentHash },
+    orderBy: { createdAt: "desc" },
+  });
+  return row ? toSummary(row) : null;
 }
 
 /** All stored logs as summaries, chronologically by drive time (newest first). */
