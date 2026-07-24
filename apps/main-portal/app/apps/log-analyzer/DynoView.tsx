@@ -19,6 +19,7 @@ import {
 import {
   IconAdjustments,
   IconAlertCircle,
+  IconFileExport,
   IconFileText,
   IconGauge,
   IconInfoCircle,
@@ -40,11 +41,19 @@ import {
   type DynoPoint,
   type MethodPreference,
 } from "./lib/dyno-engine";
-import { DEFAULT_DYNO_PROFILE, summarizeDynoProfile, type DynoProfile } from "./lib/dyno-spec";
+import {
+  applyVehicleEngine,
+  DEFAULT_DYNO_PROFILE,
+  summarizeDynoProfile,
+  type DynoProfile,
+} from "./lib/dyno-spec";
 import { loadDynoProfile } from "./lib/dyno-store";
+import { loadVehicleSpec } from "./lib/spec-store";
+import { DEFAULT_VEHICLE_SPEC, type VehicleSpec } from "./lib/vehicle-spec";
 import type { ParsedLog } from "./lib/types";
 import { DynoChart } from "./DynoChart";
 import { DynoProfileDrawer } from "./DynoProfileDrawer";
+import { ExportModal } from "./ExportModal";
 
 // The virtual dyno workspace: pick a log, and its detected WOT pull is turned
 // into power and torque curves over engine speed. All physics lives in the pure
@@ -52,7 +61,11 @@ import { DynoProfileDrawer } from "./DynoProfileDrawer";
 // this component only orchestrates picking, toggling and rendering.
 
 interface Active {
+  /** Id when the log came from the store; null for a file picked locally. */
+  id: string | null;
   name: string;
+  /** Raw CSV, kept so a report can be generated for an unpersisted file too. */
+  csv: string;
   log: ParsedLog;
 }
 
@@ -79,15 +92,19 @@ export function DynoView() {
   const [history, setHistory] = useState<LogSummaryDTO[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [profile, setProfile] = useState<DynoProfile>(DEFAULT_DYNO_PROFILE);
+  const [spec, setSpec] = useState<VehicleSpec>(DEFAULT_VEHICLE_SPEC);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const [method, setMethod] = useState<MethodPreference>("auto");
   const [correction, setCorrection] = useState<CorrectionStandard>("none");
   const [output, setOutput] = useState<DynoOutput>("crank");
 
-  // The vehicle-dynamics profile lives in localStorage (client-only).
+  // The vehicle-dynamics profile and the hardware spec both live in
+  // localStorage (client-only), so they are read after mount.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setProfile(loadDynoProfile());
+    setSpec(loadVehicleSpec());
   }, []);
 
   useEffect(() => {
@@ -113,7 +130,7 @@ export function DynoView() {
         return;
       }
       setError(null);
-      setActive({ name: record.name, log: parseLog(record.csv) });
+      setActive({ id: record.id, name: record.name, csv: record.csv, log: parseLog(record.csv) });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Log konnte nicht geladen werden.");
     }
@@ -135,7 +152,7 @@ export function DynoView() {
         return;
       }
       setError(null);
-      setActive({ name, log });
+      setActive({ id: null, name, csv, log });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Die Datei konnte nicht gelesen werden.");
     }
@@ -153,9 +170,24 @@ export function DynoView() {
     [ingest],
   );
 
+  // Only a verified WOT pull produces a meaningful power curve: a part-throttle
+  // or aborted run understates the airflow and the acceleration alike, so those
+  // logs are kept out of the picker rather than silently mis-measured.
+  const verifiedHistory = useMemo(
+    () => history.filter((h) => h.status === "verified"),
+    [history],
+  );
+
+  // The engine is a property of the car, so it comes from the vehicle profile
+  // rather than being configured twice; everything else stays the user's.
+  const effectiveProfile = useMemo(
+    () => applyVehicleEngine(profile, spec.engineCode),
+    [profile, spec.engineCode],
+  );
+
   const estimate = useMemo(
-    () => (active ? estimateDyno(active.log, profile, { correction, method }) : null),
-    [active, profile, correction, method],
+    () => (active ? estimateDyno(active.log, effectiveProfile, { correction, method }) : null),
+    [active, effectiveProfile, correction, method],
   );
   const rows = useMemo(
     () => (estimate ? buildDynoChartRows(estimate, output) : []),
@@ -178,15 +210,28 @@ export function DynoView() {
             </Text>
           </div>
         </Group>
-        <Button
-          variant="light"
-          color="slate"
-          leftSection={<IconAdjustments size={16} />}
-          onClick={() => setDrawerOpen(true)}
-          data-testid="dyno-open-profile"
-        >
-          Fahrzeug-Parameter
-        </Button>
+        <Group gap="xs">
+          {active && (
+            <Button
+              variant="light"
+              color="teal"
+              leftSection={<IconFileExport size={16} />}
+              onClick={() => setExportOpen(true)}
+              data-testid="open-export"
+            >
+              Exportieren / Bericht erstellen
+            </Button>
+          )}
+          <Button
+            variant="light"
+            color="slate"
+            leftSection={<IconAdjustments size={16} />}
+            onClick={() => setDrawerOpen(true)}
+            data-testid="dyno-open-profile"
+          >
+            Fahrzeug-Parameter
+          </Button>
+        </Group>
       </Group>
 
       {error && (
@@ -207,10 +252,10 @@ export function DynoView() {
           )}
         </Group>
         <Group gap="sm" align="flex-end" wrap="wrap">
-          {history.length > 0 && (
+          {verifiedHistory.length > 0 && (
             <Select
-              placeholder="Aus Historie wählen…"
-              data={history.map((h) => ({ value: h.id, label: h.name }))}
+              placeholder="Verifizierten Pull wählen…"
+              data={verifiedHistory.map((h) => ({ value: h.id, label: h.name }))}
               onChange={(id) => id && void openById(id)}
               searchable
               clearable
@@ -238,7 +283,13 @@ export function DynoView() {
           </Button>
         </Group>
         <Text size="xs" c="dimmed" mt="sm">
-          Profil: {summarizeDynoProfile(profile)}
+          {history.length > 0 && verifiedHistory.length === 0
+            ? "Keine verifizierten Pulls gespeichert – für eine belastbare Schätzung zuerst einen sauberen WOT-Pull im Analyzer prüfen."
+            : "Nur verifizierte WOT-Pulls stehen zur Auswahl – andere Logs verfälschen die Leistungsschätzung."}
+        </Text>
+        <Text size="xs" c="dimmed" mt={4}>
+          Profil: {summarizeDynoProfile(effectiveProfile)} · Motor {spec.engineCode} aus dem
+          Fahrzeugprofil
         </Text>
       </Card>
 
@@ -383,9 +434,20 @@ export function DynoView() {
 
       <DynoProfileDrawer
         opened={drawerOpen}
-        profile={profile}
+        profile={effectiveProfile}
+        engineCode={spec.engineCode}
         onClose={() => setDrawerOpen(false)}
         onSave={setProfile}
+      />
+
+      <ExportModal
+        opened={exportOpen}
+        onClose={() => setExportOpen(false)}
+        target={active ? (active.id ? { logId: active.id } : { name: active.name, csv: active.csv }) : null}
+        spec={spec}
+        dyno={{ profile: effectiveProfile, output, correction }}
+        // The dyno page leads with the power curve; the raw-file block is noise here.
+        initialSections={{ fileSummary: false }}
       />
     </Stack>
   );

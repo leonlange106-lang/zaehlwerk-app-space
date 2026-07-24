@@ -27,10 +27,17 @@ async function typeUrl(page: Page, value: string) {
  */
 async function loadBothSamples(page: Page) {
   await page.waitForLoadState("networkidle");
-  await page.getByRole("button", { name: "Beispiel" }).nth(0).click();
-  await expect(page.getByTestId("picked-a")).toBeVisible();
-  await page.getByRole("button", { name: "Beispiel" }).nth(1).click();
-  await expect(page.getByTestId("picked-b")).toBeVisible();
+  // Retry each click until its badge appears: `networkidle` says the list has
+  // ARRIVED, not that React has committed the taller layout, and the number of
+  // stored logs (and so the size of that shift) grows as the suite runs.
+  const pick = async (index: number, badge: string) => {
+    await expect(async () => {
+      await page.getByRole("button", { name: "Beispiel" }).nth(index).click();
+      await expect(page.getByTestId(badge)).toBeVisible({ timeout: 2_000 });
+    }).toPass({ timeout: 20_000 });
+  };
+  await pick(0, "picked-a");
+  await pick(1, "picked-b");
 }
 
 async function expectNoHorizontalScroll(page: Page) {
@@ -335,5 +342,150 @@ test.describe("Log Analyzer: virtual dyno", () => {
     await expect(peakCard.getByText(/DIN 70020 · ×/)).toBeVisible();
     await page.getByTestId("dyno-correction").getByText("SAE J1349").click();
     await expect(peakCard.getByText(/SAE J1349 · ×/)).toBeVisible();
+  });
+});
+
+/**
+ * A synthetic pull the evaluator rates VERIFIED: full pedal throughout, 4th gear
+ * only, and a sweep from below the 3000 rpm start limit up past the B58's 6300
+ * rpm end requirement.
+ */
+const VERIFIED_PULL_CSV = [
+  "# VIN: WBSVERIFIED0SYN1",
+  "# Vehicle: Verified Pull Coupe",
+  "Time (s),RPM,Pedal (%),Gear,Boost Actual (psi),Boost Target (psi)",
+  ...Array.from({ length: 40 }, (_, i) => {
+    const p = i / 39;
+    const rpm = Math.round(1500 + p * 5400);
+    const boost = Math.min(1, p * 3) * 18;
+    return `${(i * 0.1).toFixed(1)},${rpm},100,4,${boost.toFixed(2)},${(boost + 0.4).toFixed(2)}`;
+  }),
+].join("\n");
+
+test.describe("Log Analyzer: report export", () => {
+  /** Upload the synthetic CSV and wait for the analyzer workspace to settle. */
+  async function uploadSample(page: Page) {
+    await page.goto("/apps/log-analyzer");
+    await page.locator('input[type="file"]').setInputFiles({
+      name: "export-test.csv",
+      mimeType: "text/csv",
+      buffer: Buffer.from(SAMPLE_CSV),
+    });
+    await expect(page.getByText("Upload Test Coupe")).toBeVisible();
+  }
+
+  test("exports a PDF report from the analyzer", async ({ page }) => {
+    await uploadSample(page);
+
+    await page.getByTestId("open-export").click();
+    await expect(page.getByTestId("export-modal")).toBeVisible();
+
+    // Defaults: PDF, light theme, every section on.
+    await expect(page.getByTestId("export-section-wotChart")).toBeChecked();
+    await expect(page.getByTestId("export-section-violations")).toBeChecked();
+
+    const download = page.waitForEvent("download");
+    await page.getByTestId("export-submit").click();
+    const file = await download;
+    expect(file.suggestedFilename()).toMatch(/^zaehlwerk-logbericht_.*\.pdf$/);
+
+    // A real PDF, not an error page rendered into the download.
+    const stream = await file.createReadStream();
+    const head = await new Promise<Buffer>((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      stream.on("data", (c: Buffer) => chunks.push(c));
+      stream.on("end", () => resolve(Buffer.concat(chunks)));
+      stream.on("error", reject);
+    });
+    expect(head.subarray(0, 5).toString()).toBe("%PDF-");
+    expect(head.byteLength).toBeGreaterThan(1000);
+
+    // The dialog closes itself once the download is handed over.
+    await expect(page.getByTestId("export-modal")).toBeHidden();
+    await expect(page.getByText(ERROR_BOUNDARY_TEXT)).toHaveCount(0);
+  });
+
+  test("exports a PNG snippet with the sections the user picked", async ({ page }) => {
+    await uploadSample(page);
+    await page.getByTestId("open-export").click();
+
+    await page.getByTestId("export-format").getByText("PNG-Bild").click();
+    // Drop two sections to prove the toggles reach the generated report.
+    await page.getByTestId("export-section-dynoCurve").uncheck();
+    await page.getByTestId("export-section-fileSummary").uncheck();
+    await page.getByTestId("export-theme").getByText("Dunkel").click();
+
+    const download = page.waitForEvent("download");
+    await page.getByTestId("export-submit").click();
+    const file = await download;
+    expect(file.suggestedFilename()).toMatch(/^zaehlwerk-logbericht_.*\.png$/);
+
+    const stream = await file.createReadStream();
+    const bytes = await new Promise<Buffer>((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      stream.on("data", (c: Buffer) => chunks.push(c));
+      stream.on("end", () => resolve(Buffer.concat(chunks)));
+      stream.on("error", reject);
+    });
+    // PNG magic number — the canvas rasterization really produced an image.
+    expect([...bytes.subarray(0, 4)]).toEqual([0x89, 0x50, 0x4e, 0x47]);
+    expect(bytes.byteLength).toBeGreaterThan(1000);
+
+    await expect(page.getByText(ERROR_BOUNDARY_TEXT)).toHaveCount(0);
+  });
+
+  test("the dyno page exports a report for the log it is showing", async ({ page }) => {
+    await page.goto("/apps/log-analyzer/dyno");
+    await page.waitForLoadState("networkidle");
+
+    // No log open yet → no export entry point.
+    await expect(page.getByTestId("open-export")).toHaveCount(0);
+
+    await page.getByTestId("dyno-sample").click();
+    await expect(page.getByTestId("dyno-peaks")).toBeVisible();
+
+    await page.getByTestId("open-export").click();
+    await expect(page.getByTestId("export-modal")).toBeVisible();
+    // The dyno page leads with the curve and drops the raw-file block.
+    await expect(page.getByTestId("export-section-dynoCurve")).toBeChecked();
+    await expect(page.getByTestId("export-section-fileSummary")).not.toBeChecked();
+
+    const download = page.waitForEvent("download");
+    await page.getByTestId("export-submit").click();
+    expect((await download).suggestedFilename()).toMatch(/\.pdf$/);
+    await expect(page.getByText(ERROR_BOUNDARY_TEXT)).toHaveCount(0);
+  });
+
+  test("only verified pulls are offered on the dyno page", async ({ page }) => {
+    // Upload one log of each kind, so the assertion holds regardless of what
+    // earlier tests left in the shared E2E database.
+    await page.goto("/apps/log-analyzer");
+    await page.locator('input[type="file"]').setInputFiles([
+      {
+        name: "verified-pull.csv",
+        mimeType: "text/csv",
+        buffer: Buffer.from(VERIFIED_PULL_CSV),
+      },
+      {
+        name: "unverified-pull.csv",
+        mimeType: "text/csv",
+        buffer: Buffer.from(SAMPLE_CSV),
+      },
+    ]);
+    await expect(page.getByRole("heading", { name: "verified-pull.csv" })).toBeVisible();
+
+    await page.goto("/apps/log-analyzer/dyno");
+    await page.waitForLoadState("networkidle");
+    await expect(page.getByText(/Nur verifizierte WOT-Pulls/)).toBeVisible();
+
+    // The picker lists the clean sweep and withholds the part-throttle fragment.
+    // Both browser projects share one E2E database, so the verified log may
+    // already be there several times over — `.first()` keeps that from tripping
+    // strict mode. The count-0 assertion below is the one that proves the filter.
+    const picker = page.getByTestId("dyno-history");
+    await expect(picker).toBeVisible();
+    await picker.click();
+    await expect(page.getByRole("option", { name: "verified-pull.csv" }).first()).toBeVisible();
+    await expect(page.getByRole("option", { name: "unverified-pull.csv" })).toHaveCount(0);
   });
 });

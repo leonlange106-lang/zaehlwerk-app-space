@@ -19,6 +19,7 @@ import {
 import {
   IconAlertCircle,
   IconCrop,
+  IconFileExport,
   IconFileText,
   IconGauge,
   IconRefresh,
@@ -35,10 +36,13 @@ import { fetchLog, uploadLogs, type LogRecordDTO } from "./lib/log-api";
 import { evaluateLogPull } from "./lib/evaluate-log-pull";
 import { loadVehicleSpec } from "./lib/spec-store";
 import { DEFAULT_VEHICLE_SPEC, type VehicleSpec } from "./lib/vehicle-spec";
+import { loadDynoProfile } from "./lib/dyno-store";
+import { DEFAULT_DYNO_PROFILE, type DynoProfile } from "./lib/dyno-spec";
 import type { ParsedLog } from "./lib/types";
 import { LogCharts } from "./LogCharts";
 import { MetadataCard } from "./MetadataCard";
 import { EvaluationCard } from "./EvaluationCard";
+import { ExportModal } from "./ExportModal";
 import { ParameterPanel } from "./ParameterPanel";
 import type { AxisSide } from "./lib/types";
 import classes from "./LogAnalyzer.module.css";
@@ -66,6 +70,8 @@ export function AnalyzerView() {
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const [spec, setSpec] = useState<VehicleSpec>(DEFAULT_VEHICLE_SPEC);
+  const [dynoProfile, setDynoProfile] = useState<DynoProfile>(DEFAULT_DYNO_PROFILE);
+  const [exportOpen, setExportOpen] = useState(false);
   // Per-channel display overrides: which Y axis (left/right) and line colour.
   const [axisById, setAxisById] = useState<Record<string, AxisSide>>({});
   const [colorById, setColorById] = useState<Record<string, string>>({});
@@ -75,6 +81,9 @@ export function AnalyzerView() {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setSpec(loadVehicleSpec());
+    // The dyno profile is only needed for the optional power section of an
+    // exported report, but it lives in the same client-only storage.
+    setDynoProfile(loadDynoProfile());
   }, []);
 
   // Open a stored log record: re-parse its CSV and set it active.
@@ -304,6 +313,16 @@ export function AnalyzerView() {
         <Group gap="xs">
           <Button
             variant="light"
+            color="teal"
+            size="xs"
+            leftSection={<IconFileExport size={14} />}
+            onClick={() => setExportOpen(true)}
+            data-testid="open-export"
+          >
+            Exportieren / Bericht erstellen
+          </Button>
+          <Button
+            variant="light"
             color="orange"
             size="xs"
             leftSection={<IconGauge size={14} />}
@@ -415,6 +434,14 @@ export function AnalyzerView() {
           />
         </GridCol>
       </Grid>
+
+      <ExportModal
+        opened={exportOpen}
+        onClose={() => setExportOpen(false)}
+        target={{ logId: active.id }}
+        spec={spec}
+        dyno={{ profile: dynoProfile, output: "crank", correction: "none" }}
+      />
     </Stack>
   );
 }
