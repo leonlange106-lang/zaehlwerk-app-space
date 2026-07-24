@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { notifications } from "@mantine/notifications";
 import {
   ActionIcon,
   Badge,
@@ -43,6 +44,13 @@ const STATUS_META: Record<PullStatus, { label: string; color: string }> = {
   verified: { label: "VERIFIED", color: "teal" },
   partial: { label: "PARTIAL", color: "yellow" },
   invalid: { label: "INVALID", color: "red" },
+};
+
+const SOURCE_META: Record<string, { label: string; color: string }> = {
+  upload: { label: "Upload", color: "orange" },
+  remote: { label: "Remote", color: "blue" },
+  ingest: { label: "Auto · API", color: "grape" },
+  watch: { label: "Auto · Ordner", color: "grape" },
 };
 
 const HEALTH_META: Record<PullHealth, { label: string; color: string; safe: boolean }> = {
@@ -112,6 +120,35 @@ export function HistoryView() {
     })();
     return () => {
       cancelled = true;
+    };
+  }, []);
+
+  // Realtime: when a log is auto-imported (ingestion API or watch-folder), the
+  // server pushes an SSE event — show a toast and refresh the list in place.
+  useEffect(() => {
+    const source = new EventSource("/api/apps/log-analyzer/logs/stream");
+    const onIngested = (e: MessageEvent) => {
+      let data: { name?: string; ingestStatus?: string; duplicate?: boolean } = {};
+      try {
+        data = JSON.parse(e.data);
+      } catch {
+        return;
+      }
+      const name = data.name ?? "Log";
+      notifications.show({
+        color: data.duplicate ? "gray" : data.ingestStatus === "VERIFIED" ? "teal" : "orange",
+        title: data.duplicate ? "Log bereits vorhanden" : "Neuer Log automatisch verarbeitet",
+        message: `${name}${data.duplicate ? "" : ` (Status: ${data.ingestStatus ?? "?"})`}`,
+      });
+      // Pull the fresh list so the new row (and its badges) appears immediately.
+      void fetchLogs()
+        .then((logs) => setItems(logs))
+        .catch(() => {});
+    };
+    source.addEventListener("ingested", onIngested as EventListener);
+    return () => {
+      source.removeEventListener("ingested", onIngested as EventListener);
+      source.close();
     };
   }, []);
 
@@ -234,8 +271,8 @@ function LogRow({
             <Badge color={status.color} variant="light" size="sm" data-testid="log-status">
               {status.label}
             </Badge>
-            <Badge variant="light" color={log.source === "remote" ? "blue" : "orange"} size="sm">
-              {log.source === "remote" ? "Remote" : "Upload"}
+            <Badge variant="light" color={SOURCE_META[log.source]?.color ?? "orange"} size="sm">
+              {SOURCE_META[log.source]?.label ?? "Upload"}
             </Badge>
           </Group>
           <Text size="xs" c="dimmed" mt={2}>

@@ -65,3 +65,25 @@ export function verifyChallenge<T = Record<string, unknown>>(token: string): T |
 export function generateApiToken(): string {
   return `zw_pat_${crypto.randomBytes(32).toString("base64url")}`;
 }
+
+/** New ingestion API key, shown once. Format: zw_ing_<43 base64url chars>. */
+export function generateIngestionKey(): string {
+  return `zw_ing_${crypto.randomBytes(32).toString("base64url")}`;
+}
+
+/** SHA-256 hex of arbitrary content — used to dedupe ingested CSV logs. */
+export function sha256Hex(content: string): string {
+  return crypto.createHash("sha256").update(content, "utf8").digest("hex");
+}
+
+/**
+ * Constant-time string comparison that never throws on length mismatch — for
+ * comparing a presented secret against a configured one without leaking length
+ * via early return timing.
+ */
+export function safeEqual(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
