@@ -87,7 +87,8 @@ describe("buildYearlyReport – Zählertausch", () => {
     const yearly = [...cells.values()]
       .filter((c): c is NonNullable<typeof c> => c !== null && !c.swap)
       .map((c) => c.consumption);
-    expect(yearly).toEqual([215, 95]); // 2005 (gefaltet), 2006
+    // Einbau-Stand (1000), 2005 gefaltet (215), 2006 (95).
+    expect(yearly).toEqual([1000, 215, 95]);
   });
 
   it("markiert eine Jahreszeile nur dann als unplausibel, wenn sie es wirklich ist", () => {
@@ -103,5 +104,52 @@ describe("buildYearlyReport – Zählertausch", () => {
   it("hält die Folgejahre unverändert", () => {
     const cells = cellsByDate(waterMeter());
     expect(cells.get("2006-09-19")?.consumption).toBe(95); // 190 − 95
+  });
+});
+
+describe("buildYearlyReport – Erst-Ablesung (Installations-Stand)", () => {
+  function stromMeter() {
+    return {
+      id: "s",
+      name: "Strom",
+      kategorie: "STROM" as const,
+      einheit: "kWh",
+      tarife: [],
+      ablesungen: [
+        { id: "a", datum: d("2000-05-31"), wert: 48, zaehlerGetauscht: false, startwertNeu: null, kosten: null },
+        { id: "b", datum: d("2000-09-16"), wert: 1180, zaehlerGetauscht: false, startwertNeu: null, kosten: 327.4 },
+      ],
+    };
+  }
+
+  it("führt die erste Ablesung als Verbrauch seit Einbau (Stand ab 0), mit 0 Tagen", () => {
+    const report = buildYearlyReport([stromMeter()]);
+    const first = report.rows.find((r) => r.date === "2000-05-31")?.strom;
+    expect(first?.consumption).toBe(48); // 48 − 0
+    expect(first?.days).toBe(0); // kein Vorintervall → keine Rate/Kosten
+    expect(first?.swap).toBe(false);
+  });
+
+  it("rechnet die zweite Ablesung normal gegen die erste", () => {
+    const report = buildYearlyReport([stromMeter()]);
+    expect(report.rows.find((r) => r.date === "2000-09-16")?.strom?.consumption).toBe(1132);
+  });
+
+  it("weist Gas den Einbau-Verbrauch auch in kWh aus", () => {
+    const gas = {
+      id: "g",
+      name: "Gas",
+      kategorie: "GAS" as const,
+      einheit: "m³",
+      tarife: [],
+      ablesungen: [
+        { id: "a", datum: d("2000-05-31"), wert: 85, zaehlerGetauscht: false, startwertNeu: null, kosten: null },
+        { id: "b", datum: d("2000-09-16"), wert: 649, zaehlerGetauscht: false, startwertNeu: null, kosten: null },
+      ],
+    };
+    const first = buildYearlyReport([gas]).rows.find((r) => r.date === "2000-05-31")?.gas;
+    expect(first?.consumption).toBe(85);
+    // 85 m³ × Brennwert × Zustandszahl ≈ 843 kWh (Referenz-Bericht).
+    expect(Math.round(first!.consumptionKwh!)).toBe(843);
   });
 });

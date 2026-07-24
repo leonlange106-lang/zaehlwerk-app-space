@@ -147,6 +147,26 @@ function buildCellMap(meter: ReportZaehlerInput | undefined, sparte: Sparte): Ma
   const intervals = calculateConsumption(ascending);
   const byReadingId = new Map(ascending.map((reading) => [reading.id, reading]));
 
+  // Erst-Ablesung = Installations-Stand: der Zähler startet bei 0, der erste
+  // abgelesene Wert ist der Verbrauch seit dem Einbau. Er bildet eine eigene
+  // Zeile mit 0 Tagen (kein Vorintervall → keine Rate, keine Kosten). Der
+  // Referenz-Bericht führt diese Zeile ebenso, und die Gesamtsumme je Zähler
+  // rechnet sie mit (Zähler-Lebensverbrauch = Endstand − 0). Bewusst hier im
+  // Bericht statt in `calculateConsumption`, damit die Kernlogik keinen
+  // mitten im Leben übernommenen Zähler (erster Stand ≠ 0) fälschlich als
+  // Verbrauch verbucht.
+  const first = ascending[0];
+  if (first) {
+    map.set(toIsoDate(first.datum), {
+      consumption: first.zaehlerGetauscht ? null : first.wert,
+      consumptionKwh:
+        sparte === "Gas" && !first.zaehlerGetauscht ? first.wert * GAS_KWH_FACTOR : null,
+      days: 0,
+      cost: first.kosten,
+      swap: first.zaehlerGetauscht,
+    });
+  }
+
   // Über offene Tausch-Strecken zurückgestellter Verbrauch + Tage, bis die
   // nächste echte Ablesung sie aufnimmt.
   let carryAmount = 0;
