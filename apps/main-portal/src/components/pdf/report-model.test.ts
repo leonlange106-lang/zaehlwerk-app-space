@@ -50,36 +50,54 @@ function cellsByDate(meter: ReportZaehlerInput) {
 }
 
 describe("buildYearlyReport – Zählertausch", () => {
-  it("weist die Ablesung nach dem Tausch mit Verbrauch UND Kosten aus", () => {
+  it("faltet die Tausch-Strecke in das volle Jahr der Folge-Ablesung", () => {
     const cells = cellsByDate(waterMeter());
     const after = cells.get("2005-09-15");
 
-    // Der neue Zähler lief von 0 auf 95.
-    expect(after?.consumption).toBe(95);
+    // Jahresverbrauch = letzte richtige Ablesung (1000) → Endstand alt (1120)
+    // PLUS Startwert neu (0) → neue Ablesung (95) = 120 + 95 = 215.
+    expect(after?.consumption).toBe(215);
+    // Und über den vollen Zeitraum 11.09.2004 → 15.09.2005 (≈ 369 Tage), nicht
+    // nur die halbe Strecke seit dem Tausch.
+    expect(after?.days).toBe(369);
     expect(after?.cost).not.toBeNull();
     expect(after?.swap).toBe(false);
   });
 
-  it("bucht auf die Tausch-Ablesung nur den Verbrauch des ALTEN Geräts", () => {
+  it("zeigt die Tausch-Ablesung nur als Markierung, ohne eigene Jahreszahl", () => {
     const cells = cellsByDate(waterMeter());
     const swap = cells.get("2005-03-31");
 
-    // 1120 − 1000, nicht der komplette Endstand 1120: Letzteres hat früher jede
-    // Gesamtsumme und jede Hochrechnung des Zählers verfälscht.
-    expect(swap?.consumption).toBe(120);
     expect(swap?.swap).toBe(true);
+    expect(swap?.consumption).toBeNull();
+    expect(swap?.cost).toBeNull();
   });
 
   it("berücksichtigt einen erfassten Startwert des neuen Zählers", () => {
     const cells = cellsByDate(waterMeter(5));
-    expect(cells.get("2005-09-15")?.consumption).toBe(90); // 95 − 5
-    expect(cells.get("2005-03-31")?.consumption).toBe(120); // unverändert
+    // 120 (alt) + (95 − 5) (neu) = 210.
+    expect(cells.get("2005-09-15")?.consumption).toBe(210);
+    expect(cells.get("2005-03-31")?.swap).toBe(true);
   });
 
-  it("lässt kein Intervall unplausibel werden, nur weil getauscht wurde", () => {
+  it("verliert durch den Tausch keinen Verbrauch aus der Gesamtsumme", () => {
+    // Summe der ausgewiesenen Jahreszeilen (die Markierung zählt nicht):
+    // 2005 = 215, 2006 = 95. Nichts fällt weg.
+    const cells = cellsByDate(waterMeter());
+    const yearly = [...cells.values()]
+      .filter((c): c is NonNullable<typeof c> => c !== null && !c.swap)
+      .map((c) => c.consumption);
+    expect(yearly).toEqual([215, 95]); // 2005 (gefaltet), 2006
+  });
+
+  it("markiert eine Jahreszeile nur dann als unplausibel, wenn sie es wirklich ist", () => {
     const report = buildYearlyReport([waterMeter()]);
-    const implausible = report.rows.filter((row) => row.wasser && row.wasser.consumption === null);
-    expect(implausible).toEqual([]);
+    // Tausch-Markierungen (consumption null) dürfen NICHT als unplausible
+    // Jahreszeilen zählen.
+    const implausibleYears = report.rows.filter(
+      (row) => row.wasser && !row.wasser.swap && row.wasser.consumption === null,
+    );
+    expect(implausibleYears).toEqual([]);
   });
 
   it("hält die Folgejahre unverändert", () => {

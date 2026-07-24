@@ -21,6 +21,7 @@ const num0 = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 0 });
 const num1 = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 });
 const eur = new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" });
 const pct = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1, signDisplay: "exceptZero" });
+const dateFmt = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
 
 const CONFIDENCE: Record<ConsumptionProjection["confidence"], { label: string; color: string }> = {
   low: { label: "wenig Daten", color: "gray" },
@@ -60,10 +61,16 @@ export function ProjectionStats({ projection }: { projection: ConsumptionProject
   if (p.projectedAnnual === null) {
     return (
       <Text size="sm" c="dimmed">
-        Noch zu wenige Ablesungen im laufenden Jahr ({p.year}) für eine belastbare Prognose.
+        Noch zu wenige Ablesungen für eine belastbare Hochrechnung – es werden mindestens zwei
+        Ablesungen im Abstand von einigen Wochen benötigt.
       </Text>
     );
   }
+
+  // Die Hochrechnung bezieht sich auf das gleitende Jahr bis zur jüngsten
+  // Ablesung, nicht auf das Kalenderjahr — bei einer reinen Jahresablesung ist
+  // das exakt der zuletzt gemessene Jahresverbrauch.
+  const anchor = new Date(p.anchorDate);
 
   return (
     <Stack gap="sm">
@@ -79,7 +86,7 @@ export function ProjectionStats({ projection }: { projection: ConsumptionProject
       <Group gap="xl" align="flex-start" wrap="wrap">
         <div>
           <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
-            Prognose {p.year}
+            Hochrechnung / Jahr
           </Text>
           <Text fw={700} size="lg">
             {num1.format(p.projectedAnnual)} {p.unit}
@@ -111,23 +118,27 @@ export function ProjectionStats({ projection }: { projection: ConsumptionProject
 
         <div>
           <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
-            Bisher {p.year}
+            Letzte 12 Monate
           </Text>
           <Text fw={600}>
-            {num1.format(p.ytdConsumption)} {p.unit}
+            {num1.format(p.windowConsumption)} {p.unit}
           </Text>
           <Text size="xs" c="dimmed" mt={2}>
-            {num0.format(p.coveredDays)} von {num0.format(p.elapsedDays)} Tagen erfasst
+            {num0.format(p.coveredDays)} von {num0.format(p.windowDays)} Tagen erfasst
           </Text>
         </div>
       </Group>
 
       {p.previousYearConsumption !== null && (
         <Text size="xs" c="dimmed">
-          Vorjahr ({p.year - 1}): {num1.format(p.previousYearConsumption)} {p.unit}
+          Vorjahr: {num1.format(p.previousYearConsumption)} {p.unit}
           {p.previousYearCost !== null ? ` · ${eur.format(p.previousYearCost)}` : ""}
         </Text>
       )}
+
+      <Text size="xs" c="dimmed">
+        Gleitendes Jahr bis zur Ablesung vom {dateFmt.format(anchor)}.
+      </Text>
     </Stack>
   );
 }
