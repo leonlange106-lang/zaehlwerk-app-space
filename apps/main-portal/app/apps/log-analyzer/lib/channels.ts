@@ -71,11 +71,17 @@ const ROLE_MATCHERS: Record<ChannelRole, RegExp[]> = {
 // absolute timing advance, which is a different (positive) quantity.
 const TIMING_CORRECTION_MATCHERS: RegExp[] = [
   /(ign(ition)?|timing|z(ü|ue)nd).*(corr|pull|retard|knock|klopf)/i,
-  /(knock|klopf).*(corr|retard|count)/i,
+  /(knock|klopf).*(corr|retard)/i,
   /\bknock\b/i,
   /\bklopf/i,
   /correction/i,
 ];
+
+// …but never a plain event COUNTER/flag. A "Knock Detection [0-n]" channel is a
+// 0/1/n counter, not a degree of retard — matching `\bknock\b` it would wrongly
+// join the correction set and pollute the (negative-degree) knock maths. Exclude
+// any label that reads as a count/detection/status/flag rather than an angle.
+const TIMING_CORRECTION_EXCLUDE = /detection|count|counter|\bevents?\b|status|\bflag\b/i;
 
 function firstMatch(series: LogSeries[], matchers: RegExp[]): LogSeries | null {
   for (const re of matchers) {
@@ -131,7 +137,10 @@ export function resolveChannels(log: ParsedLog): ResolvedChannels {
   const lambda = single("lambda");
 
   const timingCorrections = s.filter(
-    (x) => !used.has(x.key) && TIMING_CORRECTION_MATCHERS.some((re) => re.test(x.label)),
+    (x) =>
+      !used.has(x.key) &&
+      TIMING_CORRECTION_MATCHERS.some((re) => re.test(x.label)) &&
+      !TIMING_CORRECTION_EXCLUDE.test(x.label),
   );
 
   return {

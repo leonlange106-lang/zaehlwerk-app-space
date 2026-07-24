@@ -19,7 +19,7 @@ import {
 import {
   DEBOUNCE_SAMPLES,
   IAT_RETARD_WARN_C,
-  KNOCK_TOTAL_OFFSET_DEG,
+  KNOCK_TOTAL_SHARE,
   LAMBDA_WOT_LEAN_LIMIT,
 } from "./engineProfiles";
 
@@ -119,11 +119,12 @@ export interface SpecLimits {
   /** Timing-correction (deg, negative) beyond which a knock alert is raised. */
   knockCorrection: number;
   /**
-   * Cumulative timing-correction (deg, negative) summed across ALL cylinders,
-   * beyond which a knock alert is raised — catches several cylinders each pulling
-   * a little at once even when no single one crosses `knockCorrection`.
+   * Fraction of "every cylinder at the single-cylinder limit at once" at which
+   * the cumulative cross-cylinder correction is flagged. The absolute limit is
+   * derived per log as `knockCorrection × cylinderCount × knockTotalShare`, so it
+   * scales with the number of cylinders actually logged.
    */
-  knockCorrectionTotal: number;
+  knockTotalShare: number;
   /** Leanest lambda (λ) tolerated under sustained WOT before a lean warning. */
   maxLambdaWot: number;
   /** Intake-air temp (°C) above which heat-driven timing retard is warned. */
@@ -225,7 +226,7 @@ export function limitsForSpec(spec: VehicleSpec): SpecLimits {
     fuelTrimLimit: t.fuelTrimLimitPct,
     hpfpDrop: t.hpfpDropBar,
     knockCorrection: t.knockCorrectionDeg,
-    knockCorrectionTotal: t.knockCorrectionDeg - KNOCK_TOTAL_OFFSET_DEG,
+    knockTotalShare: KNOCK_TOTAL_SHARE,
     // High-ethanol fuels are knock-resistant, so a marginally leaner reading
     // under load is less alarming — nudge the lean limit up a touch for E30/E85.
     maxLambdaWot:
