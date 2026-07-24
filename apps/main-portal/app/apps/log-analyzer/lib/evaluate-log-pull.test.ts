@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { evaluateLogPull, healthFromAlerts, toBar } from "./evaluate-log-pull";
+import { resolveChannels } from "./channels";
 import { DEFAULT_VEHICLE_SPEC, type VehicleSpec } from "./vehicle-spec";
 import { makeLog, verifiedPullColumns } from "./test-helpers";
 
@@ -188,13 +189,39 @@ describe("evaluateLogPull — safety alerts", () => {
 
   it("flags a cumulative timing pull across cylinders even when no single one trips", () => {
     const cols = verifiedPullColumns().filter((c) => c.label !== "Ignition Correction");
-    // Two cylinders each pull only -2.5° (under the -3° single limit) but together
-    // -5.0° ≤ the -5° cumulative limit, held for several samples.
-    cols.push({ label: "Knock Correction Cyl 1", unit: "°", values: sustained(0, 30, -2.5) });
-    cols.push({ label: "Knock Correction Cyl 2", unit: "°", values: sustained(0, 30, -2.5) });
+    // Two cylinders each pull -2.9° — under the -3° single limit (strict), so no
+    // single-cylinder trip — but together -5.8° is past the scaled cumulative
+    // limit (-3 × 2 × 0.9 = -5.4°), held for several samples.
+    cols.push({ label: "Knock Correction Cyl 1", unit: "°", values: sustained(0, 30, -2.9) });
+    cols.push({ label: "Knock Correction Cyl 2", unit: "°", values: sustained(0, 30, -2.9) });
     const { alerts } = evaluateLogPull(makeLog(cols), SPEC);
     expect(alerts.find((a) => a.id === "knock")).toBeUndefined(); // no single-cyl trip
     expect(alerts.find((a) => a.id === "knock-total")).toBeDefined();
+  });
+
+  it("does NOT double-report cumulative knock when a single cylinder already tripped", () => {
+    const cols = verifiedPullColumns().filter((c) => c.label !== "Ignition Correction");
+    cols.push({ label: "Knock Correction Cyl 1", unit: "°", values: sustained(0, 30, -4) }); // trips single
+    cols.push({ label: "Knock Correction Cyl 2", unit: "°", values: sustained(0, 30, -4) });
+    const { alerts } = evaluateLogPull(makeLog(cols), SPEC);
+    expect(alerts.find((a) => a.id === "knock")).toBeDefined();
+    expect(alerts.find((a) => a.id === "knock-total")).toBeUndefined();
+  });
+
+  it("does not trip single-cylinder knock for a correction resting exactly at -3.0° (boundary)", () => {
+    const correction = sustained(0, 38, -3.0); // exactly at the limit, held
+    const { alerts } = evaluateLogPull(makeLog(verifiedPullColumns({ correction })), SPEC);
+    expect(alerts.find((a) => a.id === "knock")).toBeUndefined();
+  });
+
+  it("excludes 'Knock Detection' counters from the timing-correction channels", () => {
+    const cols = verifiedPullColumns();
+    cols.push({ label: "Knock Detection", unit: "0-n", values: new Array(60).fill(1) });
+    cols.push({ label: "Timing Correction Cyl 1", unit: "°", values: new Array(60).fill(0) });
+    const ch = resolveChannels(makeLog(cols));
+    const labels = ch.timingCorrections.map((s) => s.label);
+    expect(labels).toContain("Timing Correction Cyl 1");
+    expect(labels).not.toContain("Knock Detection");
   });
 
   it("does not raise a knock alert for small (>-3°) corrections", () => {
@@ -275,25 +302,47 @@ describe("evaluateLogPull — safety alerts", () => {
     expect(iat!.severity).toBe("warning");
   });
 
-  it("warns on a lean lambda held under WOT, but ignores it off-throttle", () => {
-    // Leaner than the 0.88 petrol limit, sustained across the WOT sweep.
+  it("warns on a lean lambda held in the load-critical zone (high rpm + boost)", () => {
+    // Leaner than the 0.92 petrol limit, sustained near the top of the sweep
+    // (rpm ~5500+, full boost) — a genuine top-end lean.
     const cols = verifiedPullColumns();
-    cols.push({ label: "Fuel: Lambda Actual", unit: "lambda", values: sustained(0.82, 30, 0.95) });
+    cols.push({ label: "Fuel: Lambda Actual", unit: "lambda", values: sustained(0.85, 46, 0.98) });
     const { alerts } = evaluateLogPull(makeLog(cols), SPEC);
     expect(alerts.find((a) => a.id === "lambda-lean")).toBeDefined();
+  });
+
+  it("does NOT flag a lean lambda blip during spool-up (low rpm / boost building)", () => {
+    // λ near 1.0 early in the pull (pedal already 100% but boost still building)
+    // is normal enrichment ramp-in — must be suppressed by the load-critical gate.
+    const cols = verifiedPullColumns();
+    cols.push({ label: "Fuel: Lambda Actual", unit: "lambda", values: sustained(0.85, 3, 0.99, 8) });
+    const { alerts, violations } = evaluateLogPull(makeLog(cols), SPEC);
+    expect(alerts.find((a) => a.id === "lambda-lean")).toBeUndefined();
+    expect(violations.find((v) => v.id === "lambda-lean")).toBeUndefined();
   });
 
   it("accepts AFR-scaled lambda channels (MHD-style) and normalises to λ", () => {
     const cols = verifiedPullColumns();
-    // AFR ~14.4 = λ ~0.98 → lean under WOT.
-    cols.push({ label: "AFR", unit: "AFR", values: sustained(12.0, 30, 14.4) });
+    // AFR ~14.4 = λ ~0.98 → lean; placed in the load-critical zone.
+    cols.push({ label: "AFR", unit: "AFR", values: sustained(12.5, 46, 14.4) });
     const { alerts } = evaluateLogPull(makeLog(cols), SPEC);
     expect(alerts.find((a) => a.id === "lambda-lean")).toBeDefined();
   });
 
-  it("does not flag a rich WOT lambda (λ ≈ 0.82)", () => {
+  it("never AFR-mis-converts a lambda-unit channel that spikes (overrun/DFCO)", () => {
+    // A lambda-unit channel briefly pegging to 3.3 (fuel-cut) must be dropped as
+    // invalid, not read as AFR 3.3 → λ 0.22 (which would look super-rich).
     const cols = verifiedPullColumns();
-    cols.push({ label: "Lambda (Bank 1)", unit: "lambda", values: new Array(60).fill(0.82) });
+    const vals = new Array(60).fill(0.85);
+    for (let i = 46; i < 52; i += 1) vals[i] = 3.3; // invalid frames in the zone
+    cols.push({ label: "Fuel: Lambda Actual", unit: "lambda", values: vals });
+    const { alerts } = evaluateLogPull(makeLog(cols), SPEC);
+    expect(alerts.find((a) => a.id === "lambda-lean")).toBeUndefined();
+  });
+
+  it("does not flag a rich WOT lambda (λ ≈ 0.85)", () => {
+    const cols = verifiedPullColumns();
+    cols.push({ label: "Lambda (Bank 1)", unit: "lambda", values: new Array(60).fill(0.85) });
     const { alerts } = evaluateLogPull(makeLog(cols), SPEC);
     expect(alerts.find((a) => a.id === "lambda-lean")).toBeUndefined();
   });

@@ -117,15 +117,15 @@ describe("limitsForSpec — engine-driven baselines", () => {
 });
 
 describe("limitsForSpec — universal safety thresholds (engineProfiles)", () => {
-  it("derives a stricter cumulative than single-cylinder knock limit", () => {
+  it("carries a cumulative-knock share in (0,1) for cylinder-count scaling", () => {
     const l = limitsForSpec(DEFAULT_VEHICLE_SPEC);
-    // e.g. single -3° → cumulative -5° (more negative = stricter).
-    expect(l.knockCorrectionTotal).toBeLessThan(l.knockCorrection);
+    expect(l.knockTotalShare).toBeGreaterThan(0);
+    expect(l.knockTotalShare).toBeLessThan(1);
   });
 
   it("exposes a WOT lambda lean limit, an IAT warn point and a debounce window", () => {
     const l = limitsForSpec(DEFAULT_VEHICLE_SPEC);
-    expect(l.maxLambdaWot).toBeCloseTo(0.88, 5);
+    expect(l.maxLambdaWot).toBeCloseTo(0.92, 5);
     expect(l.iatWarn).toBe(50);
     expect(l.debounceSamples).toBeGreaterThanOrEqual(2);
   });

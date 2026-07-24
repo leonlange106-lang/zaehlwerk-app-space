@@ -1,5 +1,11 @@
 import { resolveChannels, type ResolvedChannels } from "./channels";
-import { toLambda } from "./engineProfiles";
+import {
+  LAMBDA_MIN_BOOST_FRAC,
+  LAMBDA_MIN_RPM_FRAC,
+  LAMBDA_VALID_MAX,
+  LAMBDA_VALID_MIN,
+  toLambda,
+} from "./engineProfiles";
 import type { LogSeries, ParsedLog } from "./types";
 import { limitsForSpec, WOT_THRESHOLD_PCT, type SpecLimits, type VehicleSpec } from "./vehicle-spec";
 
@@ -612,7 +618,10 @@ function findAlerts(
   const moreNegative = (a: number, b: number): boolean => a < b;
 
   // 1. Knock / timing pulls beyond the single-cylinder threshold, on however many
-  //    cylinders — each debounced so a one-frame correction blip is ignored.
+  //    cylinders — each debounced so a one-frame correction blip is ignored. The
+  //    boundary is STRICT (< limit): a correction resting exactly at the limit
+  //    (e.g. −3.0°, a common clean-pull value) is at-threshold, not past it.
+  let singleCylKnock = false;
   if (ch.timingCorrections.length > 0) {
     const offenders: { label: string; worst: number; at: number }[] = [];
     for (const s of ch.timingCorrections) {
@@ -620,7 +629,7 @@ function findAlerts(
         lo,
         hi,
         (i) => (evaluable(i) ? s.values[i] : null),
-        (v) => v <= limits.knockCorrection,
+        (v) => v < limits.knockCorrection,
         moreNegative,
         minRun,
       );
@@ -637,6 +646,7 @@ function findAlerts(
       }
     }
     if (offenders.length > 0) {
+      singleCylKnock = true;
       const worst = Math.min(...offenders.map((o) => o.worst));
       alerts.push({
         id: "knock",
@@ -653,10 +663,15 @@ function findAlerts(
   }
 
   // 1b. Cumulative timing correction: several cylinders each pulling a little at
-  //     once can exceed the total limit even when no single one trips its own.
-  //     Only meaningful with ≥2 correction channels (otherwise it equals #1).
-  if (ch.timingCorrections.length >= 2) {
+  //     once — none past its own limit — can still add up to a concerning total.
+  //     The limit scales with the cylinder count (knockCorrection × nCyl × share)
+  //     so it means "nearly every cylinder near its limit at once", not a fixed
+  //     sum that any spirited multi-cylinder pull trips. Suppressed when the
+  //     single-cylinder check already fired, so one bad cylinder isn't reported
+  //     twice. Only meaningful with ≥2 correction channels.
+  if (ch.timingCorrections.length >= 2 && !singleCylKnock) {
     const corr = ch.timingCorrections;
+    const totalLimit = limits.knockCorrection * corr.length * limits.knockTotalShare;
     const sumAt = (i: number): number | null => {
       if (!evaluable(i)) return null;
       let sum = 0;
@@ -669,20 +684,13 @@ function findAlerts(
       }
       return any ? sum : null;
     };
-    const breach = sustainedBreach(
-      lo,
-      hi,
-      sumAt,
-      (v) => v <= limits.knockCorrectionTotal,
-      moreNegative,
-      minRun,
-    );
+    const breach = sustainedBreach(lo, hi, sumAt, (v) => v < totalLimit, moreNegative, minRun);
     if (breach) {
       alerts.push({
         id: "knock-total",
         severity: "critical",
         title: `Kumulierte Zündwinkel-Korrektur ${breach.value.toFixed(1)}°`,
-        detail: `Summe über alle Zylinder unterschreitet ${limits.knockCorrectionTotal}° – mehrere Zylinder ziehen gleichzeitig Zündung zurück (Klopfneigung).`,
+        detail: `Summe über alle Zylinder unterschreitet ${totalLimit.toFixed(1)}° – mehrere Zylinder ziehen gleichzeitig Zündung zurück (Klopfneigung).`,
       });
       violations.push({
         id: "knock-total",
@@ -936,14 +944,43 @@ function findAlerts(
     }
   }
 
-  // 8. WOT-only: lean lambda under sustained full load (petrol lean limit). Gated
-  //    to confirmed-WOT samples so cruise/decel enleanment never counts.
-  if (ch.lambda && ch.throttle) {
+  // 8. Lean lambda under sustained, LOADED full throttle (petrol lean limit).
+  //    Gated to the load-critical zone, NOT merely WOT: during spool-up / tip-in
+  //    the mixture legitimately sits near λ 1.0 while enrichment ramps in, so a
+  //    plain WOT gate false-alarms at the very start of every pull (verified on
+  //    real reference logs). We therefore require, in addition to WOT: rpm ≥ a
+  //    fraction of the pull's peak rpm AND boost ≥ a fraction of peak boost —
+  //    i.e. past the ramp, where a lean reading is a genuine fault. Invalid
+  //    sensor frames (overrun/DFCO spikes outside a plausible λ band) are dropped.
+  if (ch.lambda && ch.throttle && ch.rpm && ch.boostActual) {
     const lam = ch.lambda;
+    const rpmCh = ch.rpm;
+    const boostCh = ch.boostActual;
+    const bUnit = boostCh.unit;
+    const peakRpm = maxOf(rpmCh.values, lo, hi) ?? 0;
+    let peakBoostBar = 0;
+    for (let i = lo; i <= hi; i += 1) {
+      if (!evaluable(i)) continue;
+      const b = boostCh.values[i];
+      if (b === null) continue;
+      const bar = toBar(b, bUnit);
+      if (bar > peakBoostBar) peakBoostBar = bar;
+    }
+    const rpmGate = peakRpm * LAMBDA_MIN_RPM_FRAC;
+    const boostGate = peakBoostBar * LAMBDA_MIN_BOOST_FRAC;
     const lambdaAt = (i: number): number | null => {
       if (!evaluable(i) || !isWot(i)) return null;
-      const v = lam.values[i];
-      return v === null ? null : toLambda(v);
+      const r = rpmCh.values[i];
+      const b = boostCh.values[i];
+      if (r === null || b === null) return null;
+      // Only the load-critical zone (past spool + enrichment ramp).
+      if (r < rpmGate || toBar(b, bUnit) < boostGate) return null;
+      const raw = lam.values[i];
+      if (raw === null) return null;
+      const l = toLambda(raw, lam.unit);
+      // Reject implausible frames (sensor off / overrun fuel-cut).
+      if (l < LAMBDA_VALID_MIN || l > LAMBDA_VALID_MAX) return null;
+      return l;
     };
     const breach = sustainedBreach(lo, hi, lambdaAt, (l) => l > limits.maxLambdaWot, larger, minRun);
     if (breach) {
