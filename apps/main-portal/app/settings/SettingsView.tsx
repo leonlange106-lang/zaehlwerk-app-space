@@ -149,13 +149,13 @@ function UpdateProgress({ state, failIndex }: { state: UpdateState; failIndex: n
           return (
             <Group key={label} gap="xs" wrap="nowrap">
               {isFailedStep ? (
-                <IconCircleX size={18} color="var(--mantine-color-red-6)" />
+                <IconCircleX size={18} color="var(--zw-risk)" />
               ) : isDone ? (
-                <IconCircleCheck size={18} color="var(--mantine-color-green-6)" />
+                <IconCircleCheck size={18} color="var(--zw-ok)" />
               ) : isActiveStep ? (
                 <Loader size={14} color="slate" />
               ) : (
-                <IconCircle size={18} color="var(--mantine-color-gray-4)" />
+                <IconCircle size={18} color="var(--zw-neutral)" />
               )}
               <Text size="sm" c={isDone || isActiveStep || isFailedStep ? undefined : "dimmed"} fw={isActiveStep ? 600 : 400}>
                 {label}

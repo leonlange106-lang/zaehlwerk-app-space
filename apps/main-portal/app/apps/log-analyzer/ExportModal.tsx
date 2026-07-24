@@ -7,12 +7,12 @@ import {
   Checkbox,
   Divider,
   Group,
-  Modal,
   SegmentedControl,
   Stack,
   Text,
 } from "@mantine/core";
 import { IconAlertCircle, IconDownload, IconFileTypePdf, IconPhoto } from "@tabler/icons-react";
+import { ResponsiveDialog } from "@/app/components/ui/ResponsiveDialog";
 import type { VehicleSpec } from "./lib/vehicle-spec";
 import type { DynoProfile } from "./lib/dyno-spec";
 import type { CorrectionStandard, DynoOutput } from "./lib/dyno-engine";
@@ -107,12 +107,14 @@ export function ExportModal({
   }, [target, spec, dyno, sections, theme, format, onClose]);
 
   return (
-    <Modal
+    <ResponsiveDialog
       opened={opened}
-      onClose={busy ? () => undefined : onClose}
+      onClose={onClose}
+      // Dismissal is blocked while the report is being generated — closing
+      // mid-render would drop a request the server is already working on.
+      closeDisabled={busy}
       title="Bericht erstellen"
       size="md"
-      centered
     >
       <Stack gap="md" data-testid="export-modal">
         {error && (
@@ -199,8 +201,11 @@ export function ExportModal({
           </Text>
         </div>
 
-        <Group justify="flex-end" gap="sm" mt="xs">
-          <Button variant="subtle" color="slate" onClick={onClose} disabled={busy}>
+        {/* `grow` rather than right-aligned: on a bottom sheet the two actions
+            span the full width, so the primary one is under the thumb instead of
+            in the far corner. */}
+        <Group grow gap="sm" mt="xs">
+          <Button variant="default" onClick={onClose} disabled={busy}>
             Abbrechen
           </Button>
           <Button
@@ -215,6 +220,6 @@ export function ExportModal({
           </Button>
         </Group>
       </Stack>
-    </Modal>
+    </ResponsiveDialog>
   );
 }

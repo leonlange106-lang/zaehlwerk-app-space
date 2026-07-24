@@ -18,17 +18,16 @@
   font-family: var(--mantine-font-family-monospace);
 }
 
+/* The commit body is quoted text, so it sits one elevation step above the card
+   it lives in — the same "raised plate" step every inset surface uses. */
 .body {
   margin-top: 8px;
   padding: 10px 12px;
   border-radius: var(--mantine-radius-sm);
-  background: var(--mantine-color-gray-0);
+  border: 1px solid var(--zw-border);
+  background: var(--zw-elevated);
   white-space: pre-wrap;
   line-height: 1.5;
-}
-
-:global([data-mantine-color-scheme="dark"]) .body {
-  background: var(--mantine-color-dark-6);
 }
 
 .expandButton {
@@ -37,16 +36,18 @@
 }
 
 .expandButton:hover {
-  color: var(--mantine-color-slate-6);
+  color: var(--mantine-color-text);
 }
 
 .bullet {
   width: 8px;
   height: 8px;
-  border-radius: 50%;
+  border-radius: 2px;
   background: currentColor;
 }
 
+/* The commit you are running gets an accent halo — the one row in the timeline
+   that has to be findable at a glance. */
 .bullet[data-current] {
-  box-shadow: 0 0 0 3px var(--mantine-color-green-3);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--zw-accent) 45%, transparent);
 }

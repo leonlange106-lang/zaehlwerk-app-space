@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState, useEffect, useRef } from "react";
+import type { CSSProperties } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   Alert,
@@ -13,6 +14,7 @@ import {
   GridCol,
   Group,
   NumberInput,
+  SegmentedControl,
   Select,
   Stack,
   Text,
@@ -45,6 +47,9 @@ function formatNumber(value: number) {
   return new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 }).format(value);
 }
 
+/** Mobile sections. On tablet/desktop every section is on screen at once. */
+type Pane = "zaehler" | "anlegen" | "import";
+
 export function ZaehlerManager({
   zaehlerList,
   locations,
@@ -52,8 +57,16 @@ export function ZaehlerManager({
   zaehlerList: ZaehlerList;
   locations: LocationList;
 }) {
+  // Phone-only view switch. The three sections used to be one very long vertical
+  // scroll (meter list, then two forms, then the importer); on 390px that meant
+  // the forms were four screens down. The pill bar swaps between them in place.
+  // Purely a CSS concern above `sm` — see `.pane` in the module, which only
+  // honours `data-active` below the breakpoint, so the desktop grid is untouched
+  // and the first paint is already correct (no mount-time reflow).
+  const [pane, setPane] = useState<Pane>("zaehler");
+
   return (
-    <Stack gap="lg">
+    <Stack gap="md">
       <div>
         <Title order={2}>Zähler</Title>
         <Text c="dimmed" size="sm">
@@ -61,13 +74,30 @@ export function ZaehlerManager({
         </Text>
       </div>
 
+      <SegmentedControl
+        hiddenFrom="sm"
+        fullWidth
+        value={pane}
+        onChange={(value) => setPane(value as Pane)}
+        aria-label="Bereich wählen"
+        data={[
+          { value: "zaehler", label: `Zähler (${zaehlerList.length})` },
+          { value: "anlegen", label: "Erfassen" },
+          { value: "import", label: "Import" },
+        ]}
+      />
+
       <Grid gutter="md">
-        <GridCol span={{ base: 12, lg: 7 }}>
-          <Stack gap="md">
+        <GridCol
+          span={{ base: 12, lg: 7 }}
+          className={classes.pane}
+          data-active={pane === "zaehler" ? "true" : "false"}
+        >
+          <Stack gap="xs">
             {zaehlerList.length === 0 && (
-              <Card withBorder radius="md" p="lg">
+              <Card p="md">
                 <Text c="dimmed" size="sm">
-                  Noch keine Zähler angelegt. Lege rechts den ersten Zähler an.
+                  Noch keine Zähler angelegt. Lege über „Erfassen“ den ersten Zähler an.
                 </Text>
               </Card>
             )}
@@ -81,34 +111,32 @@ export function ZaehlerManager({
                   key={zaehler.id}
                   component={Link}
                   href={`/apps/zaehlwerk/zaehler/${zaehler.id}`}
-                  withBorder
-                  radius="md"
-                  p="lg"
+                  p="md"
                   className={classes.zaehlerCard}
+                  // The meter's own colour becomes the card's left spine, so a
+                  // list of eight meters is scannable by edge alone.
+                  style={{ "--meter-color": zaehler.farbe } as CSSProperties}
                 >
-                  <Group justify="space-between" align="flex-start">
-                    <Group gap="sm">
-                      <span className={classes.colorDot} style={{ background: zaehler.farbe }} />
-                      <div>
-                        <Text fw={600}>{zaehler.name}</Text>
-                        <Text size="xs" c="dimmed">
-                          {zaehler.location?.name ?? "Kein Standort"}
-                        </Text>
-                      </div>
-                    </Group>
-                    <Badge variant="light" color="slate">
+                  <Group justify="space-between" align="flex-start" wrap="nowrap">
+                    <div className={classes.meterName}>
+                      <Text fw={600} truncate>
+                        {zaehler.name}
+                      </Text>
+                      <Text size="xs" c="dimmed" truncate>
+                        {zaehler.location?.name ?? "Kein Standort"}
+                      </Text>
+                    </div>
+                    <Badge variant="outline" color="slate" size="sm">
                       {ENERGY_CATEGORY_LABELS[zaehler.kategorie]}
                     </Badge>
                   </Group>
 
-                  <Divider my="sm" />
+                  <Divider my="xs" />
 
-                  <Group justify="space-between">
+                  <Group justify="space-between" gap="xs" wrap="nowrap">
                     <div>
-                      <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
-                        Letzter Stand
-                      </Text>
-                      <Text fw={600}>
+                      <Text className={classes.microLabel}>Letzter Stand</Text>
+                      <Text fw={600} size="sm">
                         {lastReading
                           ? `${formatNumber(lastReading.wert)} ${zaehler.einheit}`
                           : "keine Ablesung"}
@@ -119,11 +147,9 @@ export function ZaehlerManager({
                         </Text>
                       )}
                     </div>
-                    <div>
-                      <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
-                        Verbrauch gesamt
-                      </Text>
-                      <Text fw={600}>
+                    <div className={classes.alignEnd}>
+                      <Text className={classes.microLabel}>Verbrauch gesamt</Text>
+                      <Text fw={600} size="sm">
                         {formatNumber(total)} {zaehler.einheit}
                       </Text>
                       <Text size="xs" c="dimmed">
@@ -137,11 +163,24 @@ export function ZaehlerManager({
           </Stack>
         </GridCol>
 
-        <GridCol span={{ base: 12, lg: 5 }}>
+        <GridCol
+          span={{ base: 12, lg: 5 }}
+          className={classes.pane}
+          data-active={pane !== "zaehler" ? "true" : "false"}
+        >
           <Stack gap="md">
-            <CreateZaehlerForm locations={locations} />
-            <CreateAblesungForm zaehlerList={zaehlerList} />
-            <MeterImportCard locations={locations} />
+            <div
+              className={classes.pane}
+              data-active={pane === "anlegen" ? "true" : "false"}
+            >
+              <Stack gap="md">
+                <CreateZaehlerForm locations={locations} />
+                <CreateAblesungForm zaehlerList={zaehlerList} />
+              </Stack>
+            </div>
+            <div className={classes.pane} data-active={pane === "import" ? "true" : "false"}>
+              <MeterImportCard locations={locations} />
+            </div>
           </Stack>
         </GridCol>
       </Grid>
@@ -160,7 +199,7 @@ function CreateZaehlerForm({ locations }: { locations: LocationList }) {
   }, [state.success]);
 
   return (
-    <Card withBorder radius="md" p="lg">
+    <Card p="md">
       <Group gap="xs" mb="sm">
         <IconGauge size={18} stroke={1.6} />
         <Title order={4}>Neuen Zähler anlegen</Title>
@@ -228,7 +267,7 @@ function CreateAblesungForm({ zaehlerList }: { zaehlerList: ZaehlerList }) {
   }, [state.success]);
 
   return (
-    <Card withBorder radius="md" p="lg">
+    <Card p="md">
       <Group gap="xs" mb="sm">
         <IconGauge size={18} stroke={1.6} />
         <Title order={4}>Zählerstand erfassen</Title>

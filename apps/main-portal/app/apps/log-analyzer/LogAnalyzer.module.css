@@ -1,46 +1,47 @@
 .dropzone {
-  border: 2px dashed light-dark(var(--mantine-color-gray-4), var(--mantine-color-dark-3));
+  border: 2px dashed var(--zw-border-strong);
   border-radius: var(--mantine-radius-md);
-  padding: var(--mantine-spacing-xl);
+  padding: var(--mantine-spacing-lg);
   text-align: center;
   transition: border-color 120ms ease, background-color 120ms ease;
-  background-color: light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6));
+  background-color: var(--zw-surface);
   cursor: pointer;
 }
 
 .dropzone:hover {
-  border-color: var(--mantine-color-orange-5);
+  border-color: var(--zw-accent);
 }
 
 .dropzoneActive {
-  border-color: var(--mantine-color-orange-6);
-  background-color: light-dark(var(--mantine-color-orange-0), rgba(253, 126, 20, 0.08));
+  border-color: var(--zw-accent);
+  background-color: color-mix(in srgb, var(--zw-accent) 10%, var(--zw-surface));
 }
 
-/* Each parameter group renders one synchronized chart. A fixed-ish height keeps
-   the stack scannable; it shrinks a little on phones so several fit on screen. */
+/*
+ * Chart geometry.
+ *
+ * The height is derived from the width via `aspect-ratio` rather than being a
+ * hard pixel value, with a min/max clamp. That matters for layout stability:
+ * the box is fully determined by the column width, which the browser knows
+ * during the very first layout pass — so Recharts mounting into it, or a lazy
+ * chunk swapping a skeleton for the real plot, cannot resize anything. The
+ * clamps keep a phone chart tall enough to read and a 1600px monitor from
+ * turning one parameter group into a billboard.
+ */
 .chartBox {
-  height: 240px;
   width: 100%;
-}
-
-@media (max-width: 48em) {
-  .chartBox {
-    height: 200px;
-  }
+  aspect-ratio: 16 / 7;
+  min-height: 190px;
+  max-height: 260px;
 }
 
 /* The dyno plot is the single hero chart of its page, so it gets more height
    than one of the stacked parameter charts. */
 .dynoBox {
-  height: 380px;
   width: 100%;
-}
-
-@media (max-width: 48em) {
-  .dynoBox {
-    height: 280px;
-  }
+  aspect-ratio: 16 / 9;
+  min-height: 260px;
+  max-height: 420px;
 }
 
 /* Recharts renders an SVG that can momentarily exceed its container during
@@ -54,6 +55,73 @@
   display: inline-block;
   width: 10px;
   height: 10px;
-  border-radius: 3px;
+  border-radius: 2px;
   flex: none;
+}
+
+/*
+ * Channel selector bar (phones).
+ *
+ * Six overlapping traces on a 390px plot is unreadable, and the desktop
+ * parameter sidebar does not fit beside the chart at that width. So on phones
+ * the active channels become a horizontally scrollable chip row directly above
+ * the charts: one tap per channel to add or drop it from the plot, with the full
+ * grouped panel one tap further into a bottom sheet.
+ */
+.chipBar {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  padding-block: 4px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.chip {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--zw-border);
+  border-radius: var(--mantine-radius-sm);
+  background: var(--zw-surface);
+  color: var(--mantine-color-dimmed);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 120ms ease, color 120ms ease, background-color 120ms ease;
+}
+
+/* An active chip is filled with its own channel colour at low alpha and outlined
+   in it — the same colour the trace is drawn in, so chip and line are one unit. */
+.chip[data-active="true"] {
+  border-color: var(--chip-color, var(--zw-accent));
+  background: color-mix(in srgb, var(--chip-color, var(--zw-accent)) 16%, transparent);
+  color: var(--mantine-color-text);
+}
+
+/* Inactive chips still show their swatch, but drained, so the row reads as
+   "these are your options" rather than "these are all on". */
+.chip[data-active="false"] .chipSwatch {
+  opacity: 0.35;
+}
+
+.chipSwatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--chip-color, currentColor);
+  flex: none;
+}
+
+/* Trailing "all channels" affordance — visually distinct from the chips so it
+   does not read as just another channel. */
+.chipMore {
+  flex: 0 0 auto;
+  border-style: dashed;
 }

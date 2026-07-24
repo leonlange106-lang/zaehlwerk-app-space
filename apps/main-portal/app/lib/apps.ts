@@ -22,7 +22,8 @@ export const APPS: AppDefinition[] = [
     tagline: "Zähler, Verbrauch, Tarife & Berichte",
     href: "/apps/zaehlwerk",
     icon: "/icon-zaehlwerk.svg",
-    accent: "#20c997",
+    // Energy accent — vivid electric cyan.
+    accent: "#06b6d4",
     available: true,
     match: "/apps/zaehlwerk",
   },
@@ -32,7 +33,8 @@ export const APPS: AppDefinition[] = [
     tagline: "Fahrzeug-Datenlogs auswerten & visualisieren",
     href: "/apps/log-analyzer",
     icon: "/icon-log-analyzer.svg",
-    accent: "#fd7e14",
+    // Automotive accent — high-octane orange.
+    accent: "#f97316",
     available: true,
     match: "/apps/log-analyzer",
   },

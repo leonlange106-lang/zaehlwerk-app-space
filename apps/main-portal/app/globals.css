@@ -1,3 +1,71 @@
+/*
+ * Industrial Neobrutalism — global token layer.
+ *
+ * theme.ts owns the colour *scales*; this file owns the *surfaces*. Mantine
+ * derives Paper/Card/Modal backgrounds from `--mantine-color-body`, which would
+ * flatten cards onto the canvas — the whole point of this design language is
+ * that a card is a distinct plate sitting on a darker deck, separated by a thin
+ * high-contrast outline rather than a shadow. So the three elevation steps are
+ * declared here as `--zw-*` tokens and mapped onto the components that need
+ * them. CSS-only (no cssVariablesResolver) because MantineProvider is handed its
+ * theme from a Server Component, which cannot pass a function across the
+ * boundary.
+ */
+
+:root {
+  /* Elevation ladder: deck → plate → raised plate. */
+  --zw-canvas: #eef2f6;
+  --zw-surface: #ffffff;
+  --zw-elevated: #ffffff;
+
+  --zw-border: rgba(15, 23, 42, 0.14);
+  --zw-border-strong: #cbd5e1;
+
+  /* Strict status semantics. Always rendered alongside an icon — see
+     app/components/ui/StatusBadge.tsx, which is the only sanctioned way to
+     surface these so colour is never the sole carrier of meaning. */
+  --zw-ok: #059669;
+  --zw-watch: #d97706;
+  --zw-risk: #dc2626;
+  --zw-neutral: #64748b;
+
+  /* Per-app accents. `--zw-accent` is re-pointed per app context by the shell
+     (see [data-app] below) so accent-tinted chrome follows the active app. */
+  --zw-accent-zaehlwerk: #0891b2;
+  --zw-accent-log: #ea580c;
+  --zw-accent: var(--zw-accent-zaehlwerk);
+
+  /* Height of the fixed AppShell header — the offset every sticky rail needs. */
+  --zw-header-height: 56px;
+}
+
+[data-mantine-color-scheme="dark"] {
+  --zw-canvas: #080c14; /* deep night slate (OLED-friendly) */
+  --zw-surface: #111827; /* industrial slate */
+  --zw-elevated: #1f293d; /* raised inputs, drawers, menus */
+
+  --zw-border: rgba(255, 255, 255, 0.12);
+  --zw-border-strong: #374151;
+
+  --zw-ok: #10b981;
+  --zw-watch: #f59e0b;
+  --zw-risk: #ef4444;
+  --zw-neutral: #64748b;
+
+  --zw-accent-zaehlwerk: #06b6d4;
+  --zw-accent-log: #f97316;
+}
+
+/* The active app tints shared chrome (focus rings, rail underlines, accent
+   dots) without every component needing to know which app it is rendered in. */
+[data-app="log-analyzer"] {
+  --zw-accent: var(--zw-accent-log);
+}
+
+[data-app="zaehlwerk"] {
+  --zw-accent: var(--zw-accent-zaehlwerk);
+}
+
 html,
 body {
   height: 100%;
@@ -6,6 +74,87 @@ body {
 body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background-color: var(--zw-canvas);
+  /* Utility-first density: slightly tighter than Mantine's default rhythm. */
+  letter-spacing: -0.006em;
+  /* A stray wide child must never make the whole page pan sideways on a phone.
+     `clip` (not `hidden`) keeps position:sticky working inside the document. */
+  overflow-x: clip;
+}
+
+/* Numbers are the payload of this dashboard — line them up. */
+:where(.mantine-Text-root, .mantine-Table-td, .mantine-Title-root) {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ------------------------------------------------------------------ *
+ * Surface mapping
+ * ------------------------------------------------------------------ */
+
+/* Plates on the deck. */
+:where(.mantine-Paper-root, .mantine-Card-root) {
+  background-color: var(--zw-surface);
+  border-color: var(--zw-border);
+}
+
+/* Raised plates: anything floating above the page owns the lighter step. */
+:where(
+    .mantine-Modal-content,
+    .mantine-Modal-header,
+    .mantine-Drawer-content,
+    .mantine-Drawer-header,
+    .mantine-Menu-dropdown,
+    .mantine-Popover-dropdown,
+    .mantine-HoverCard-dropdown
+  ) {
+  background-color: var(--zw-elevated);
+}
+
+/* Inputs read as recessed controls cut into the plate: elevated fill, thin
+   outline, and an accent ring on focus instead of a glow. */
+:where(.mantine-Input-input) {
+  background-color: var(--zw-elevated);
+  border-color: var(--zw-border);
+}
+
+:where(.mantine-Input-input:focus, .mantine-Input-input:focus-within) {
+  border-color: var(--zw-accent);
+}
+
+:where(.mantine-SegmentedControl-root) {
+  background-color: var(--zw-elevated);
+  border: 1px solid var(--zw-border);
+}
+
+/* Tables get hairline rules rather than Mantine's heavier default divider. */
+:where(.mantine-Table-td, .mantine-Table-th) {
+  border-color: var(--zw-border);
+}
+
+/* Keyboard focus is a hard, visible ring — no soft halo. */
+:where(a, button, [role="button"], input, select, textarea):focus-visible {
+  outline: 2px solid var(--zw-accent);
+  outline-offset: 2px;
+}
+
+/* Industrial scrollbars: thin, on-palette, never a light strip on dark. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--zw-border-strong) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: var(--zw-border-strong);
+  border-radius: 0;
+}
+
+*::-webkit-scrollbar-track {
+  background-color: transparent;
 }
 
 /*
@@ -44,5 +193,25 @@ body {
   .mantine-Table-th {
     padding-top: 10px;
     padding-bottom: 10px;
+  }
+
+  /* Segmented pills are a primary mobile control here (they replace vertical
+     card stacks), so their labels need a real thumb row too. */
+  .mantine-SegmentedControl-label {
+    min-height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+}
+
+/* Respect the user's motion preference — the design leans on transforms. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }

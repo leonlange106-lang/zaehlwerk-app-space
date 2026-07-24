@@ -1,12 +1,14 @@
 .logDivider {
-  border-top: 1px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4));
+  border-top: 1px solid var(--zw-border);
 }
 
+/* The update log is a terminal transcript, so it keeps the deep canvas in both
+   colour schemes — a console that turns white in light mode reads as a bug. */
 .logScroll {
   margin-top: 8px;
   border-radius: var(--mantine-radius-sm);
-  border: 1px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4));
-  background: var(--mantine-color-dark-8);
+  border: 1px solid var(--zw-border-strong);
+  background: #080c14;
 }
 
 .logPre {
@@ -15,7 +17,7 @@
   font-family: var(--mantine-font-family-monospace);
   font-size: 12px;
   line-height: 1.5;
-  color: var(--mantine-color-gray-2);
+  color: #c3cbd9;
   white-space: pre-wrap;
   word-break: break-word;
 }

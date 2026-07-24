@@ -122,7 +122,13 @@ test.describe("Log Analyzer: local upload", () => {
 
     // Toggling a channel off updates the charts (interaction). RPM is the only
     // Engine channel in the default selection, so its group chart disappears.
-    await page.getByRole("checkbox", { name: /RPM/ }).uncheck();
+    // On a phone the channel toggles are the chip bar above the charts — the
+    // grouped checkbox sidebar is a tablet/desktop affordance.
+    await page
+      .getByRole("group", { name: "Telemetrie-Kanäle" })
+      .getByRole("button", { name: /RPM/ })
+      .first()
+      .click();
     await expect
       .poll(async () => page.locator(".recharts-surface").count())
       .toBeLessThan(chartsBefore);

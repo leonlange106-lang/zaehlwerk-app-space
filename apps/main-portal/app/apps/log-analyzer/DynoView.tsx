@@ -63,6 +63,7 @@ const DynoProfileDrawer = lazy(() =>
 );
 const ExportModal = lazy(() => import("./ExportModal").then((m) => ({ default: m.ExportModal })));
 import { LegendItem, SERIES_COLORS } from "./ChartLegend";
+import { MetricTile } from "@/app/components/ui/MetricTile";
 import { XS_INPUT_HEIGHT } from "./ui-metrics";
 
 // The virtual dyno workspace: pick a log, and its detected WOT pull is turned
@@ -527,21 +528,11 @@ function Peak({
   );
 }
 
+/**
+ * The dyno's own figures render as the shared KPI plate, so a peak-power number
+ * here looks and measures exactly like one on the Zählwerk dashboard.
+ */
 function Metric({ label, value, hint }: { label: string; value: string; hint: string }) {
-  return (
-    <div>
-      <Text size="xs" c="dimmed" tt="uppercase" fw={600} lh={1.3}>
-        {label}
-      </Text>
-      <Text size="xl" fw={700} lh={1.2}>
-        {value}
-      </Text>
-      {hint && (
-        <Text size="xs" c="dimmed">
-          {hint}
-        </Text>
-      )}
-    </div>
-  );
+  return <MetricTile label={label} value={value} hint={hint || undefined} />;
 }
 

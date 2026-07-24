@@ -1,0 +1,63 @@
+/*
+ * A dense KPI plate. Fixed minimum height on purpose: these tiles are the first
+ * thing on most pages, and a tile that grows when its value arrives would push
+ * the entire page down (the CLS rule in CLAUDE.md). The skeleton variant below
+ * occupies exactly the same box.
+ */
+.tile {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 2px;
+  min-height: 82px;
+  padding: 10px 12px;
+  border: 1px solid var(--zw-border);
+  /* Accent spine: which app/metric family this tile belongs to, readable
+     without colour vision because it also carries an icon in the header row. */
+  border-left: 2px solid var(--tile-accent, var(--zw-border-strong));
+  border-radius: var(--mantine-radius-md);
+  background: var(--zw-surface);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--mantine-color-dimmed);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.icon {
+  flex: none;
+  color: var(--tile-accent, var(--mantine-color-dimmed));
+}
+
+.value {
+  font-size: 1.375rem;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hint {
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--mantine-color-dimmed);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

@@ -6,6 +6,7 @@ import { APPS } from "./lib/apps";
 import { getAllowedAppIds } from "./lib/app-access";
 import { getSessionUser } from "./lib/auth-helpers";
 import { AdminPanel } from "./AdminPanel";
+import { BrandLogo } from "./components/BrandLogo";
 import classes from "./launcher.module.css";
 
 // App Space hub (hub-and-spoke root). Lists only the apps assigned to the
@@ -22,10 +23,9 @@ export default async function LauncherPage() {
   const isAdmin = user?.role === "ADMIN";
 
   return (
-    <Stack gap="xl" className={classes.wrap}>
+    <Stack gap="lg" className={classes.wrap}>
       <Stack gap={4} align="center" className={classes.hero}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/logo-appspace.svg" alt="App Space" height={56} className={classes.logo} />
+        <BrandLogo height={52} />
         <Text c="dimmed" size="sm" ta="center" maw={520}>
           Dein modulares Portal. Wähle eine App, um loszulegen – zwischen Apps wechselst du jederzeit
           über das Raster-Symbol oben links.
@@ -46,7 +46,7 @@ export default async function LauncherPage() {
         </Alert>
       )}
 
-      <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="lg" className={classes.grid}>
+      <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="sm" className={classes.grid}>
         {apps.map((app) =>
           app.available ? (
             <Link key={app.id} href={app.href} className={classes.tile}>

@@ -6,7 +6,6 @@ import {
   Group,
   List,
   ListItem,
-  SimpleGrid,
   Stack,
   Text,
   Title,
@@ -19,6 +18,7 @@ import {
   IconStack2,
 } from "@tabler/icons-react";
 import { LinkButton } from "@/app/LinkButton";
+import { KpiRail } from "@/app/components/ui/KpiRail";
 import {
   getConsumptionSummary,
   listLocations,
@@ -62,35 +62,42 @@ export default async function DashboardPage() {
   const totalAblesungen = zaehlerList.reduce((sum, zaehler) => sum + zaehler.ablesungen.length, 0);
   const lastReadingDate = recentAblesungen[0]?.datum ?? null;
 
+  // Headline numbers for the sticky micro-KPI rail. On a phone this is one
+  // horizontally scrollable row pinned under the header; from `sm` up it lays
+  // itself out as a four-column grid.
   const stats = [
     {
+      key: "zaehler",
       label: "Aktive Zähler",
       value: String(zaehlerList.length),
-      diff: "Strom, Gas, Wasser & mehr",
-      icon: IconStack2,
+      hint: "Strom, Gas, Wasser & mehr",
+      icon: <IconStack2 size={15} stroke={1.6} />,
     },
     {
+      key: "standorte",
       label: "Standorte",
       value: String(locations.length),
-      diff: "erfasste Gebäude/Einheiten",
-      icon: IconMapPin,
+      hint: "erfasste Gebäude/Einheiten",
+      icon: <IconMapPin size={15} stroke={1.6} />,
     },
     {
-      label: "Ablesungen erfasst",
+      key: "ablesungen",
+      label: "Ablesungen",
       value: String(totalAblesungen),
-      diff: "über alle Zähler",
-      icon: IconClipboardList,
+      hint: "über alle Zähler",
+      icon: <IconClipboardList size={15} stroke={1.6} />,
     },
     {
+      key: "letzte",
       label: "Letzte Ablesung",
       value: lastReadingDate ? dateFormatter.format(lastReadingDate) : "–",
-      diff: lastReadingDate ? formatRelative(lastReadingDate) : "noch keine Daten",
-      icon: IconCalendarStats,
+      hint: lastReadingDate ? formatRelative(lastReadingDate) : "noch keine Daten",
+      icon: <IconCalendarStats size={15} stroke={1.6} />,
     },
   ];
 
   return (
-    <Stack gap="lg">
+    <Stack gap="md">
       <div>
         <Title order={2}>Dashboard</Title>
         <Text c="dimmed" size="sm">
@@ -98,24 +105,7 @@ export default async function DashboardPage() {
         </Text>
       </div>
 
-      <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }} spacing="md">
-        {stats.map((stat) => (
-          <Card key={stat.label} className={classes.statCard}>
-            <Group justify="space-between" align="flex-start">
-              <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
-                {stat.label}
-              </Text>
-              <stat.icon size={18} stroke={1.6} className={classes.statIcon} />
-            </Group>
-            <Text fw={700} size="xl" mt={4}>
-              {stat.value}
-            </Text>
-            <Text size="xs" c="dimmed" mt={2}>
-              {stat.diff}
-            </Text>
-          </Card>
-        ))}
-      </SimpleGrid>
+      <KpiRail items={stats} columns={4} label="Zählwerk-Kennzahlen" />
 
       <Grid gutter="md">
         <GridCol span={{ base: 12, lg: 8 }}>

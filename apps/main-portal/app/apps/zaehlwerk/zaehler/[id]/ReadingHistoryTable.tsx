@@ -8,8 +8,8 @@ import {
   Badge,
   Button,
   Checkbox,
+  Collapse,
   Group,
-  Modal,
   NumberInput,
   Stack,
   Table,
@@ -22,12 +22,21 @@ import {
   Text,
   TextInput,
   Tooltip,
+  UnstyledButton,
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
-import { IconAlertCircle, IconCheck, IconPencil, IconTrash } from "@tabler/icons-react";
+import {
+  IconAlertCircle,
+  IconCheck,
+  IconChevronDown,
+  IconPencil,
+  IconTrash,
+} from "@tabler/icons-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { deleteAblesungAction, updateAblesungAction } from "@/app/lib/zaehler-actions";
 import { initialActionState } from "@/app/lib/action-state";
+import { ResponsiveDialog } from "@/app/components/ui/ResponsiveDialog";
+import cardClasses from "./ReadingHistoryTable.module.css";
 
 // Render-ready row: all formatting/consumption/tariff math is done by the
 // parent server-adjacent component so this table stays a pure view and windows
@@ -57,7 +66,12 @@ export type ReadingRow = {
 
 // Above this many rows we virtualize; below it a plain table is simpler and
 // keeps the natural page flow (no inner scroll area) for the common case.
+// Virtualization is a tablet/desktop-only concern: the phone branch renders a
+// card list and pages it with the button below instead.
 const VIRTUALIZE_THRESHOLD = 40;
+// How many cards the phone list shows before "Weitere anzeigen". Roughly three
+// screens of scrolling — enough to browse, far short of a 500-card DOM.
+const MOBILE_PAGE_SIZE = 25;
 // Fallback estimate before a row is measured; real heights come from
 // measureElement (they differ between the compact desktop and the taller,
 // touch-padded mobile layout).
@@ -192,30 +206,36 @@ export function ReadingHistoryTable({
 
   return (
     <>
-      {rows.length <= VIRTUALIZE_THRESHOLD ? (
-        <TableScrollContainer minWidth={MIN_TABLE_WIDTH}>
-          <Table verticalSpacing="xs" fz="sm">
-            <TableThead>
-              <HeaderRow hasTarife={hasTarife} />
-            </TableThead>
-            <TableTbody>
-              {rows.map((row) => (
-                <TableTr key={row.id}>
-                  <RowCells row={row} hasTarife={hasTarife} actions={actions} />
-                </TableTr>
-              ))}
-            </TableTbody>
-          </Table>
-        </TableScrollContainer>
-      ) : (
-        <VirtualizedReadingTable rows={rows} hasTarife={hasTarife} actions={actions} />
-      )}
+      {/* Phone first, and first in the DOM: at < 600px this is the branch that
+          has a box, so "the first edit button on the page" is the visible one. */}
+      <ReadingCardList rows={rows} hasTarife={hasTarife} actions={actions} />
 
-      <Modal
+      <div className={cardClasses.tableView}>
+        {rows.length <= VIRTUALIZE_THRESHOLD ? (
+          <TableScrollContainer minWidth={MIN_TABLE_WIDTH}>
+            <Table verticalSpacing="xs" fz="sm">
+              <TableThead>
+                <HeaderRow hasTarife={hasTarife} />
+              </TableThead>
+              <TableTbody>
+                {rows.map((row) => (
+                  <TableTr key={row.id}>
+                    <RowCells row={row} hasTarife={hasTarife} actions={actions} />
+                  </TableTr>
+                ))}
+              </TableTbody>
+            </Table>
+          </TableScrollContainer>
+        ) : (
+          <VirtualizedReadingTable rows={rows} hasTarife={hasTarife} actions={actions} />
+        )}
+      </div>
+
+      {/* Bottom sheet on a phone, centred modal on desktop. */}
+      <ResponsiveDialog
         opened={editRow !== null}
         onClose={() => setEditRow(null)}
         title="Ablesung bearbeiten"
-        centered
       >
         {editRow && (
           <EditReadingForm
@@ -228,8 +248,141 @@ export function ReadingHistoryTable({
             }}
           />
         )}
-      </Modal>
+      </ResponsiveDialog>
     </>
+  );
+}
+
+/**
+ * The phone presentation: one card per reading, headline figures always visible
+ * and the secondary columns (Verbrauch, Kosten, Tarif, Quelle) folded into an
+ * expandable panel. Edit/delete sit on their own 44px row so neither needs the
+ * card to be expanded first.
+ */
+function ReadingCardList({
+  rows,
+  hasTarife,
+  actions,
+}: {
+  rows: ReadingRow[];
+  hasTarife: boolean;
+  actions: RowActions;
+}) {
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [limit, setLimit] = useState(MOBILE_PAGE_SIZE);
+
+  function toggle(id: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  const visible = rows.slice(0, limit);
+
+  return (
+    <div className={cardClasses.cardList} role="region" aria-label="Ablesungshistorie">
+      {visible.map((row) => {
+        const open = expanded.has(row.id);
+        const panelId = `reading-detail-${row.id}`;
+        return (
+          <div key={row.id} className={cardClasses.card} data-swapped={String(row.getauscht)}>
+            <div className={cardClasses.head}>
+              <div>
+                <div className={cardClasses.date}>{row.datum}</div>
+                <div className={cardClasses.value}>{row.wert}</div>
+              </div>
+              {row.getauscht && (
+                <Badge size="xs" variant="light" color="amber">
+                  Zähler getauscht
+                </Badge>
+              )}
+            </div>
+
+            <div className={cardClasses.actions}>
+              <UnstyledButton
+                onClick={() => toggle(row.id)}
+                aria-expanded={open}
+                aria-controls={panelId}
+                px={4}
+                h={44}
+              >
+                <Group gap={4} wrap="nowrap">
+                  <Text size="xs" c="dimmed">
+                    {/* Constant label: swapping the wording on expand would
+                        change the row's width and nudge the icons beside it. */}
+                    Details
+                  </Text>
+                  <IconChevronDown
+                    size={14}
+                    stroke={1.75}
+                    style={{
+                      transform: open ? "rotate(180deg)" : undefined,
+                      transition: "transform 150ms ease",
+                    }}
+                  />
+                </Group>
+              </UnstyledButton>
+
+              <Group gap={4} wrap="nowrap">
+                <ActionIcon
+                  variant="subtle"
+                  color="slate"
+                  onClick={() => actions.onEdit(row)}
+                  aria-label="Ablesung bearbeiten"
+                >
+                  <IconPencil size={17} stroke={1.75} />
+                </ActionIcon>
+                <ActionIcon
+                  variant="subtle"
+                  color="red"
+                  loading={actions.deleting}
+                  onClick={() => actions.onDelete(row)}
+                  aria-label="Ablesung löschen"
+                >
+                  <IconTrash size={17} stroke={1.75} />
+                </ActionIcon>
+              </Group>
+            </div>
+
+            <Collapse in={open} id={panelId}>
+              <dl className={cardClasses.detailGrid}>
+                <dt className={cardClasses.detailKey}>Verbrauch</dt>
+                <dd className={cardClasses.detailValue}>
+                  {row.consumption.kind === "none"
+                    ? "–"
+                    : row.consumption.kind === "implausible"
+                      ? "unplausibel"
+                      : row.consumption.text}
+                </dd>
+                <dt className={cardClasses.detailKey}>Kosten</dt>
+                <dd className={cardClasses.detailValue}>{row.kosten}</dd>
+                {hasTarife && (
+                  <>
+                    <dt className={cardClasses.detailKey}>Kosten (Tarif)</dt>
+                    <dd className={cardClasses.detailValue}>{row.tariffCost ?? "–"}</dd>
+                  </>
+                )}
+                <dt className={cardClasses.detailKey}>Quelle</dt>
+                <dd className={cardClasses.detailValue}>{row.quelle}</dd>
+              </dl>
+            </Collapse>
+          </div>
+        );
+      })}
+
+      {rows.length > limit && (
+        <Button
+          variant="default"
+          size="sm"
+          onClick={() => setLimit((n) => n + MOBILE_PAGE_SIZE)}
+        >
+          Weitere anzeigen ({rows.length - limit})
+        </Button>
+      )}
+    </div>
   );
 }
 
