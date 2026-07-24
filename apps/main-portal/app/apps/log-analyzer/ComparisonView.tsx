@@ -11,6 +11,7 @@ import {
   SegmentedControl,
   Select,
   SimpleGrid,
+  Skeleton,
   Stack,
   Text,
   ThemeIcon,
@@ -35,6 +36,8 @@ import type { AlignMode, OverlayAxis } from "./lib/log-align";
 import { fetchLog, fetchLogs, type LogSummaryDTO } from "./lib/log-api";
 import type { ParsedLog } from "./lib/types";
 import { OverlayChart } from "./OverlayChart";
+import { LegendItem, SERIES_COLORS } from "./ChartLegend";
+import { XS_INPUT_HEIGHT } from "./ui-metrics";
 
 // Dual-log comparison workspace. Two logs — Baseline (A) and Comparison (B) —
 // are loaded (from history or a fresh upload), reduced to key-metric diff cards
@@ -89,6 +92,10 @@ export function ComparisonView() {
   const [axis, setAxis] = useState<OverlayAxis>("rpm");
   const [align, setAlign] = useState<AlignMode>("wot");
   const [history, setHistory] = useState<LogSummaryDTO[]>([]);
+  // The stored-log list arrives after mount. The picker cards reserve its row
+  // either way (see LogPicker), so this flag only picks skeleton vs. control —
+  // it never changes the card's height.
+  const [historyLoading, setHistoryLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -98,6 +105,8 @@ export function ComparisonView() {
         if (!cancelled) setHistory(logs);
       } catch {
         // non-fatal — the file pickers still work without the stored list
+      } finally {
+        if (!cancelled) setHistoryLoading(false);
       }
     })();
     return () => {
@@ -188,6 +197,7 @@ export function ComparisonView() {
           side="a"
           current={a}
           historyData={historyData}
+          historyLoading={historyLoading}
           onPickHistory={pickHistory}
           onFile={handleFile}
           onSample={() =>
@@ -200,6 +210,7 @@ export function ComparisonView() {
           side="b"
           current={b}
           historyData={historyData}
+          historyLoading={historyLoading}
           onPickHistory={pickHistory}
           onFile={handleFile}
           onSample={() =>
@@ -286,11 +297,11 @@ export function ComparisonView() {
               </Alert>
             )}
             <Group gap="lg" mb="sm">
-              <LegendItem color="var(--mantine-color-orange-6)" style="solid" label={`${a.name} (A)`} />
-              <LegendItem color="var(--mantine-color-blue-6)" style="dashed" label={`${b.name} (B)`} />
+              <LegendItem color={SERIES_COLORS.primary} style="solid" label={`${a.name} (A)`} />
+              <LegendItem color={SERIES_COLORS.secondary} style="dashed" label={`${b.name} (B)`} />
               {overlay?.hasRef && (
                 <LegendItem
-                  color="var(--mantine-color-dimmed)"
+                  color={SERIES_COLORS.reference}
                   style="dotted"
                   label={`gepunktet: ${overlay.refLabel}`}
                 />
@@ -304,31 +315,13 @@ export function ComparisonView() {
   );
 }
 
-function LegendItem({
-  color,
-  style,
-  label,
-}: {
-  color: string;
-  style: "solid" | "dashed" | "dotted";
-  label: string;
-}) {
-  return (
-    <Group gap={6} wrap="nowrap">
-      <span style={{ width: 22, height: 0, borderTop: `2px ${style} ${color}` }} />
-      <Text size="xs" c="dimmed">
-        {label}
-      </Text>
-    </Group>
-  );
-}
-
 function LogPicker({
   title,
   color,
   side,
   current,
   historyData,
+  historyLoading,
   onPickHistory,
   onFile,
   onSample,
@@ -338,13 +331,14 @@ function LogPicker({
   side: "a" | "b";
   current: Side | null;
   historyData: { value: string; label: string }[];
+  historyLoading: boolean;
   onPickHistory: (side: "a" | "b", id: string | null) => void;
   onFile: (side: "a" | "b", file: File | null) => void;
   onSample: () => void;
 }) {
   return (
     <Card withBorder radius="md" p="md">
-      <Group justify="space-between" mb="sm">
+      <Group justify="space-between" mb="sm" wrap="nowrap">
         <Text fw={600} size="sm">
           {title}
         </Text>
@@ -355,19 +349,24 @@ function LogPicker({
         )}
       </Group>
       <Stack gap="sm">
-        {current ? (
-          <Text size="sm" fw={500} style={{ wordBreak: "break-word" }}>
-            {current.name}
-          </Text>
+        {/* One clamped line either way: a long file name must not reflow the
+            controls underneath it. */}
+        <Text size="sm" fw={current ? 500 : 400} c={current ? undefined : "dimmed"} lineClamp={1}>
+          {current ? current.name : "Noch kein Log gewählt."}
+        </Text>
+        {/* The history row is ALWAYS present and always the same height:
+            skeleton while the list loads, then the control — disabled with an
+            explanatory placeholder when nothing is stored yet. Rendering it
+            conditionally used to grow both cards mid-load and swallow clicks. */}
+        {historyLoading ? (
+          <Skeleton height={XS_INPUT_HEIGHT} radius="sm" data-testid={`history-skeleton-${side}`} />
         ) : (
-          <Text size="sm" c="dimmed">
-            Noch kein Log gewählt.
-          </Text>
-        )}
-        {historyData.length > 0 && (
           <Select
-            placeholder="Aus Historie wählen…"
+            placeholder={
+              historyData.length > 0 ? "Aus Historie wählen…" : "Keine gespeicherten Logs"
+            }
             data={historyData}
+            disabled={historyData.length === 0}
             onChange={(id) => onPickHistory(side, id)}
             searchable
             clearable

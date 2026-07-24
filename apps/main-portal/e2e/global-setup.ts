@@ -5,6 +5,11 @@ import path from "node:path";
 // Prepares the dedicated E2E database before the suite: creates the schema
 // (prisma db push) and seeds a known admin + meter fixture. Runs once per
 // `playwright test` invocation, so `pnpm test:e2e` is fully self-contained.
+//
+// This runs AFTER the dev server is already up (see the health-probe note in
+// playwright.config.ts), so the reset must happen through the seed's DELETEs —
+// replacing the .db FILE here would pull the database out from under the
+// server's open connection and every request would fail.
 export default function globalSetup() {
   const e2eDir = __dirname;
   const mainPortalDir = path.join(e2eDir, "..");

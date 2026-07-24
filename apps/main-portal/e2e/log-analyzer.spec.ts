@@ -17,27 +17,43 @@ async function typeUrl(page: Page, value: string) {
 /**
  * Load the built-in Baseline (A) and Comparison (B) samples on the compare page.
  *
- * Two ordering hazards, both of which flaked on WebKit:
- *  - the view fetches the stored-log list in an effect, and once any log exists
- *    that render inserts a history Select ABOVE the buttons in both picker
- *    cards. A click dispatched into the pre-shift layout is lost, so wait for
- *    that request to settle before touching anything.
- *  - the two clicks must each be confirmed via their "picked" badge; firing
- *    them back-to-back can drop the second.
+ * The picker cards reserve the history row from first paint (skeleton → Select),
+ * so their geometry no longer moves when the stored-log list arrives and a click
+ * can't be lost to a mid-flight reflow. Each click is still confirmed via its
+ * "picked" badge before the next one is fired.
  */
 async function loadBothSamples(page: Page) {
-  await page.waitForLoadState("networkidle");
-  // Retry each click until its badge appears: `networkidle` says the list has
-  // ARRIVED, not that React has committed the taller layout, and the number of
-  // stored logs (and so the size of that shift) grows as the suite runs.
   const pick = async (index: number, badge: string) => {
-    await expect(async () => {
-      await page.getByRole("button", { name: "Beispiel" }).nth(index).click();
-      await expect(page.getByTestId(badge)).toBeVisible({ timeout: 2_000 });
-    }).toPass({ timeout: 20_000 });
+    await page.getByRole("button", { name: "Beispiel" }).nth(index).click();
+    await expect(page.getByTestId(badge)).toBeVisible();
   };
   await pick(0, "picked-a");
   await pick(1, "picked-b");
+}
+
+/**
+ * Total unexpected (non-input-driven) layout shift accumulated since the page
+ * started loading — the CLS score. Chromium-only API; callers skip on WebKit.
+ *
+ * The observer is installed via addInitScript, so it must be armed BEFORE the
+ * navigation that is being measured.
+ */
+async function armCls(page: Page) {
+  await page.addInitScript(() => {
+    (window as unknown as { __cls: number }).__cls = 0;
+    new PerformanceObserver((list) => {
+      for (const entry of list.getEntries() as (PerformanceEntry & {
+        value: number;
+        hadRecentInput: boolean;
+      })[]) {
+        if (!entry.hadRecentInput) (window as unknown as { __cls: number }).__cls += entry.value;
+      }
+    }).observe({ type: "layout-shift", buffered: true });
+  });
+}
+
+async function readCls(page: Page): Promise<number> {
+  return page.evaluate(() => (window as unknown as { __cls: number }).__cls ?? 0);
 }
 
 async function expectNoHorizontalScroll(page: Page) {
@@ -297,9 +313,6 @@ test.describe("Log Analyzer: virtual dyno", () => {
     await expect(page.getByText(ERROR_BOUNDARY_TEXT)).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "Virtueller Prüfstand" })).toBeVisible();
 
-    // The stored-log list arrives via an effect and inserts a Select above the
-    // buttons; wait for it so the click lands on the settled layout.
-    await page.waitForLoadState("networkidle");
     await page.getByTestId("dyno-sample").click();
     await expect(page.getByTestId("dyno-peaks")).toBeVisible();
     await expect(page.locator(".recharts-surface").first()).toBeVisible();
@@ -330,7 +343,6 @@ test.describe("Log Analyzer: virtual dyno", () => {
 
   test("the SAE/DIN correction toggle rescales the estimate", async ({ page }) => {
     await page.goto("/apps/log-analyzer/dyno");
-    await page.waitForLoadState("networkidle");
     await page.getByTestId("dyno-sample").click();
     await expect(page.getByTestId("dyno-peaks")).toBeVisible();
 
@@ -438,8 +450,9 @@ test.describe("Log Analyzer: report export", () => {
     await page.goto("/apps/log-analyzer/dyno");
     await page.waitForLoadState("networkidle");
 
-    // No log open yet → no export entry point.
-    await expect(page.getByTestId("open-export")).toHaveCount(0);
+    // No log open yet → the export entry point is present but inert (it stays
+    // mounted so it can't shift the header in when a log arrives).
+    await expect(page.getByTestId("open-export")).toBeDisabled();
 
     await page.getByTestId("dyno-sample").click();
     await expect(page.getByTestId("dyno-peaks")).toBeVisible();
@@ -475,17 +488,68 @@ test.describe("Log Analyzer: report export", () => {
     await expect(page.getByRole("heading", { name: "verified-pull.csv" })).toBeVisible();
 
     await page.goto("/apps/log-analyzer/dyno");
-    await page.waitForLoadState("networkidle");
     await expect(page.getByText(/Nur verifizierte WOT-Pulls/)).toBeVisible();
 
     // The picker lists the clean sweep and withholds the part-throttle fragment.
     // Both browser projects share one E2E database, so the verified log may
     // already be there several times over — `.first()` keeps that from tripping
     // strict mode. The count-0 assertion below is the one that proves the filter.
+    // The picker is mounted from first paint and only becomes ENABLED once the
+    // stored-log list has arrived with at least one verified pull — so that is
+    // the state to wait for, not mere visibility.
     const picker = page.getByTestId("dyno-history");
-    await expect(picker).toBeVisible();
+    await expect(picker).toBeEnabled();
     await picker.click();
     await expect(page.getByRole("option", { name: "verified-pull.csv" }).first()).toBeVisible();
     await expect(page.getByRole("option", { name: "unverified-pull.csv" })).toHaveCount(0);
+  });
+});
+
+// The picker cards on /compare and /dyno fetch their stored-log list after
+// mount. Rendering the selector only once that list arrived used to grow the
+// cards under the user's cursor — measured here so it cannot come back.
+test.describe("Log Analyzer: layout stability", () => {
+  // layout-shift is a Chromium-only performance entry.
+  test.skip(({ browserName }) => browserName !== "chromium", "layout-shift API is Chromium-only");
+
+  // Anything above this is a visible jump; a settled page scores ~0. The bar is
+  // not exactly 0 because Recharts' responsive container measures itself once
+  // after mount, which is a sub-pixel shift the app does not control.
+  const MAX_CLS = 0.02;
+
+  test.beforeEach(async ({ page }) => {
+    // Guarantee a non-empty history, so the picker really has a list to swap in.
+    await page.goto("/apps/log-analyzer");
+    await page.locator('input[type="file"]').setInputFiles({
+      name: "cls-fixture.csv",
+      mimeType: "text/csv",
+      buffer: Buffer.from(SAMPLE_CSV),
+    });
+    await expect(page.getByText("Upload Test Coupe")).toBeVisible();
+  });
+
+  test("the comparison pickers do not shift while the log list loads", async ({ page }) => {
+    await armCls(page);
+    await page.goto("/apps/log-analyzer/compare");
+
+    // Both history selectors have swapped in from their skeletons…
+    await expect(page.getByTestId("history-a")).toBeVisible();
+    await expect(page.getByTestId("history-b")).toBeVisible();
+    await expect(page.getByTestId("history-skeleton-a")).toHaveCount(0);
+    await page.waitForLoadState("networkidle");
+
+    // …and nothing moved doing it.
+    expect(await readCls(page)).toBeLessThanOrEqual(MAX_CLS);
+  });
+
+  test("the dyno picker does not shift while the log list loads", async ({ page }) => {
+    await armCls(page);
+    await page.goto("/apps/log-analyzer/dyno");
+
+    await expect(page.getByTestId("dyno-history")).toBeVisible();
+    await expect(page.getByTestId("dyno-history-skeleton")).toHaveCount(0);
+    await page.waitForLoadState("networkidle");
+
+    expect(await readCls(page)).toBeLessThanOrEqual(MAX_CLS);
   });
 });

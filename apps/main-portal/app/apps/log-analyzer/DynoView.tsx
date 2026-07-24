@@ -11,6 +11,7 @@ import {
   SegmentedControl,
   Select,
   SimpleGrid,
+  Skeleton,
   Stack,
   Text,
   ThemeIcon,
@@ -54,6 +55,8 @@ import type { ParsedLog } from "./lib/types";
 import { DynoChart } from "./DynoChart";
 import { DynoProfileDrawer } from "./DynoProfileDrawer";
 import { ExportModal } from "./ExportModal";
+import { LegendItem, SERIES_COLORS } from "./ChartLegend";
+import { XS_INPUT_HEIGHT } from "./ui-metrics";
 
 // The virtual dyno workspace: pick a log, and its detected WOT pull is turned
 // into power and torque curves over engine speed. All physics lives in the pure
@@ -90,6 +93,8 @@ function fmt(value: number, digits = 0): string {
 export function DynoView() {
   const [active, setActive] = useState<Active | null>(null);
   const [history, setHistory] = useState<LogSummaryDTO[]>([]);
+  // Only picks skeleton vs. control — the picker row is reserved either way.
+  const [historyLoading, setHistoryLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [profile, setProfile] = useState<DynoProfile>(DEFAULT_DYNO_PROFILE);
   const [spec, setSpec] = useState<VehicleSpec>(DEFAULT_VEHICLE_SPEC);
@@ -115,6 +120,8 @@ export function DynoView() {
         if (!cancelled) setHistory(logs);
       } catch {
         // non-fatal — the file picker still works without the stored list
+      } finally {
+        if (!cancelled) setHistoryLoading(false);
       }
     })();
     return () => {
@@ -211,17 +218,19 @@ export function DynoView() {
           </div>
         </Group>
         <Group gap="xs">
-          {active && (
-            <Button
-              variant="light"
-              color="teal"
-              leftSection={<IconFileExport size={16} />}
-              onClick={() => setExportOpen(true)}
-              data-testid="open-export"
-            >
-              Exportieren / Bericht erstellen
-            </Button>
-          )}
+          {/* Always mounted, disabled until a log is open: a log handed over
+              from the Analyzer arrives asynchronously, and a button appearing
+              at that moment would push the header around on narrow screens. */}
+          <Button
+            variant="light"
+            color="teal"
+            leftSection={<IconFileExport size={16} />}
+            onClick={() => setExportOpen(true)}
+            disabled={!active}
+            data-testid="open-export"
+          >
+            Exportieren / Bericht erstellen
+          </Button>
           <Button
             variant="light"
             color="slate"
@@ -241,8 +250,8 @@ export function DynoView() {
       )}
 
       <Card withBorder radius="md" p="md">
-        <Group justify="space-between" mb="sm" wrap="wrap">
-          <Text fw={600} size="sm">
+        <Group justify="space-between" mb="sm" wrap="nowrap">
+          <Text fw={600} size="sm" lineClamp={1}>
             {active ? active.name : "Log wählen"}
           </Text>
           {active && (
@@ -252,10 +261,19 @@ export function DynoView() {
           )}
         </Group>
         <Group gap="sm" align="flex-end" wrap="wrap">
-          {verifiedHistory.length > 0 && (
+          {/* Reserved either way: a Select that only mounts once the stored-log
+              list arrives reflows the whole row (and eats clicks) mid-load. */}
+          {historyLoading ? (
+            <Skeleton height={XS_INPUT_HEIGHT} w={260} radius="sm" data-testid="dyno-history-skeleton" />
+          ) : (
             <Select
-              placeholder="Verifizierten Pull wählen…"
+              placeholder={
+                verifiedHistory.length > 0
+                  ? "Verifizierten Pull wählen…"
+                  : "Keine verifizierten Pulls"
+              }
               data={verifiedHistory.map((h) => ({ value: h.id, label: h.name }))}
+              disabled={verifiedHistory.length === 0}
               onChange={(id) => id && void openById(id)}
               searchable
               clearable
@@ -282,10 +300,12 @@ export function DynoView() {
             Beispiel
           </Button>
         </Group>
+        {/* Deliberately one CONSTANT sentence: swapping it once the log list
+            arrives would reflow the card. The "nothing verified yet" case is
+            carried by the disabled picker and its placeholder instead. */}
         <Text size="xs" c="dimmed" mt="sm">
-          {history.length > 0 && verifiedHistory.length === 0
-            ? "Keine verifizierten Pulls gespeichert – für eine belastbare Schätzung zuerst einen sauberen WOT-Pull im Analyzer prüfen."
-            : "Nur verifizierte WOT-Pulls stehen zur Auswahl – andere Logs verfälschen die Leistungsschätzung."}
+          Nur verifizierte WOT-Pulls stehen zur Auswahl – andere Logs verfälschen die
+          Leistungsschätzung. Einen sauberen Pull zuerst im Analyzer prüfen.
         </Text>
         <Text size="xs" c="dimmed" mt={4}>
           Profil: {summarizeDynoProfile(effectiveProfile)} · Motor {spec.engineCode} aus dem
@@ -364,15 +384,17 @@ export function DynoView() {
                 </Text>
               </Card>
 
-              <Card withBorder radius="md" p="md">
+              {/* Result cards carry p="lg", pickers and control strips p="md" —
+                  the same rhythm the comparison page uses. */}
+              <Card withBorder radius="md" p="lg">
                 <Group justify="space-between" mb="sm" wrap="wrap">
                   <Title order={5}>Leistungs- &amp; Drehmomentkurve</Title>
                   <Group gap="lg">
-                    <LegendItem color="var(--mantine-color-orange-6)" style="solid" label="Leistung (PS)" />
-                    <LegendItem color="var(--mantine-color-blue-6)" style="dashed" label="Drehmoment (Nm)" />
+                    <LegendItem color={SERIES_COLORS.primary} style="solid" label="Leistung (PS)" />
+                    <LegendItem color={SERIES_COLORS.secondary} style="dashed" label="Drehmoment (Nm)" />
                     {estimate.crossCheck && (
                       <LegendItem
-                        color="var(--mantine-color-gray-5)"
+                        color={SERIES_COLORS.reference}
                         style="dotted"
                         label={`Gegenprobe: ${METHOD_LABELS[estimate.crossCheck.method]}`}
                       />
@@ -504,21 +526,3 @@ function Metric({ label, value, hint }: { label: string; value: string; hint: st
   );
 }
 
-function LegendItem({
-  color,
-  style,
-  label,
-}: {
-  color: string;
-  style: "solid" | "dashed" | "dotted";
-  label: string;
-}) {
-  return (
-    <Group gap={6} wrap="nowrap">
-      <span style={{ width: 22, height: 0, borderTop: `2px ${style} ${color}` }} />
-      <Text size="xs" c="dimmed">
-        {label}
-      </Text>
-    </Group>
-  );
-}

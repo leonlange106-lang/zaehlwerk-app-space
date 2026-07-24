@@ -21,6 +21,13 @@ async function main() {
   await prisma.zaehler.deleteMany();
   await prisma.location.deleteMany();
   await prisma.apiToken.deleteMany();
+  // The log-analyzer specs upload CSVs and never clean up; the E2E database file
+  // is reused between local runs, so without this the stored-log list grows by a
+  // dozen rows every run until /apps/log-analyzer/history renders hundreds of
+  // cards and the mobile suite times out waiting for it to settle.
+  await prisma.logFile.deleteMany();
+  await prisma.ingestionKey.deleteMany();
+  await prisma.auditLog.deleteMany();
   await prisma.user.deleteMany();
 
   await prisma.user.create({

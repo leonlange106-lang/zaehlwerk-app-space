@@ -9,7 +9,7 @@ import {
   Button,
   Card,
   Group,
-  Loader,
+  Skeleton,
   Stack,
   TagsInput,
   Text,
@@ -39,6 +39,11 @@ import type { PullHealth, PullStatus } from "./lib/evaluate-log-pull";
 // drive time parsed from the filename and grouped by day (newest first). Entries
 // show the pull status and a hardware-health badge, can be tagged with the real
 // octane driven and free tags, reopened, or deleted. All stored server-side.
+
+// Roughly one LogRow (card padding + title/badges + meta line + the octane and
+// tag inputs). Rows are content-sized, so this only has to be close enough that
+// the arriving list grows into space the page already reserved.
+const LOG_ROW_HEIGHT = 132;
 
 const STATUS_META: Record<PullStatus, { label: string; color: string }> = {
   verified: { label: "VERIFIED", color: "teal" },
@@ -173,16 +178,10 @@ export function HistoryView() {
     [],
   );
 
-  if (items === null) {
-    return (
-      <Group justify="center" py="xl">
-        <Loader color="orange" />
-      </Group>
-    );
-  }
-
   return (
     <Stack gap="lg">
+      {/* The header renders immediately, loaded or not: swapping the WHOLE view
+          from a spinner to the list pushed the page title in from the top. */}
       <Group gap="md">
         <ThemeIcon variant="light" color="orange" radius="md" size={44}>
           <IconClockHour4 size={24} stroke={1.5} />
@@ -201,7 +200,15 @@ export function HistoryView() {
         </Text>
       )}
 
-      {items.length === 0 ? (
+      {items === null ? (
+        // Placeholder rows the height of a real one, so the list grows into the
+        // space it already occupies instead of appearing below a spinner.
+        <Stack gap="sm" data-testid="log-list-skeleton">
+          {[0, 1, 2].map((i) => (
+            <Skeleton key={i} height={LOG_ROW_HEIGHT} radius="md" />
+          ))}
+        </Stack>
+      ) : items.length === 0 ? (
         <Card withBorder radius="md" p="xl">
           <Text c="dimmed" ta="center" size="sm">
             Noch keine Logs gespeichert. Lade im Analyzer eine oder mehrere CSV-Dateien hoch.
