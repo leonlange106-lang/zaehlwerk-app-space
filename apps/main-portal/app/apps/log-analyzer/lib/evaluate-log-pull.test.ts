@@ -152,10 +152,16 @@ describe("evaluateLogPull — missing parameter hints", () => {
   });
 });
 
+/** Set a sustained (≥ debounce) run of `value` at [from, from+len) in a copy. */
+function sustained(base: number, from: number, value: number, len = 4, n = 60): number[] {
+  const arr = new Array(n).fill(base);
+  for (let i = from; i < from + len && i < n; i += 1) arr[i] = value;
+  return arr;
+}
+
 describe("evaluateLogPull — safety alerts", () => {
   it("raises a critical knock alert when correction drops past -3° on a cylinder", () => {
-    const correction = new Array(60).fill(0);
-    correction[40] = -4.5;
+    const correction = sustained(0, 38, -4.5); // held for 4 samples → debounced-real
     const { alerts } = evaluateLogPull(makeLog(verifiedPullColumns({ correction })), SPEC);
     const knock = alerts.find((a) => a.id === "knock");
     expect(knock).toBeDefined();
@@ -163,17 +169,32 @@ describe("evaluateLogPull — safety alerts", () => {
     expect(knock!.title).toMatch(/-4\.5/);
   });
 
+  it("suppresses a single-sample correction spike (transient filter)", () => {
+    const correction = new Array(60).fill(0);
+    correction[40] = -6; // one frame only → sensor glitch, must NOT alert
+    const { alerts, violations } = evaluateLogPull(makeLog(verifiedPullColumns({ correction })), SPEC);
+    expect(alerts.find((a) => a.id === "knock")).toBeUndefined();
+    expect(violations.find((v) => v.id.startsWith("knock"))).toBeUndefined();
+  });
+
   it("reports 'multiple cylinders' when several correction channels pull", () => {
     const cols = verifiedPullColumns();
-    const c1 = new Array(60).fill(0);
-    const c2 = new Array(60).fill(0);
-    c1[30] = -3.5;
-    c2[31] = -5;
-    cols.push({ label: "Knock Correction Cyl 1", unit: "°", values: c1 });
-    cols.push({ label: "Knock Correction Cyl 2", unit: "°", values: c2 });
+    cols.push({ label: "Knock Correction Cyl 1", unit: "°", values: sustained(0, 30, -3.5) });
+    cols.push({ label: "Knock Correction Cyl 2", unit: "°", values: sustained(0, 31, -5) });
     const { alerts } = evaluateLogPull(makeLog(cols), SPEC);
     const knock = alerts.find((a) => a.id === "knock")!;
     expect(knock.detail).toMatch(/Zylindern/);
+  });
+
+  it("flags a cumulative timing pull across cylinders even when no single one trips", () => {
+    const cols = verifiedPullColumns().filter((c) => c.label !== "Ignition Correction");
+    // Two cylinders each pull only -2.5° (under the -3° single limit) but together
+    // -5.0° ≤ the -5° cumulative limit, held for several samples.
+    cols.push({ label: "Knock Correction Cyl 1", unit: "°", values: sustained(0, 30, -2.5) });
+    cols.push({ label: "Knock Correction Cyl 2", unit: "°", values: sustained(0, 30, -2.5) });
+    const { alerts } = evaluateLogPull(makeLog(cols), SPEC);
+    expect(alerts.find((a) => a.id === "knock")).toBeUndefined(); // no single-cyl trip
+    expect(alerts.find((a) => a.id === "knock-total")).toBeDefined();
   });
 
   it("does not raise a knock alert for small (>-3°) corrections", () => {
@@ -216,7 +237,7 @@ describe("evaluateLogPull — safety alerts", () => {
     const n = cols[0].values.length;
     const tgt = new Array(n).fill(200);
     const act = new Array(n).fill(200);
-    act[45] = 170; // 30 bar drop
+    for (let i = 44; i < 48; i += 1) act[i] = 170; // sustained 30 bar drop
     cols.push({ label: "HPFP Target Pressure", unit: "bar", values: tgt });
     cols.push({ label: "HPFP Actual Pressure", unit: "bar", values: act });
     const { alerts } = evaluateLogPull(makeLog(cols), SPEC);
@@ -227,9 +248,7 @@ describe("evaluateLogPull — safety alerts", () => {
 
   it("raises an EGT alert above the OEM-cat ceiling but not above the catless one", () => {
     const cols = verifiedPullColumns();
-    const n = cols[0].values.length;
-    const egt = new Array(n).fill(500);
-    egt[50] = 1000; // over OEM (960), under catless (1010)
+    const egt = sustained(500, 48, 1000); // over OEM (960), under catless (1010)
     cols.push({ label: "EGT", unit: "°C", values: egt });
 
     const oem = evaluateLogPull(makeLog(cols), { ...SPEC, catType: "oem" });
@@ -240,12 +259,43 @@ describe("evaluateLogPull — safety alerts", () => {
   });
 
   it("flags a fuel trim beyond the engine's tolerance (lean)", () => {
-    const stft = new Array(60).fill(2);
-    stft[40] = 14; // > ±10%
+    const stft = sustained(2, 40, 14); // sustained > ±10%
     const { alerts } = evaluateLogPull(makeLog(verifiedPullColumns({ stft })), SPEC);
     const trim = alerts.find((a) => a.id === "trim-stft");
     expect(trim).toBeDefined();
     expect(trim!.detail).toMatch(/mageres/);
+  });
+
+  it("warns on sustained high IAT (heat-driven timing retard)", () => {
+    const cols = verifiedPullColumns();
+    cols.push({ label: "IAT", unit: "°C", values: sustained(35, 40, 62) }); // > 50 °C
+    const { alerts } = evaluateLogPull(makeLog(cols), SPEC);
+    const iat = alerts.find((a) => a.id === "iat-limit");
+    expect(iat).toBeDefined();
+    expect(iat!.severity).toBe("warning");
+  });
+
+  it("warns on a lean lambda held under WOT, but ignores it off-throttle", () => {
+    // Leaner than the 0.88 petrol limit, sustained across the WOT sweep.
+    const cols = verifiedPullColumns();
+    cols.push({ label: "Fuel: Lambda Actual", unit: "lambda", values: sustained(0.82, 30, 0.95) });
+    const { alerts } = evaluateLogPull(makeLog(cols), SPEC);
+    expect(alerts.find((a) => a.id === "lambda-lean")).toBeDefined();
+  });
+
+  it("accepts AFR-scaled lambda channels (MHD-style) and normalises to λ", () => {
+    const cols = verifiedPullColumns();
+    // AFR ~14.4 = λ ~0.98 → lean under WOT.
+    cols.push({ label: "AFR", unit: "AFR", values: sustained(12.0, 30, 14.4) });
+    const { alerts } = evaluateLogPull(makeLog(cols), SPEC);
+    expect(alerts.find((a) => a.id === "lambda-lean")).toBeDefined();
+  });
+
+  it("does not flag a rich WOT lambda (λ ≈ 0.82)", () => {
+    const cols = verifiedPullColumns();
+    cols.push({ label: "Lambda (Bank 1)", unit: "lambda", values: new Array(60).fill(0.82) });
+    const { alerts } = evaluateLogPull(makeLog(cols), SPEC);
+    expect(alerts.find((a) => a.id === "lambda-lean")).toBeUndefined();
   });
 
   it("keeps a clean verified pull free of safety alerts", () => {
@@ -255,24 +305,24 @@ describe("evaluateLogPull — safety alerts", () => {
 });
 
 describe("evaluateLogPull — gear-shift exclusion zone", () => {
-  it("suppresses an EGT spike that lands inside the post-shift zone", () => {
+  it("suppresses a sustained EGT spike that lands inside the post-shift zone", () => {
     const cols = verifiedPullColumns();
     const gear = cols.find((c) => c.label === "Gear")!;
     gear.values = gear.values.map((_, i) => (i < 30 ? 3 : 4)); // shift at i = 30
     const egt = new Array(60).fill(600);
-    egt[31] = 1000; // right after the shift → excluded from evaluation
+    for (let i = 31; i < 36; i += 1) egt[i] = 1000; // sustained, but inside the shift zone
     cols.push({ label: "EGT", unit: "°C", values: egt });
     const { alerts, exclusionRanges } = evaluateLogPull(makeLog(cols), SPEC);
     expect(exclusionRanges.length).toBeGreaterThan(0);
     expect(alerts.find((a) => a.id === "egt-limit")).toBeUndefined();
   });
 
-  it("still flags an EGT spike well away from any gear shift", () => {
+  it("still flags a sustained EGT spike well away from any gear shift", () => {
     const cols = verifiedPullColumns();
     const gear = cols.find((c) => c.label === "Gear")!;
     gear.values = gear.values.map((_, i) => (i < 30 ? 3 : 4)); // shift at i = 30
     const egt = new Array(60).fill(600);
-    egt[52] = 1000; // clear of the shift zone → evaluated
+    for (let i = 50; i < 55; i += 1) egt[i] = 1000; // clear of the shift zone → evaluated
     cols.push({ label: "EGT", unit: "°C", values: egt });
     const { alerts } = evaluateLogPull(makeLog(cols), SPEC);
     expect(alerts.find((a) => a.id === "egt-limit")).toBeDefined();
@@ -308,13 +358,17 @@ describe("toBar — metric pressure normalization", () => {
 });
 
 describe("evaluateLogPull — overlays (violations & pull range)", () => {
-  it("pins a knock violation to the exact timestamp it occurred", () => {
+  it("pins a knock violation to the worst sample of a sustained pull", () => {
     const correction = new Array(60).fill(0);
+    // A held pull 41..44; the worst (most negative) is at i = 42.
+    correction[41] = -3.2;
     correction[42] = -4.5;
+    correction[43] = -3.4;
+    correction[44] = -3.1;
     const time = Array.from({ length: 60 }, (_, i) => i * 0.1);
     const log = makeLog(verifiedPullColumns({ correction }), time);
     const { violations } = evaluateLogPull(log, SPEC);
-    const knock = violations.find((v) => v.id.startsWith("knock"));
+    const knock = violations.find((v) => v.id.startsWith("knock") && !v.id.includes("total"));
     expect(knock).toBeDefined();
     expect(knock!.sampleIndex).toBe(42);
     expect(knock!.time).toBeCloseTo(4.2);

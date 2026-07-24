@@ -19,7 +19,8 @@ export type ChannelRole =
   | "hpfpTarget"
   | "hpfpActual"
   | "egt"
-  | "iat";
+  | "iat"
+  | "lambda";
 
 // Order matters within each role: the first matching series wins. The `actual`
 // vs `target` split is intentionally strict so a "Boost Target" column never
@@ -50,6 +51,18 @@ const ROLE_MATCHERS: Record<ChannelRole, RegExp[]> = {
   hpfpActual: [/hpfp.*(actual|ist|current)/i, /(rail|fuel).*press.*(actual|ist)/i, /^hpfp\b/i],
   egt: [/\begt\b/i, /exhaust.*temp/i, /abgas.*temp/i],
   iat: [/\biat\b/i, /intake.*air.*temp/i, /charge.*air.*temp/i, /ansaug.*temp/i, /ladeluft/i],
+  // Air/fuel ratio under load. Logs name it many ways across platforms —
+  // "Fuel: Lambda Actual [lambda]" (MGflasher), "Lambda (Bank 1)", "AFR" (MHD).
+  // Prefer the ACTUAL/measured trace over a commanded "Lambda Target"; AFR and a
+  // bare "Lambda" are accepted as fallbacks (normalised to λ downstream).
+  lambda: [
+    /lambda.*(actual|ist|measured|bank\s*1|sensor)/i,
+    /(actual|ist|measured).*lambda/i,
+    /\bafr\b/i,
+    /air.?fuel/i,
+    /\blambda\b/i,
+    /\bλ\b/i,
+  ],
 };
 
 // Timing/knock corrections deserve special handling: a car logs one channel per
@@ -85,6 +98,8 @@ export interface ResolvedChannels {
   hpfpActual: LogSeries | null;
   egt: LogSeries | null;
   iat: LogSeries | null;
+  /** Measured air/fuel ratio (λ or AFR — normalise via `toLambda`). */
+  lambda: LogSeries | null;
   /** Every timing/knock-correction channel found (one per cylinder, typically). */
   timingCorrections: LogSeries[];
 }
@@ -113,6 +128,7 @@ export function resolveChannels(log: ParsedLog): ResolvedChannels {
   const hpfpActual = single("hpfpActual");
   const egt = single("egt");
   const iat = single("iat");
+  const lambda = single("lambda");
 
   const timingCorrections = s.filter(
     (x) => !used.has(x.key) && TIMING_CORRECTION_MATCHERS.some((re) => re.test(x.label)),
@@ -130,6 +146,7 @@ export function resolveChannels(log: ParsedLog): ResolvedChannels {
     hpfpActual,
     egt,
     iat,
+    lambda,
     timingCorrections,
   };
 }

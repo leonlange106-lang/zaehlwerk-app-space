@@ -89,6 +89,26 @@ describe("createLogs — parse, evaluate & persist", () => {
   });
 });
 
+describe("live re-evaluation on read (dynamic health/status tags)", () => {
+  it("re-derives status/health from the stored CSV, ignoring stale persisted values", async () => {
+    // Persisted columns say invalid/danger, but the stored CSV is a clean pull:
+    // the overview must reflect the CURRENT evaluation, not the frozen import.
+    findMany.mockResolvedValue([
+      row({ csv: makeSampleCsv(), status: "invalid", health: "danger" }),
+    ]);
+    const [s] = await listLogs();
+    expect(s.status).toBe("verified");
+    expect(s.health).toBe("safe");
+  });
+
+  it("falls back to the persisted values when the stored CSV can't be parsed", async () => {
+    findMany.mockResolvedValue([row({ csv: "", status: "partial", health: "caution" })]);
+    const [s] = await listLogs();
+    expect(s.status).toBe("partial");
+    expect(s.health).toBe("caution");
+  });
+});
+
 describe("summary mapping & tag updates", () => {
   it("splits the stored comma tag string into an array", async () => {
     findMany.mockResolvedValue([row({ tags: "map1, 100 RON , dyno" })]);

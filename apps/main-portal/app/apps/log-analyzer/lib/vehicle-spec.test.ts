@@ -115,3 +115,24 @@ describe("limitsForSpec — engine-driven baselines", () => {
     expect(oem.maxEgt).toBeGreaterThanOrEqual(950);
   });
 });
+
+describe("limitsForSpec — universal safety thresholds (engineProfiles)", () => {
+  it("derives a stricter cumulative than single-cylinder knock limit", () => {
+    const l = limitsForSpec(DEFAULT_VEHICLE_SPEC);
+    // e.g. single -3° → cumulative -5° (more negative = stricter).
+    expect(l.knockCorrectionTotal).toBeLessThan(l.knockCorrection);
+  });
+
+  it("exposes a WOT lambda lean limit, an IAT warn point and a debounce window", () => {
+    const l = limitsForSpec(DEFAULT_VEHICLE_SPEC);
+    expect(l.maxLambdaWot).toBeCloseTo(0.88, 5);
+    expect(l.iatWarn).toBe(50);
+    expect(l.debounceSamples).toBeGreaterThanOrEqual(2);
+  });
+
+  it("allows a marginally leaner WOT lambda on high-ethanol fuel", () => {
+    const p98 = limitsForSpec({ ...DEFAULT_VEHICLE_SPEC, fuel: "ron98" });
+    const e85 = limitsForSpec({ ...DEFAULT_VEHICLE_SPEC, fuel: "e85" });
+    expect(e85.maxLambdaWot).toBeGreaterThan(p98.maxLambdaWot);
+  });
+});
