@@ -6,14 +6,26 @@ import type { EnergyCategoryValue } from "./categories";
 import { gasM3ToKwh } from "./gas";
 import { calculateTariffCost, pickTariffForDate, type TariffInput } from "./tariff";
 
-// Verbrauchs-Hochrechnung: aus den bisherigen Ablesungen des laufenden Jahres
-// eine Jahressumme (und -kosten) schätzen. Zwei Verfahren:
+// Verbrauchs-Hochrechnung auf ein Jahr.
+//
+// GLEITENDES JAHR statt Kalenderjahr: die Hochrechnung bezieht sich auf das
+// Fenster [jüngste Ablesung − 12 Monate, jüngste Ablesung], NICHT auf
+// „01.01. bis heute". Der Grund ist die reale Ablesekadenz — viele Zähler
+// werden nur ein- bis zweimal im Jahr abgelesen (Jahresablesung). Im laufenden
+// Kalenderjahr steht dann oft gar keine Ablesung, sodass eine Kalenderjahr-
+// Hochrechnung schlicht „zu wenig Daten" liefert. Das gleitende Jahr nutzt
+// dagegen immer die zuletzt verfügbaren ~12 Monate und vergleicht sie mit den
+// 12 Monaten davor.
+//
+// Zwei Verfahren:
 //   • linear    – gleichmäßige Extrapolation (Ø-Verbrauch × Jahrestage).
 //   • saisonal  – gewichtet nach einem monatlichen Verbrauchsprofil, sodass
 //                 z. B. hoher Gas-/Heizverbrauch im Winter nicht naiv aufs
 //                 ganze Jahr hochgerechnet wird.
 // Beide teilen dieselbe Formel; „linear" ist schlicht das saisonale Verfahren
-// mit einem flachen Profil (jeder Monat = 1,0).
+// mit einem flachen Profil (jeder Monat = 1,0). Bei einem vollständig
+// abgedeckten Jahr (der Normalfall bei Jahresablesungen) ist die Hochrechnung
+// ohnehin exakt der gemessene Jahresverbrauch.
 
 const MS_PER_DAY = 86_400_000;
 
@@ -123,14 +135,17 @@ export interface ConsumptionProjectionInput {
 
 export interface ConsumptionProjection {
   method: "linear" | "seasonal";
+  /** Bezugsjahr = Jahr der Anker-Ablesung (jüngste Ablesung). */
   year: number;
   unit: string;
-  /** Verbrauch im laufenden Jahr bis `now` (anteilig). */
-  ytdConsumption: number;
-  /** Tage mit Datenabdeckung im laufenden Jahr. */
+  /** Enddatum des gleitenden Jahres (ISO) — die jüngste Ablesung. */
+  anchorDate: string;
+  /** Verbrauch im gleitenden Jahr [anchor − 12 M, anchor] (erfasster Anteil). */
+  windowConsumption: number;
+  /** Tage mit Datenabdeckung im gleitenden Jahr. */
   coveredDays: number;
-  /** Bereits vergangene Tage des Jahres. */
-  elapsedDays: number;
+  /** Länge des gleitenden Jahres in Tagen (~365). */
+  windowDays: number;
   /** Hochgerechnete Jahressumme; `null`, wenn zu wenig Daten. */
   projectedAnnual: number | null;
   /** Hochgerechnete Jahreskosten (Tarif); `null` ohne Tarif/Prognose. */
@@ -170,37 +185,56 @@ function tariffCostFor(
  * vergleicht sie mit dem Vorjahr. Rein funktional — nutzbar in Server- wie
  * Client-Komponenten.
  */
+/** Länge des gleitenden Jahres. Schaltjahr-Feinheiten sind hier vernachlässigbar. */
+const YEAR_MS = 365 * MS_PER_DAY;
+
 export function projectAnnualConsumption(input: ConsumptionProjectionInput): ConsumptionProjection {
   const now = input.now ?? new Date();
-  const year = now.getUTCFullYear();
   const isGas = input.kategorie === "GAS";
   const resolvedMethod = resolveMethod(input.kategorie, input.method ?? "auto");
   const profile = profileFor(input.kategorie, resolvedMethod);
 
-  const yearStart = new Date(Date.UTC(year, 0, 1));
-  const yearEnd = new Date(Date.UTC(year + 1, 0, 1));
-  const prevStart = new Date(Date.UTC(year - 1, 0, 1));
-  const prevEnd = yearStart;
-
   const readings = [...input.readings].sort((a, b) => a.datum.getTime() - b.datum.getTime());
+  const lastReading = readings.at(-1) ?? null;
 
-  const ytd = allocateWindow(readings, yearStart, now, profile);
-  const totalWeight = weightMass(yearStart, yearEnd, profile);
-  const elapsedDays = Math.max(0, (now.getTime() - yearStart.getTime()) / MS_PER_DAY);
-  const daysInYear = (yearEnd.getTime() - yearStart.getTime()) / MS_PER_DAY;
+  // Anker = jüngste Ablesung, höchstens aber „jetzt": eine (versehentlich) in
+  // die Zukunft datierte Ablesung soll nicht in die Zukunft hochrechnen. Ohne
+  // Ablesung gibt es nichts zu projizieren — Anker auf „jetzt", Fenster bleibt
+  // leer und das Ergebnis ist eine leere Prognose.
+  const anchorMs = lastReading
+    ? Math.min(lastReading.datum.getTime(), now.getTime())
+    : now.getTime();
+  const anchor = new Date(anchorMs);
+  const year = anchor.getUTCFullYear();
 
+  const curFrom = new Date(anchorMs - YEAR_MS);
+  const prevTo = curFrom;
+  const prevFrom = new Date(anchorMs - 2 * YEAR_MS);
+
+  // Gleitendes Jahr bis zum Anker: erfasster Verbrauch, deckungsnormiert auf die
+  // volle (saisonal gewichtete) Jahresmasse hochgerechnet. Bei einer sauberen
+  // Jahresablesung deckt genau ein Intervall das Fenster ab → die Hochrechnung
+  // ist exakt der gemessene Jahresverbrauch.
+  const cur = allocateWindow(readings, curFrom, anchor, profile);
+  const totalWeight = weightMass(curFrom, anchor, profile);
+  const windowDays = (anchorMs - curFrom.getTime()) / MS_PER_DAY;
   const projectedAnnual =
-    ytd.coveredWeight > 0 ? (ytd.consumption * totalWeight) / ytd.coveredWeight : null;
+    cur.coveredWeight > 0 ? (cur.consumption * totalWeight) / cur.coveredWeight : null;
 
-  // Vorjahr braucht keine Gewichtung — es ist ein vollständiges Jahr.
-  const prev = allocateWindow(readings, prevStart, prevEnd, FLAT_PROFILE);
-  const previousYearConsumption = prev.coveredDays > 0 ? prev.consumption : null;
+  // Vorjahr = das gleitende Jahr davor. Ein volles Jahr braucht keine saisonale
+  // Umverteilung (flaches Profil); bei nur teilweiser Abdeckung ebenso
+  // deckungsnormiert, damit ein angebrochenes Vorjahr den Vergleich nicht
+  // künstlich nach unten zieht.
+  const prev = allocateWindow(readings, prevFrom, prevTo, FLAT_PROFILE);
+  const prevWeight = weightMass(prevFrom, prevTo, FLAT_PROFILE);
+  const previousYearConsumption =
+    prev.coveredWeight > 0 ? (prev.consumption * prevWeight) / prev.coveredWeight : null;
 
   const projectedAnnualCost =
-    projectedAnnual !== null ? tariffCostFor(input.tarife, now, projectedAnnual, isGas) : null;
+    projectedAnnual !== null ? tariffCostFor(input.tarife, anchor, projectedAnnual, isGas) : null;
   const previousYearCost =
     previousYearConsumption !== null
-      ? tariffCostFor(input.tarife, new Date(Date.UTC(year - 1, 6, 1)), previousYearConsumption, isGas)
+      ? tariffCostFor(input.tarife, new Date(anchorMs - YEAR_MS), previousYearConsumption, isGas)
       : null;
 
   const deltaConsumptionPct =
@@ -212,11 +246,13 @@ export function projectAnnualConsumption(input: ConsumptionProjectionInput): Con
       ? ((projectedAnnualCost - previousYearCost) / previousYearCost) * 100
       : null;
 
-  const elapsedFraction = elapsedDays / daysInYear;
+  // Konfidenz nach Datenabdeckung des gleitenden Jahres: ein voll abgedecktes
+  // Jahr (Jahresablesung) ist „hoch", eine kurze Messstrecke „niedrig".
+  const coverageFraction = windowDays > 0 ? cur.coveredDays / windowDays : 0;
   let confidence: ProjectionConfidence;
-  if (projectedAnnual === null || ytd.coveredDays < 14 || elapsedFraction < 0.08) {
+  if (projectedAnnual === null || cur.coveredDays < 30) {
     confidence = "low";
-  } else if (ytd.coveredDays < 60 || elapsedFraction < 0.25) {
+  } else if (coverageFraction < 0.5) {
     confidence = "medium";
   } else {
     confidence = "high";
@@ -226,9 +262,10 @@ export function projectAnnualConsumption(input: ConsumptionProjectionInput): Con
     method: resolvedMethod,
     year,
     unit: input.einheit,
-    ytdConsumption: ytd.consumption,
-    coveredDays: ytd.coveredDays,
-    elapsedDays,
+    anchorDate: anchor.toISOString(),
+    windowConsumption: cur.consumption,
+    coveredDays: cur.coveredDays,
+    windowDays,
     projectedAnnual,
     projectedAnnualCost,
     previousYearConsumption,
