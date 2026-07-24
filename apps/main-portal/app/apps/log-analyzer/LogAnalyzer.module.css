@@ -30,6 +30,19 @@
   }
 }
 
+/* The dyno plot is the single hero chart of its page, so it gets more height
+   than one of the stacked parameter charts. */
+.dynoBox {
+  height: 380px;
+  width: 100%;
+}
+
+@media (max-width: 48em) {
+  .dynoBox {
+    height: 280px;
+  }
+}
+
 /* Recharts renders an SVG that can momentarily exceed its container during
    layout; clip so it can never push the mobile viewport into horizontal scroll. */
 .chartClip {

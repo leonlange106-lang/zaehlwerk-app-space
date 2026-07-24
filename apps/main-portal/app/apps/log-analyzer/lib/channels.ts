@@ -22,7 +22,11 @@ export type ChannelRole =
   | "iat"
   | "lambda"
   | "ignitionTiming"
-  | "wgdc";
+  | "wgdc"
+  | "maf"
+  | "vehicleSpeed"
+  | "ambientPressure"
+  | "ambientTemp";
 
 // Order matters within each role: the first matching series wins. The `actual`
 // vs `target` split is intentionally strict so a "Boost Target" column never
@@ -86,6 +90,34 @@ const ROLE_MATCHERS: Record<ChannelRole, RegExp[]> = {
     /boost.*control.*(duty|valve)/i,
     /ladedruck.*(regelventil|steller|tastverh)/i,
   ],
+  // Mass air flow — the virtual dyno's primary power input. Logged as g/s, kg/h
+  // or lb/min depending on the tool; the unit is normalised downstream.
+  maf: [/\bmaf\b/i, /mass\s*air(\s*flow)?/i, /air\s*mass/i, /luftmasse/i, /\bhfm\b/i],
+  // Road speed (NOT engine speed — see NON_VEHICLE_SPEED below). Feeds the
+  // acceleration/vehicle-dynamics cross-check.
+  vehicleSpeed: [
+    /vehicle\s*speed/i,
+    /road\s*speed/i,
+    /fahrzeuggeschw/i,
+    /geschwindigkeit/i,
+    /\bvss\b/i,
+    /\bspeed\b/i,
+  ],
+  // Ambient/barometric pressure and outside air temperature — the reference
+  // conditions the SAE J1349 / DIN 70020 correction factors are computed from.
+  ambientPressure: [
+    /(ambient|baro|atmos)\w*.*(press|druck)/i,
+    /(press|druck).*(ambient|baro|atmos)/i,
+    /umgebungsdruck/i,
+    /luftdruck/i,
+    /\bbaro\b/i,
+  ],
+  ambientTemp: [
+    /ambient.*temp/i,
+    /outside.*(air.*)?temp/i,
+    /au(ß|ss)en.*temp/i,
+    /umgebungstemp/i,
+  ],
 };
 
 // Timing/knock corrections deserve special handling: a car logs one channel per
@@ -108,6 +140,13 @@ const TIMING_CORRECTION_EXCLUDE = /detection|count|counter|\bevents?\b|status|\b
 
 /** Reads as an actuator duty/position command (a %), not a measured pressure. */
 const DUTY_LABEL = /\bwgdc\b|duty|tastverh|\bdc\b/i;
+
+/**
+ * Labels that carry "speed" but are NOT the vehicle's road speed. "Engine Speed"
+ * would otherwise be claimed by the bare `\bspeed\b` matcher and the dyno's
+ * acceleration method would differentiate engine rpm as if it were m/s.
+ */
+const NON_VEHICLE_SPEED = /engine|motor|drehzahl|\brpm\b|turbo|compressor|fan|l(ü|ue)fter|wind/i;
 
 /** True when a label reads as a timing/knock CORRECTION rather than a plain angle. */
 function isTimingCorrectionLabel(label: string): boolean {
@@ -145,6 +184,14 @@ export interface ResolvedChannels {
   ignitionTiming: LogSeries | null;
   /** Wastegate duty cycle (%). */
   wgdc: LogSeries | null;
+  /** Mass air flow (g/s, kg/h or lb/min — normalise via `toGramsPerSecond`). */
+  maf: LogSeries | null;
+  /** Road speed (km/h, mph or m/s — never engine speed). */
+  vehicleSpeed: LogSeries | null;
+  /** Ambient/barometric pressure (for the SAE/DIN correction factor). */
+  ambientPressure: LogSeries | null;
+  /** Outside air temperature (for the SAE/DIN correction factor). */
+  ambientTemp: LogSeries | null;
   /** Every timing/knock-correction channel found (one per cylinder, typically). */
   timingCorrections: LogSeries[];
 }
@@ -182,6 +229,10 @@ export function resolveChannels(log: ParsedLog): ResolvedChannels {
   // from `timingCorrections` (which excludes everything already `used`).
   const ignitionTiming = single("ignitionTiming", (x) => isTimingCorrectionLabel(x.label));
   const wgdc = single("wgdc");
+  const maf = single("maf");
+  const vehicleSpeed = single("vehicleSpeed", (x) => NON_VEHICLE_SPEED.test(x.label));
+  const ambientPressure = single("ambientPressure");
+  const ambientTemp = single("ambientTemp");
 
   const timingCorrections = s.filter((x) => !used.has(x.key) && isTimingCorrectionLabel(x.label));
 
@@ -200,6 +251,10 @@ export function resolveChannels(log: ParsedLog): ResolvedChannels {
     lambda,
     ignitionTiming,
     wgdc,
+    maf,
+    vehicleSpeed,
+    ambientPressure,
+    ambientTemp,
     timingCorrections,
   };
 }
