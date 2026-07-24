@@ -16,11 +16,13 @@ import {
 } from "@mantine/core";
 import { IconDeviceFloppy, IconRotate } from "@tabler/icons-react";
 import {
+  applyVehicleEngine,
   DYNO_PRESETS,
   findDynoPreset,
   tireCircumferenceM,
   type DynoProfile,
 } from "./lib/dyno-spec";
+import { engineProfile, type EngineCode } from "./lib/engines";
 import { saveDynoProfile } from "./lib/dyno-store";
 
 // The vehicle-dynamics config drawer. A platform preset fills in every number at
@@ -46,11 +48,14 @@ function parseRatios(text: string): number[] | null {
 export function DynoProfileDrawer({
   opened,
   profile,
+  engineCode,
   onClose,
   onSave,
 }: {
   opened: boolean;
   profile: DynoProfile;
+  /** Engine from the vehicle profile — the source of the displacement. */
+  engineCode: EngineCode;
   onClose: () => void;
   onSave: (profile: DynoProfile) => void;
 }) {
@@ -64,17 +69,26 @@ export function DynoProfileDrawer({
     >
       {/* Mounted only while open, so every open re-seeds from the saved profile
           and a cancelled edit can never leak into the next session. */}
-      {opened && <ProfileForm profile={profile} onClose={onClose} onSave={onSave} />}
+      {opened && (
+        <ProfileForm
+          profile={profile}
+          engineCode={engineCode}
+          onClose={onClose}
+          onSave={onSave}
+        />
+      )}
     </Drawer>
   );
 }
 
 function ProfileForm({
   profile,
+  engineCode,
   onClose,
   onSave,
 }: {
   profile: DynoProfile;
+  engineCode: EngineCode;
   onClose: () => void;
   onSave: (profile: DynoProfile) => void;
 }) {
@@ -93,7 +107,9 @@ function ProfileForm({
   const applyPreset = (id: string | null) => {
     const preset = findDynoPreset(id);
     if (!preset) return;
-    setDraft({ presetId: preset.id, ...preset.profile });
+    // A preset carries its own displacement, but the vehicle profile's engine
+    // still wins — otherwise the read-only field would contradict the car.
+    setDraft(applyVehicleEngine({ presetId: preset.id, ...preset.profile }, engineCode));
     setRatioText(ratiosToText(preset.profile.gearRatios));
   };
 
@@ -150,15 +166,13 @@ function ProfileForm({
           onChange={(v) => update("drivetrainLossPct", num(v, draft.drivetrainLossPct))}
           data-testid="dyno-loss"
         />
-        <NumberInput
+        {/* The engine belongs to the car, not to the dyno run — it is configured
+            once in the vehicle profile and only mirrored here. */}
+        <TextInput
           label="Hubraum"
-          suffix=" L"
-          min={0.5}
-          max={10}
-          step={0.1}
-          decimalScale={1}
-          value={draft.displacementL}
-          onChange={(v) => update("displacementL", num(v, draft.displacementL))}
+          description="Aus dem Fahrzeugprofil (Motor)"
+          value={`${draft.displacementL.toFixed(1)} L · ${engineProfile(engineCode).label}`}
+          readOnly
           data-testid="dyno-displacement"
         />
         <NumberInput

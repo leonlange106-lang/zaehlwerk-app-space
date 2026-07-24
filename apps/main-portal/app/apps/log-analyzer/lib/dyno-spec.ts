@@ -10,6 +10,8 @@
 // drag figures) — good enough for a repeatable virtual dyno, never a substitute
 // for a real one. Pure data + pure helpers, safe to import anywhere.
 
+import { ENGINES, type EngineCode } from "./engines";
+
 /** Tyre size in the usual 225/40R18 notation. */
 export interface TireSpec {
   /** Section width in mm (the "225"). */
@@ -184,6 +186,35 @@ export function totalRatioFor(profile: DynoProfile, gear: number | null): number
   const ratio = profile.gearRatios[Math.round(gear) - 1];
   if (ratio === undefined || ratio <= 0 || profile.finalDrive <= 0) return null;
   return ratio * profile.finalDrive;
+}
+
+/**
+ * Engine displacement in litres for an engine code, read off the engine
+ * catalogue's `displacement` blurb ("3.0L R6 Single-Turbo" → 3.0).
+ *
+ * The catalogue stores that field for the UI, so it is the single source of
+ * truth for what engine the car has; parsing it here avoids duplicating the
+ * figure into a second table that could drift. Returns null if a future entry
+ * ever breaks the format — callers keep their own value in that case. The
+ * colocated test asserts every known code still parses.
+ */
+export function engineDisplacementL(code: EngineCode): number | null {
+  const match = ENGINES[code]?.displacement.match(/^\s*(\d+(?:[.,]\d+)?)\s*L/i);
+  if (!match) return null;
+  const litres = Number(match[1].replace(",", "."));
+  return Number.isFinite(litres) && litres > 0 ? litres : null;
+}
+
+/**
+ * Return the profile with its displacement taken from the vehicle spec's engine.
+ * The engine is a property of the CAR, configured once in the vehicle profile —
+ * so the dyno derives it rather than asking for it a second time. Everything the
+ * driver can actually change (mass, tyres, gearing, drag) is left untouched.
+ */
+export function applyVehicleEngine(profile: DynoProfile, engineCode: EngineCode): DynoProfile {
+  const litres = engineDisplacementL(engineCode);
+  if (litres === null || litres === profile.displacementL) return profile;
+  return { ...profile, displacementL: litres };
 }
 
 /** One-line summary of a profile, for badges/headers. */
