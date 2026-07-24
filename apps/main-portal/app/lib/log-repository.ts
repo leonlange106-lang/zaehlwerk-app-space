@@ -11,6 +11,13 @@ import type { PullHealth, PullStatus } from "../apps/log-analyzer/lib/evaluate-l
 // status + hardware-health, the drive time parsed from the filename (for
 // chronological sorting), and can be tagged (real octane driven, free tags).
 // The raw CSV is stored verbatim and re-parsed on open — compact and lossless.
+//
+// Pull-status and hardware-health are NOT frozen at import: because the raw CSV
+// is kept, they are re-evaluated LIVE against the current thresholds every time a
+// log is read (list/get). So when the safety limits or evaluation logic change,
+// every already-uploaded log's "Hardware-Risiko" / "Beobachten" badge updates
+// automatically — no re-import needed. The persisted columns are only a cache /
+// fallback for when a stored CSV can no longer be parsed.
 
 export type { PullStatus, PullHealth };
 
@@ -91,6 +98,7 @@ type LogRow = {
   name: string;
   source: string;
   sourceUrl: string | null;
+  csv: string;
   rowCount: number;
   vin: string | null;
   vehicle: string | null;
@@ -102,7 +110,32 @@ type LogRow = {
   createdAt: Date;
 };
 
+/**
+ * Re-evaluate a stored log's pull-status + hardware-health against the CURRENT
+ * thresholds from its raw CSV. This is what keeps the overview badges live: a
+ * threshold change re-scores every existing log on the next read. Falls back to
+ * the persisted columns when the CSV can't be re-parsed (empty / corrupt).
+ */
+function liveVerdict(row: LogRow): { status: PullStatus; health: PullHealth } {
+  if (row.csv) {
+    try {
+      const log = parseLog(row.csv);
+      if (log.rowCount > 0) {
+        const evaluation = evaluateLogPull(log, DEFAULT_VEHICLE_SPEC);
+        return {
+          status: evaluation.validity.status,
+          health: healthFromAlerts(evaluation.alerts),
+        };
+      }
+    } catch {
+      // fall through to the persisted values
+    }
+  }
+  return { status: row.status as PullStatus, health: row.health as PullHealth };
+}
+
 function toSummary(row: LogRow): LogSummary {
+  const { status, health } = liveVerdict(row);
   return {
     id: row.id,
     name: row.name,
@@ -111,8 +144,8 @@ function toSummary(row: LogRow): LogSummary {
     rowCount: row.rowCount,
     vin: row.vin,
     vehicle: row.vehicle,
-    status: row.status as PullStatus,
-    health: row.health as PullHealth,
+    status,
+    health,
     recordedAt: row.recordedAt ? row.recordedAt.toISOString() : null,
     octane: row.octane,
     tags: splitTags(row.tags),

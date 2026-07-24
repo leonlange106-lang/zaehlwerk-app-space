@@ -16,6 +16,12 @@ import {
   type EngineCode,
   type TransmissionCode,
 } from "./engines";
+import {
+  DEBOUNCE_SAMPLES,
+  IAT_RETARD_WARN_C,
+  KNOCK_TOTAL_OFFSET_DEG,
+  LAMBDA_WOT_LEAN_LIMIT,
+} from "./engineProfiles";
 
 export type CatType = "oem" | "cat200" | "catless";
 export type FuelType = "ron95" | "ron98" | "ron102" | "e30" | "e85";
@@ -112,6 +118,21 @@ export interface SpecLimits {
   hpfpDrop: number;
   /** Timing-correction (deg, negative) beyond which a knock alert is raised. */
   knockCorrection: number;
+  /**
+   * Cumulative timing-correction (deg, negative) summed across ALL cylinders,
+   * beyond which a knock alert is raised — catches several cylinders each pulling
+   * a little at once even when no single one crosses `knockCorrection`.
+   */
+  knockCorrectionTotal: number;
+  /** Leanest lambda (λ) tolerated under sustained WOT before a lean warning. */
+  maxLambdaWot: number;
+  /** Intake-air temp (°C) above which heat-driven timing retard is warned. */
+  iatWarn: number;
+  /**
+   * Debounce window: minimum consecutive in-window samples a threshold must be
+   * breached before an alert fires (single-sample transient suppression).
+   */
+  debounceSamples: number;
   /** Throttle/pedal % at/above which a sample counts as Wide-Open-Throttle. */
   wotThreshold: number;
   /** A valid pull must begin at/below this rpm. */
@@ -204,6 +225,13 @@ export function limitsForSpec(spec: VehicleSpec): SpecLimits {
     fuelTrimLimit: t.fuelTrimLimitPct,
     hpfpDrop: t.hpfpDropBar,
     knockCorrection: t.knockCorrectionDeg,
+    knockCorrectionTotal: t.knockCorrectionDeg - KNOCK_TOTAL_OFFSET_DEG,
+    // High-ethanol fuels are knock-resistant, so a marginally leaner reading
+    // under load is less alarming — nudge the lean limit up a touch for E30/E85.
+    maxLambdaWot:
+      LAMBDA_WOT_LEAN_LIMIT + (spec.fuel === "e85" ? 0.03 : spec.fuel === "e30" ? 0.02 : 0),
+    iatWarn: IAT_RETARD_WARN_C,
+    debounceSamples: DEBOUNCE_SAMPLES,
     wotThreshold: WOT_THRESHOLD_PCT,
     rpmStartMax: PULL_RPM_START_MAX,
     rpmEndMin: pullRpmEndMin(engine),

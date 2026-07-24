@@ -1,4 +1,5 @@
 import { resolveChannels, type ResolvedChannels } from "./channels";
+import { toLambda } from "./engineProfiles";
 import type { LogSeries, ParsedLog } from "./types";
 import { limitsForSpec, WOT_THRESHOLD_PCT, type SpecLimits, type VehicleSpec } from "./vehicle-spec";
 
@@ -523,6 +524,57 @@ interface AlertResult {
   violations: Violation[];
 }
 
+/** A single sample selected from a sustained threshold breach. */
+interface Breach {
+  at: number;
+  value: number;
+}
+
+/**
+ * Debounce / transient-suppression core. Finds the WORST sample that belongs to a
+ * *sustained* breach — a run of at least `minRun` consecutive samples for which
+ * `valueAt` is non-null and `breaches(value)` holds. A single-sample spike (a
+ * sensor glitch, one noisy frame, a shift blip) never qualifies; only a breach
+ * the ECU actually held trips it. `worse(a, b)` returns true when reading `a` is
+ * a worse breach than the current worst `b`.
+ *
+ * Callers fold any per-sample gating (gear-shift exclusion, WOT-only, on-boost)
+ * into `valueAt` by returning null for samples that should not count — a null
+ * both skips the sample and breaks the consecutive run, exactly as intended.
+ */
+function sustainedBreach(
+  lo: number,
+  hi: number,
+  valueAt: (i: number) => number | null,
+  breaches: (v: number) => boolean,
+  worse: (a: number, b: number) => boolean,
+  minRun: number,
+): Breach | null {
+  let result: Breach | null = null;
+  let runStart = -1;
+
+  const closeRun = (start: number, endExclusive: number): void => {
+    if (start < 0 || endExclusive - start < minRun) return;
+    for (let i = start; i < endExclusive; i += 1) {
+      const v = valueAt(i);
+      if (v === null) continue; // shouldn't happen inside a run, but stay safe
+      if (result === null || worse(v, result.value)) result = { at: i, value: v };
+    }
+  };
+
+  for (let i = lo; i <= hi; i += 1) {
+    const v = valueAt(i);
+    if (v !== null && breaches(v)) {
+      if (runStart < 0) runStart = i;
+    } else {
+      closeRun(runStart, i);
+      runStart = -1;
+    }
+  }
+  closeRun(runStart, hi + 1);
+  return result;
+}
+
 /** Convert a pressure reading to METRIC bar based on its logged unit. */
 export function toBar(value: number, unit: string | null): number {
   const u = (unit ?? "").toLowerCase();
@@ -544,35 +596,43 @@ function findAlerts(
   const alerts: SafetyAlert[] = [];
   const violations: Violation[] = [];
   const at = (i: number): number => time[i] ?? i;
+  const minRun = limits.debounceSamples;
   // Gear-shift zones are excluded from safety evaluation: right after a shift the
   // boost overshoots, EGT spikes and timing pulls momentarily — all normal and
   // not a fault, so judging there would raise false alarms.
   const evaluable = (i: number): boolean => !excluded.has(i);
+  // Confirmed Wide-Open-Throttle at sample i — required to gate the WOT-only
+  // checks (lambda). When there is no pedal channel we can't confirm WOT.
+  const isWot = (i: number): boolean => {
+    if (!ch.throttle) return false;
+    const p = ch.throttle.values[i];
+    return p !== null && p >= limits.wotThreshold;
+  };
+  const larger = (a: number, b: number): boolean => a > b;
+  const moreNegative = (a: number, b: number): boolean => a < b;
 
-  // 1. Knock / timing pulls beyond threshold, on however many cylinders.
+  // 1. Knock / timing pulls beyond the single-cylinder threshold, on however many
+  //    cylinders — each debounced so a one-frame correction blip is ignored.
   if (ch.timingCorrections.length > 0) {
     const offenders: { label: string; worst: number; at: number }[] = [];
     for (const s of ch.timingCorrections) {
-      let idx = -1;
-      let worst: number | null = null;
-      for (let i = lo; i <= hi; i += 1) {
-        if (!evaluable(i)) continue;
-        const v = s.values[i];
-        if (v === null) continue;
-        if (worst === null || v < worst) {
-          worst = v;
-          idx = i;
-        }
-      }
-      if (worst !== null && worst <= limits.knockCorrection) {
-        offenders.push({ label: s.label, worst, at: idx });
+      const breach = sustainedBreach(
+        lo,
+        hi,
+        (i) => (evaluable(i) ? s.values[i] : null),
+        (v) => v <= limits.knockCorrection,
+        moreNegative,
+        minRun,
+      );
+      if (breach) {
+        offenders.push({ label: s.label, worst: breach.value, at: breach.at });
         violations.push({
           id: `knock-${s.key}`,
           severity: "critical",
-          sampleIndex: idx,
-          time: at(idx),
+          sampleIndex: breach.at,
+          time: at(breach.at),
           label: `Klopfen: ${s.label}`,
-          detail: `${s.label}: Zündwinkel-Korrektur ${worst.toFixed(1)}°`,
+          detail: `${s.label}: Zündwinkel-Korrektur ${breach.value.toFixed(1)}°`,
         });
       }
     }
@@ -588,6 +648,49 @@ function findAlerts(
                 .map((o) => `${o.label}: ${o.worst.toFixed(1)}°`)
                 .join(", ")}).`
             : `${offenders[0].label}: ${offenders[0].worst.toFixed(1)}°.`,
+      });
+    }
+  }
+
+  // 1b. Cumulative timing correction: several cylinders each pulling a little at
+  //     once can exceed the total limit even when no single one trips its own.
+  //     Only meaningful with ≥2 correction channels (otherwise it equals #1).
+  if (ch.timingCorrections.length >= 2) {
+    const corr = ch.timingCorrections;
+    const sumAt = (i: number): number | null => {
+      if (!evaluable(i)) return null;
+      let sum = 0;
+      let any = false;
+      for (const s of corr) {
+        const v = s.values[i];
+        if (v === null) continue;
+        sum += v;
+        any = true;
+      }
+      return any ? sum : null;
+    };
+    const breach = sustainedBreach(
+      lo,
+      hi,
+      sumAt,
+      (v) => v <= limits.knockCorrectionTotal,
+      moreNegative,
+      minRun,
+    );
+    if (breach) {
+      alerts.push({
+        id: "knock-total",
+        severity: "critical",
+        title: `Kumulierte Zündwinkel-Korrektur ${breach.value.toFixed(1)}°`,
+        detail: `Summe über alle Zylinder unterschreitet ${limits.knockCorrectionTotal}° – mehrere Zylinder ziehen gleichzeitig Zündung zurück (Klopfneigung).`,
+      });
+      violations.push({
+        id: "knock-total",
+        severity: "critical",
+        sampleIndex: breach.at,
+        time: at(breach.at),
+        label: "Klopfen (kumuliert)",
+        detail: `Σ Korrektur ${breach.value.toFixed(1)}°`,
       });
     }
   }
@@ -609,30 +712,24 @@ function findAlerts(
       if (ab > peakActBar) peakActBar = ab;
     }
     const onBoost = 0.7 * peakActBar;
-    let worstGap = 0;
-    let worstSigned = 0;
-    let worstAt = -1;
-    for (let i = lo; i <= hi; i += 1) {
-      if (!evaluable(i)) continue;
-      const t = ch.boostTarget.values[i];
-      const a = ch.boostActual.values[i];
-      if (t === null || a === null) continue;
-      const tb = toBar(t, tUnit);
+    const gapAt = (i: number): number | null => {
+      if (!evaluable(i)) return null;
+      const t = ch.boostTarget!.values[i];
+      const a = ch.boostActual!.values[i];
+      if (t === null || a === null) return null;
       const ab = toBar(a, aUnit);
-      if (ab < onBoost) continue; // still spooling — skip
-      const gap = Math.abs(tb - ab);
-      if (gap > worstGap) {
-        worstGap = gap;
-        worstSigned = ab < tb ? -gap : gap;
-        worstAt = i;
-      }
-    }
-    if (worstGap >= limits.boostDeviation && worstAt >= 0) {
-      const under = worstSigned < 0;
+      if (ab < onBoost) return null; // still spooling — skip
+      return Math.abs(toBar(t, tUnit) - ab);
+    };
+    const breach = sustainedBreach(lo, hi, gapAt, (g) => g >= limits.boostDeviation, larger, minRun);
+    if (breach) {
+      const tb = toBar(ch.boostTarget.values[breach.at] as number, tUnit);
+      const ab = toBar(ch.boostActual.values[breach.at] as number, aUnit);
+      const under = ab < tb;
       alerts.push({
         id: "boost-deviation",
         severity: "warning",
-        title: `Ladedruck-Abweichung ${worstGap.toFixed(2)} bar`,
+        title: `Ladedruck-Abweichung ${breach.value.toFixed(2)} bar`,
         detail: under
           ? "Ist-Ladedruck bleibt hinter dem Ziel zurück – möglicher Leck-/Underboost-Indikator (z. B. Ladeluftschlauch/Wastegate)."
           : "Ist-Ladedruck überschreitet das Ziel – möglicher Overboost (Wastegate/Regelung prüfen).",
@@ -640,10 +737,10 @@ function findAlerts(
       violations.push({
         id: "boost-deviation",
         severity: "warning",
-        sampleIndex: worstAt,
-        time: at(worstAt),
+        sampleIndex: breach.at,
+        time: at(breach.at),
         label: "Ladedruck-Abweichung",
-        detail: `Soll↔Ist ${under ? "-" : "+"}${worstGap.toFixed(2)} bar`,
+        detail: `Soll↔Ist ${under ? "-" : "+"}${breach.value.toFixed(2)} bar`,
       });
     }
   }
@@ -651,32 +748,28 @@ function findAlerts(
   // 3. Boost above the hardware/stage-plausible ceiling — in bar.
   if (ch.boostActual) {
     const unit = ch.boostActual.unit;
-    let peak: number | null = null;
-    let idx = -1;
-    for (let i = lo; i <= hi; i += 1) {
-      if (!evaluable(i)) continue;
-      const v = ch.boostActual.values[i];
-      if (v === null) continue;
-      const bar = toBar(v, unit);
-      if (peak === null || bar > peak) {
-        peak = bar;
-        idx = i;
-      }
-    }
-    if (peak !== null && peak > limits.maxBoost) {
+    const breach = sustainedBreach(
+      lo,
+      hi,
+      (i) => (evaluable(i) && ch.boostActual!.values[i] !== null ? toBar(ch.boostActual!.values[i] as number, unit) : null),
+      (bar) => bar > limits.maxBoost,
+      larger,
+      minRun,
+    );
+    if (breach) {
       alerts.push({
         id: "boost-limit",
         severity: "warning",
-        title: `Peak Boost ${peak.toFixed(2)} bar über Grenze`,
+        title: `Peak Boost ${breach.value.toFixed(2)} bar über Grenze`,
         detail: `Über dem plausiblen Maximum (${limits.maxBoost.toFixed(2)} bar) für Turbo + Map-Stufe – Messfehler oder Overboost prüfen.`,
       });
       violations.push({
         id: "boost-limit",
         severity: "warning",
-        sampleIndex: idx,
-        time: at(idx),
+        sampleIndex: breach.at,
+        time: at(breach.at),
         label: "Overboost",
-        detail: `Peak ${peak.toFixed(2)} bar > ${limits.maxBoost.toFixed(2)} bar`,
+        detail: `Peak ${breach.value.toFixed(2)} bar > ${limits.maxBoost.toFixed(2)} bar`,
       });
     }
   }
@@ -687,21 +780,17 @@ function findAlerts(
     { s: ch.ltft, id: "ltft", label: "LTFT" },
   ]) {
     if (!trim.s) continue;
-    let worstMag = 0;
-    let worstVal = 0;
-    let worstAt = -1;
-    for (let i = lo; i <= hi; i += 1) {
-      if (!evaluable(i)) continue;
-      const v = trim.s.values[i];
-      if (v === null) continue;
-      const mag = Math.abs(v);
-      if (mag > worstMag) {
-        worstMag = mag;
-        worstVal = v;
-        worstAt = i;
-      }
-    }
-    if (worstMag >= limits.fuelTrimLimit && worstAt >= 0) {
+    const s = trim.s;
+    const breach = sustainedBreach(
+      lo,
+      hi,
+      (i) => (evaluable(i) ? s.values[i] : null),
+      (v) => Math.abs(v) >= limits.fuelTrimLimit,
+      (a, b) => Math.abs(a) > Math.abs(b),
+      minRun,
+    );
+    if (breach) {
+      const worstVal = breach.value;
       const lean = worstVal > 0;
       alerts.push({
         id: `trim-${trim.id}`,
@@ -714,8 +803,8 @@ function findAlerts(
       violations.push({
         id: `trim-${trim.id}`,
         severity: "warning",
-        sampleIndex: worstAt,
-        time: at(worstAt),
+        sampleIndex: breach.at,
+        time: at(breach.at),
         label: trim.label,
         detail: `${trim.label} ${worstVal > 0 ? "+" : ""}${worstVal.toFixed(1)}%`,
       });
@@ -726,34 +815,29 @@ function findAlerts(
   if (ch.hpfpTarget && ch.hpfpActual) {
     const tUnit = ch.hpfpTarget.unit;
     const aUnit = ch.hpfpActual.unit;
-    let worstDrop = 0;
-    let worstAt = -1;
-    for (let i = lo; i <= hi; i += 1) {
-      if (!evaluable(i)) continue;
-      const t = ch.hpfpTarget.values[i];
-      const a = ch.hpfpActual.values[i];
-      if (t === null || a === null) continue;
-      const drop = toBar(t, tUnit) - toBar(a, aUnit);
-      if (drop > worstDrop) {
-        worstDrop = drop;
-        worstAt = i;
-      }
-    }
-    if (worstDrop >= limits.hpfpDrop && worstAt >= 0) {
+    const dropAt = (i: number): number | null => {
+      if (!evaluable(i)) return null;
+      const t = ch.hpfpTarget!.values[i];
+      const a = ch.hpfpActual!.values[i];
+      if (t === null || a === null) return null;
+      return toBar(t, tUnit) - toBar(a, aUnit);
+    };
+    const breach = sustainedBreach(lo, hi, dropAt, (d) => d >= limits.hpfpDrop, larger, minRun);
+    if (breach) {
       alerts.push({
         id: "hpfp-drop",
         severity: "critical",
-        title: `HPFP-Druckeinbruch ${worstDrop.toFixed(0)} bar`,
+        title: `HPFP-Druckeinbruch ${breach.value.toFixed(0)} bar`,
         detail:
           "Ist-Raildruck fällt deutlich unter das Ziel – Kraftstoffpumpe am Limit (mageres Gemisch-Risiko).",
       });
       violations.push({
         id: "hpfp-drop",
         severity: "critical",
-        sampleIndex: worstAt,
-        time: at(worstAt),
+        sampleIndex: breach.at,
+        time: at(breach.at),
         label: "HPFP-Einbruch",
-        detail: `Soll↔Ist -${worstDrop.toFixed(0)} bar`,
+        detail: `Soll↔Ist -${breach.value.toFixed(0)} bar`,
       });
     }
   } else if (ch.hpfpActual && ch.rpm) {
@@ -764,33 +848,28 @@ function findAlerts(
     const rpmEnd = maxOf(ch.rpm.values, lo, hi);
     if (rpmEnd !== null) {
       const threshold = rpmEnd * 0.5;
-      let low: number | null = null;
-      let lowAt = -1;
-      for (let i = lo; i <= hi; i += 1) {
-        if (!evaluable(i)) continue;
-        const r = ch.rpm.values[i];
-        const v = ch.hpfpActual.values[i];
-        if (r === null || v === null || r < threshold) continue;
-        const bar = toBar(v, aUnit);
-        if (low === null || bar < low) {
-          low = bar;
-          lowAt = i;
-        }
-      }
-      if (low !== null && low < limits.minHpfpPressure) {
+      const lowAt = (i: number): number | null => {
+        if (!evaluable(i)) return null;
+        const r = ch.rpm!.values[i];
+        const v = ch.hpfpActual!.values[i];
+        if (r === null || v === null || r < threshold) return null;
+        return toBar(v, aUnit);
+      };
+      const breach = sustainedBreach(lo, hi, lowAt, (b) => b < limits.minHpfpPressure, moreNegative, minRun);
+      if (breach) {
         alerts.push({
           id: "hpfp-low",
           severity: "warning",
-          title: `HPFP-Raildruck fällt auf ${low.toFixed(0)} bar`,
+          title: `HPFP-Raildruck fällt auf ${breach.value.toFixed(0)} bar`,
           detail: `Unter der erwarteten Mindestgrenze (${limits.minHpfpPressure} bar) für die konfigurierte Pumpe unter Last.`,
         });
         violations.push({
           id: "hpfp-low",
           severity: "warning",
-          sampleIndex: lowAt,
-          time: at(lowAt),
+          sampleIndex: breach.at,
+          time: at(breach.at),
           label: "HPFP niedrig",
-          detail: `${low.toFixed(0)} bar < ${limits.minHpfpPressure} bar`,
+          detail: `${breach.value.toFixed(0)} bar < ${limits.minHpfpPressure} bar`,
         });
       }
     }
@@ -798,32 +877,89 @@ function findAlerts(
 
   // 6. EGT above the cat/stage-contextual ceiling (°C, already metric).
   if (ch.egt) {
-    let peak: number | null = null;
-    let idx = -1;
-    for (let i = lo; i <= hi; i += 1) {
-      if (!evaluable(i)) continue;
-      const v = ch.egt.values[i];
-      if (v === null) continue;
-      if (peak === null || v > peak) {
-        peak = v;
-        idx = i;
-      }
-    }
-    if (peak !== null && peak > limits.maxEgt) {
-      const unit = ch.egt.unit ?? "°C";
+    const egt = ch.egt;
+    const breach = sustainedBreach(
+      lo,
+      hi,
+      (i) => (evaluable(i) ? egt.values[i] : null),
+      (v) => v > limits.maxEgt,
+      larger,
+      minRun,
+    );
+    if (breach) {
+      const unit = egt.unit ?? "°C";
       alerts.push({
         id: "egt-limit",
         severity: "critical",
-        title: `EGT ${peak.toFixed(0)} ${unit} über Limit`,
+        title: `EGT ${breach.value.toFixed(0)} ${unit} über Limit`,
         detail: `${limits.egtRationale} Gemessenes Maximum liegt über ${limits.maxEgt} °C – Bauteilschutz beachten.`,
       });
       violations.push({
         id: "egt-limit",
         severity: "critical",
-        sampleIndex: idx,
-        time: at(idx),
+        sampleIndex: breach.at,
+        time: at(breach.at),
         label: "EGT-Limit",
-        detail: `${peak.toFixed(0)} ${unit} > ${limits.maxEgt} °C`,
+        detail: `${breach.value.toFixed(0)} ${unit} > ${limits.maxEgt} °C`,
+      });
+    }
+  }
+
+  // 7. IAT above the heat-retard threshold (°C). Sustained hot charge → the DME
+  //    pulls timing; also signals a heat-soaked intercooler between pulls.
+  if (ch.iat) {
+    const iat = ch.iat;
+    const breach = sustainedBreach(
+      lo,
+      hi,
+      (i) => (evaluable(i) ? iat.values[i] : null),
+      (v) => v > limits.iatWarn,
+      larger,
+      minRun,
+    );
+    if (breach) {
+      const unit = iat.unit ?? "°C";
+      alerts.push({
+        id: "iat-limit",
+        severity: "warning",
+        title: `Ansauglufttemperatur ${breach.value.toFixed(0)} ${unit} zu hoch`,
+        detail: `Über ${limits.iatWarn} °C zieht die DME Zündung zurück (Leistungsverlust) – Ladeluftkühler heat-soaked? Zwischen Pulls abkühlen lassen.`,
+      });
+      violations.push({
+        id: "iat-limit",
+        severity: "warning",
+        sampleIndex: breach.at,
+        time: at(breach.at),
+        label: "IAT hoch",
+        detail: `${breach.value.toFixed(0)} ${unit} > ${limits.iatWarn} °C`,
+      });
+    }
+  }
+
+  // 8. WOT-only: lean lambda under sustained full load (petrol lean limit). Gated
+  //    to confirmed-WOT samples so cruise/decel enleanment never counts.
+  if (ch.lambda && ch.throttle) {
+    const lam = ch.lambda;
+    const lambdaAt = (i: number): number | null => {
+      if (!evaluable(i) || !isWot(i)) return null;
+      const v = lam.values[i];
+      return v === null ? null : toLambda(v);
+    };
+    const breach = sustainedBreach(lo, hi, lambdaAt, (l) => l > limits.maxLambdaWot, larger, minRun);
+    if (breach) {
+      alerts.push({
+        id: "lambda-lean",
+        severity: "warning",
+        title: `Mageres Gemisch bei Volllast: λ ${breach.value.toFixed(2)}`,
+        detail: `λ überschreitet ${limits.maxLambdaWot.toFixed(2)} unter WOT (≈ AFR ${(breach.value * 14.7).toFixed(1)}) – zu mager unter Last erhöht Klopf-/EGT-Risiko (Kraftstoffzufuhr prüfen).`,
+      });
+      violations.push({
+        id: "lambda-lean",
+        severity: "warning",
+        sampleIndex: breach.at,
+        time: at(breach.at),
+        label: "Mager (WOT)",
+        detail: `λ ${breach.value.toFixed(2)} > ${limits.maxLambdaWot.toFixed(2)}`,
       });
     }
   }
