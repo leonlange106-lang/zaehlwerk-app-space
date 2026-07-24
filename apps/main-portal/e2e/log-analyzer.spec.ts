@@ -281,3 +281,59 @@ test.describe("Log Analyzer: vehicle & hardware profile", () => {
     await expectNoHorizontalScroll(page);
   });
 });
+
+test.describe("Log Analyzer: virtual dyno", () => {
+  test("the sample log yields power/torque curves and the profile drawer edits them", async ({
+    page,
+  }) => {
+    await page.goto("/apps/log-analyzer/dyno");
+    await expect(page.getByText(ERROR_BOUNDARY_TEXT)).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Virtueller Prüfstand" })).toBeVisible();
+
+    // The stored-log list arrives via an effect and inserts a Select above the
+    // buttons; wait for it so the click lands on the settled layout.
+    await page.waitForLoadState("networkidle");
+    await page.getByTestId("dyno-sample").click();
+    await expect(page.getByTestId("dyno-peaks")).toBeVisible();
+    await expect(page.locator(".recharts-surface").first()).toBeVisible();
+
+    // Power (+ its cross-check trace) and torque are drawn.
+    await expect(page.locator(".recharts-line")).toHaveCount(3);
+
+    // Wheel figures must come out below the crank ones.
+    const peakCard = page.getByTestId("dyno-peaks");
+    const crankPeak = await peakCard.getByText(/ PS$/).first().textContent();
+    await page.getByTestId("dyno-output").getByText("Rad").click();
+    const wheelPeak = await peakCard.getByText(/ PS$/).first().textContent();
+    const toNumber = (text: string | null) => Number((text ?? "").replace(/[^\d]/g, ""));
+    expect(toNumber(wheelPeak)).toBeLessThan(toNumber(crankPeak));
+
+    // A lower drivetrain loss leaves more power at the wheels.
+    await page.getByTestId("dyno-open-profile").click();
+    const loss = page.getByTestId("dyno-loss");
+    await expect(loss).toBeVisible();
+    await loss.fill("5");
+    await page.getByTestId("dyno-save").click();
+    await expect(page.getByTestId("dyno-drawer")).toBeHidden();
+    const lessLossPeak = await peakCard.getByText(/ PS$/).first().textContent();
+    expect(toNumber(lessLossPeak)).toBeGreaterThan(toNumber(wheelPeak));
+
+    await expectNoHorizontalScroll(page);
+  });
+
+  test("the SAE/DIN correction toggle rescales the estimate", async ({ page }) => {
+    await page.goto("/apps/log-analyzer/dyno");
+    await page.waitForLoadState("networkidle");
+    await page.getByTestId("dyno-sample").click();
+    await expect(page.getByTestId("dyno-peaks")).toBeVisible();
+
+    // The sample carries no ambient channels, so both standards correct it away
+    // from 1.000 by a factor the peak card spells out.
+    const peakCard = page.getByTestId("dyno-peaks");
+    await expect(peakCard.getByText("Unkorrigiert")).toBeVisible();
+    await page.getByTestId("dyno-correction").getByText("DIN 70020").click();
+    await expect(peakCard.getByText(/DIN 70020 · ×/)).toBeVisible();
+    await page.getByTestId("dyno-correction").getByText("SAE J1349").click();
+    await expect(peakCard.getByText(/SAE J1349 · ×/)).toBeVisible();
+  });
+});

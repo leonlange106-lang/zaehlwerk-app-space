@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Alert,
   Badge,
@@ -19,6 +20,7 @@ import {
   IconAlertCircle,
   IconCrop,
   IconFileText,
+  IconGauge,
   IconRefresh,
   IconSparkles,
   IconUpload,
@@ -28,7 +30,7 @@ import {
 import { parseLog } from "./lib/log-parser";
 import { makeSampleCsv } from "./lib/sample-log";
 import { defaultSelection } from "./lib/selection";
-import { takeActiveLogId } from "./lib/log-store";
+import { setActiveLogId, takeActiveLogId } from "./lib/log-store";
 import { fetchLog, uploadLogs, type LogRecordDTO } from "./lib/log-api";
 import { evaluateLogPull } from "./lib/evaluate-log-pull";
 import { loadVehicleSpec } from "./lib/spec-store";
@@ -55,6 +57,7 @@ interface ActiveLog {
 }
 
 export function AnalyzerView() {
+  const router = useRouter();
   const [active, setActive] = useState<ActiveLog | null>(null);
   const [uploading, setUploading] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -299,6 +302,20 @@ export function AnalyzerView() {
           )}
         </div>
         <Group gap="xs">
+          <Button
+            variant="light"
+            color="orange"
+            size="xs"
+            leftSection={<IconGauge size={14} />}
+            onClick={() => {
+              // Hand the open log over to the dyno page (one-shot, by id).
+              setActiveLogId(active.id);
+              router.push("/apps/log-analyzer/dyno");
+            }}
+            data-testid="open-dyno"
+          >
+            Virtueller Prüfstand
+          </Button>
           <FileButton onChange={handleFiles} accept=".csv,.log,.txt,text/csv,text/plain" multiple>
             {(props) => (
               <Button {...props} variant="light" color="slate" size="xs" leftSection={<IconRefresh size={14} />} loading={uploading}>

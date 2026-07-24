@@ -33,6 +33,7 @@ import {
   IconChartHistogram,
   IconClockHour4,
   IconEngine,
+  IconGauge,
   IconGitCommit,
   IconLayoutDashboard,
   IconLayoutGrid,
@@ -104,6 +105,7 @@ const APP_NAV: Record<string, NavItem[]> = {
   "log-analyzer": [
     { label: "Analyzer", href: "/apps/log-analyzer", icon: IconChartHistogram, exact: true },
     { label: "Log-Vergleich", href: "/apps/log-analyzer/compare", icon: IconArrowsDiff },
+    { label: "Virtueller Prüfstand", href: "/apps/log-analyzer/dyno", icon: IconGauge },
     { label: "Remote-Import", href: "/apps/log-analyzer/remote", icon: IconWorldDownload },
     { label: "Fahrzeug-Profil", href: "/apps/log-analyzer/specs", icon: IconEngine },
     { label: "Log-Übersicht", href: "/apps/log-analyzer/history", icon: IconClockHour4 },

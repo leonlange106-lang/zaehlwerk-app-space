@@ -1,0 +1,462 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  FileButton,
+  Group,
+  SegmentedControl,
+  Select,
+  SimpleGrid,
+  Stack,
+  Text,
+  ThemeIcon,
+  Title,
+} from "@mantine/core";
+import {
+  IconAdjustments,
+  IconAlertCircle,
+  IconFileText,
+  IconGauge,
+  IconInfoCircle,
+  IconSparkles,
+} from "@tabler/icons-react";
+import { parseLog } from "./lib/log-parser";
+import { makeSampleCsv } from "./lib/sample-log";
+import { fetchLog, fetchLogs, type LogSummaryDTO } from "./lib/log-api";
+import { takeActiveLogId } from "./lib/log-store";
+import {
+  buildDynoChartRows,
+  CORRECTION_LABELS,
+  estimateDyno,
+  METHOD_LABELS,
+  OUTPUT_LABELS,
+  powerOf,
+  type CorrectionStandard,
+  type DynoOutput,
+  type DynoPoint,
+  type MethodPreference,
+} from "./lib/dyno-engine";
+import { DEFAULT_DYNO_PROFILE, summarizeDynoProfile, type DynoProfile } from "./lib/dyno-spec";
+import { loadDynoProfile } from "./lib/dyno-store";
+import type { ParsedLog } from "./lib/types";
+import { DynoChart } from "./DynoChart";
+import { DynoProfileDrawer } from "./DynoProfileDrawer";
+
+// The virtual dyno workspace: pick a log, and its detected WOT pull is turned
+// into power and torque curves over engine speed. All physics lives in the pure
+// engine (dyno-engine.ts) and all vehicle data in the profile (dyno-spec.ts);
+// this component only orchestrates picking, toggling and rendering.
+
+interface Active {
+  name: string;
+  log: ParsedLog;
+}
+
+const METHOD_OPTIONS: { value: MethodPreference; label: string }[] = [
+  { value: "auto", label: "Automatisch" },
+  { value: "airmass", label: METHOD_LABELS.airmass },
+  { value: "acceleration", label: METHOD_LABELS.acceleration },
+];
+
+const CORRECTION_OPTIONS: { value: CorrectionStandard; label: string }[] = (
+  Object.keys(CORRECTION_LABELS) as CorrectionStandard[]
+).map((value) => ({ value, label: CORRECTION_LABELS[value] }));
+
+const OUTPUT_OPTIONS: { value: DynoOutput; label: string }[] = (
+  Object.keys(OUTPUT_LABELS) as DynoOutput[]
+).map((value) => ({ value, label: OUTPUT_LABELS[value] }));
+
+function fmt(value: number, digits = 0): string {
+  return value.toLocaleString("de-DE", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+}
+
+export function DynoView() {
+  const [active, setActive] = useState<Active | null>(null);
+  const [history, setHistory] = useState<LogSummaryDTO[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [profile, setProfile] = useState<DynoProfile>(DEFAULT_DYNO_PROFILE);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [method, setMethod] = useState<MethodPreference>("auto");
+  const [correction, setCorrection] = useState<CorrectionStandard>("none");
+  const [output, setOutput] = useState<DynoOutput>("crank");
+
+  // The vehicle-dynamics profile lives in localStorage (client-only).
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setProfile(loadDynoProfile());
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const logs = await fetchLogs();
+        if (!cancelled) setHistory(logs);
+      } catch {
+        // non-fatal — the file picker still works without the stored list
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const openById = useCallback(async (id: string) => {
+    try {
+      const record = await fetchLog(id);
+      if (!record) {
+        setError("Log nicht gefunden.");
+        return;
+      }
+      setError(null);
+      setActive({ name: record.name, log: parseLog(record.csv) });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Log konnte nicht geladen werden.");
+    }
+  }, []);
+
+  // Pick up a log handed over from the Analyzer (one-shot).
+  useEffect(() => {
+    const handedId = takeActiveLogId();
+    // openById only setState()s after an async fetch, never synchronously here.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (handedId) void openById(handedId);
+  }, [openById]);
+
+  const ingest = useCallback((name: string, csv: string) => {
+    try {
+      const log = parseLog(csv);
+      if (log.rowCount === 0) {
+        setError("Die Datei enthält keine auswertbaren Datenzeilen.");
+        return;
+      }
+      setError(null);
+      setActive({ name, log });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Die Datei konnte nicht gelesen werden.");
+    }
+  }, []);
+
+  const handleFile = useCallback(
+    async (file: File | null) => {
+      if (!file) return;
+      if (!/\.csv$|\.log$|\.txt$/i.test(file.name)) {
+        setError("Bitte eine .csv-Datei auswählen.");
+        return;
+      }
+      ingest(file.name, await file.text());
+    },
+    [ingest],
+  );
+
+  const estimate = useMemo(
+    () => (active ? estimateDyno(active.log, profile, { correction, method }) : null),
+    [active, profile, correction, method],
+  );
+  const rows = useMemo(
+    () => (estimate ? buildDynoChartRows(estimate, output) : []),
+    [estimate, output],
+  );
+
+  const curve = estimate?.primary ?? null;
+
+  return (
+    <Stack gap="lg">
+      <Group justify="space-between" align="flex-start" wrap="wrap">
+        <Group gap="md">
+          <ThemeIcon variant="light" color="orange" radius="md" size={44}>
+            <IconGauge size={24} stroke={1.5} />
+          </ThemeIcon>
+          <div>
+            <Title order={2}>Virtueller Prüfstand</Title>
+            <Text c="dimmed" size="sm">
+              Leistung und Drehmoment aus dem WOT-Pull schätzen – Luftmasse und Fahrdynamik.
+            </Text>
+          </div>
+        </Group>
+        <Button
+          variant="light"
+          color="slate"
+          leftSection={<IconAdjustments size={16} />}
+          onClick={() => setDrawerOpen(true)}
+          data-testid="dyno-open-profile"
+        >
+          Fahrzeug-Parameter
+        </Button>
+      </Group>
+
+      {error && (
+        <Alert color="red" variant="light" icon={<IconAlertCircle size={16} />} withCloseButton onClose={() => setError(null)}>
+          {error}
+        </Alert>
+      )}
+
+      <Card withBorder radius="md" p="md">
+        <Group justify="space-between" mb="sm" wrap="wrap">
+          <Text fw={600} size="sm">
+            {active ? active.name : "Log wählen"}
+          </Text>
+          {active && (
+            <Badge variant="light" color="orange" data-testid="dyno-log-badge">
+              {active.log.rowCount.toLocaleString("de-DE")} Zeilen
+            </Badge>
+          )}
+        </Group>
+        <Group gap="sm" align="flex-end" wrap="wrap">
+          {history.length > 0 && (
+            <Select
+              placeholder="Aus Historie wählen…"
+              data={history.map((h) => ({ value: h.id, label: h.name }))}
+              onChange={(id) => id && void openById(id)}
+              searchable
+              clearable
+              size="xs"
+              w={260}
+              data-testid="dyno-history"
+            />
+          )}
+          <FileButton onChange={(f) => void handleFile(f)} accept=".csv,.log,.txt,text/csv,text/plain">
+            {(props) => (
+              <Button {...props} size="xs" variant="light" color="orange" leftSection={<IconFileText size={14} />}>
+                Datei
+              </Button>
+            )}
+          </FileButton>
+          <Button
+            size="xs"
+            variant="subtle"
+            color="slate"
+            leftSection={<IconSparkles size={14} />}
+            onClick={() => ingest("Beispiel-Log.csv", makeSampleCsv())}
+            data-testid="dyno-sample"
+          >
+            Beispiel
+          </Button>
+        </Group>
+        <Text size="xs" c="dimmed" mt="sm">
+          Profil: {summarizeDynoProfile(profile)}
+        </Text>
+      </Card>
+
+      {active && estimate && (
+        <>
+          <Card withBorder radius="md" p="md">
+            <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
+              <Control label="Methode">
+                <SegmentedControl
+                  size="xs"
+                  fullWidth
+                  value={method}
+                  onChange={(v) => setMethod(v as MethodPreference)}
+                  data={METHOD_OPTIONS}
+                  data-testid="dyno-method"
+                />
+              </Control>
+              <Control label="Korrektur">
+                <SegmentedControl
+                  size="xs"
+                  fullWidth
+                  value={correction}
+                  onChange={(v) => setCorrection(v as CorrectionStandard)}
+                  data={CORRECTION_OPTIONS}
+                  data-testid="dyno-correction"
+                />
+              </Control>
+              <Control label="Bezug">
+                <SegmentedControl
+                  size="xs"
+                  fullWidth
+                  value={output}
+                  onChange={(v) => setOutput(v as DynoOutput)}
+                  data={OUTPUT_OPTIONS}
+                  data-testid="dyno-output"
+                />
+              </Control>
+            </SimpleGrid>
+          </Card>
+
+          {curve ? (
+            <>
+              <Card withBorder radius="md" p="lg" data-testid="dyno-peaks">
+                <Group justify="space-between" mb="md" wrap="wrap">
+                  <Title order={5}>Spitzenwerte · {OUTPUT_LABELS[output]}</Title>
+                  <Group gap="xs">
+                    <Badge variant="light" color="orange">
+                      {METHOD_LABELS[curve.method]}
+                    </Badge>
+                    <Badge variant="light" color="slate">
+                      {CORRECTION_LABELS[correction]}
+                      {correction !== "none" ? ` · ×${curve.correctionFactor.toFixed(3)}` : ""}
+                    </Badge>
+                  </Group>
+                </Group>
+                <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="md">
+                  <Peak label="Max. Leistung" point={curve.peakPower} output={output} kind="power" />
+                  <Peak label="Max. Drehmoment" point={curve.peakTorque} output={output} kind="torque" />
+                  <Metric
+                    label="Leistung"
+                    value={curve.peakPower ? `${fmt(powerOf(curve.peakPower, output).kw, 1)} kW` : "—"}
+                    hint="bei Nennleistung"
+                  />
+                  <Metric
+                    label="Umgebung"
+                    value={`${fmt(curve.ambient.pressureHpa)} hPa · ${fmt(curve.ambient.tempC, 1)} °C`}
+                    hint={curve.ambient.pressureFromLog ? "aus dem Log" : "Normbedingungen"}
+                  />
+                </SimpleGrid>
+                <Text size="xs" c="dimmed" mt="md">
+                  Datenbasis: {curve.source}
+                </Text>
+              </Card>
+
+              <Card withBorder radius="md" p="md">
+                <Group justify="space-between" mb="sm" wrap="wrap">
+                  <Title order={5}>Leistungs- &amp; Drehmomentkurve</Title>
+                  <Group gap="lg">
+                    <LegendItem color="var(--mantine-color-orange-6)" style="solid" label="Leistung (PS)" />
+                    <LegendItem color="var(--mantine-color-blue-6)" style="dashed" label="Drehmoment (Nm)" />
+                    {estimate.crossCheck && (
+                      <LegendItem
+                        color="var(--mantine-color-gray-5)"
+                        style="dotted"
+                        label={`Gegenprobe: ${METHOD_LABELS[estimate.crossCheck.method]}`}
+                      />
+                    )}
+                  </Group>
+                </Group>
+                <DynoChart
+                  rows={rows}
+                  curve={curve}
+                  output={output}
+                  crossCheckLabel={estimate.crossCheck ? METHOD_LABELS[estimate.crossCheck.method] : null}
+                />
+                {estimate.crossCheck?.peakPower && curve.peakPower && (
+                  <Text size="xs" c="dimmed" mt="sm">
+                    Gegenprobe ({METHOD_LABELS[estimate.crossCheck.method]}):{" "}
+                    {fmt(powerOf(estimate.crossCheck.peakPower, output).ps)} PS bei{" "}
+                    {fmt(estimate.crossCheck.peakPower.rpm)} 1/min – Abweichung{" "}
+                    {fmt(
+                      (powerOf(estimate.crossCheck.peakPower, output).ps / powerOf(curve.peakPower, output).ps - 1) *
+                        100,
+                      1,
+                    )}{" "}
+                    %.
+                  </Text>
+                )}
+              </Card>
+            </>
+          ) : (
+            <Alert color="yellow" variant="light" icon={<IconAlertCircle size={16} />} data-testid="dyno-empty">
+              Aus diesem Log lässt sich keine Leistungskurve schätzen.
+            </Alert>
+          )}
+
+          {estimate.notes.length > 0 && (
+            <Card withBorder radius="md" p="md" data-testid="dyno-notes">
+              <Text size="xs" fw={700} tt="uppercase" c="dimmed" mb="xs">
+                Hinweise zur Schätzung
+              </Text>
+              <Stack gap={6}>
+                {estimate.notes.map((n) => (
+                  <Group key={n} gap={8} wrap="nowrap" align="flex-start">
+                    <IconInfoCircle size={15} style={{ marginTop: 2, flex: "none" }} />
+                    <Text size="xs" c="dimmed">
+                      {n}
+                    </Text>
+                  </Group>
+                ))}
+              </Stack>
+            </Card>
+          )}
+
+          <Text size="xs" c="dimmed">
+            Alle Werte sind rechnerische Schätzungen aus dem Datenlog – kein Ersatz für einen realen
+            Prüfstandslauf. Für Vorher/Nachher-Vergleiche identische Fahrzeug-Parameter, Strecke und
+            Gang verwenden.
+          </Text>
+        </>
+      )}
+
+      <DynoProfileDrawer
+        opened={drawerOpen}
+        profile={profile}
+        onClose={() => setDrawerOpen(false)}
+        onSave={setProfile}
+      />
+    </Stack>
+  );
+}
+
+function Control({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <Text size="xs" c="dimmed" fw={600} tt="uppercase" mb={6}>
+        {label}
+      </Text>
+      {children}
+    </div>
+  );
+}
+
+function Peak({
+  label,
+  point,
+  output,
+  kind,
+}: {
+  label: string;
+  point: DynoPoint | null;
+  output: DynoOutput;
+  kind: "power" | "torque";
+}) {
+  if (!point) return <Metric label={label} value="—" hint="" />;
+  const v = powerOf(point, output);
+  return (
+    <Metric
+      label={label}
+      value={kind === "power" ? `${fmt(v.ps)} PS` : `${fmt(v.nm)} Nm`}
+      hint={`bei ${fmt(point.rpm)} 1/min`}
+    />
+  );
+}
+
+function Metric({ label, value, hint }: { label: string; value: string; hint: string }) {
+  return (
+    <div>
+      <Text size="xs" c="dimmed" tt="uppercase" fw={600} lh={1.3}>
+        {label}
+      </Text>
+      <Text size="xl" fw={700} lh={1.2}>
+        {value}
+      </Text>
+      {hint && (
+        <Text size="xs" c="dimmed">
+          {hint}
+        </Text>
+      )}
+    </div>
+  );
+}
+
+function LegendItem({
+  color,
+  style,
+  label,
+}: {
+  color: string;
+  style: "solid" | "dashed" | "dotted";
+  label: string;
+}) {
+  return (
+    <Group gap={6} wrap="nowrap">
+      <span style={{ width: 22, height: 0, borderTop: `2px ${style} ${color}` }} />
+      <Text size="xs" c="dimmed">
+        {label}
+      </Text>
+    </Group>
+  );
+}

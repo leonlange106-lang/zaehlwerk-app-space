@@ -31,6 +31,7 @@ export const CORE_ROUTES = [
   "/apps/zaehlwerk/einstellungen",
   "/apps/log-analyzer",
   "/apps/log-analyzer/compare",
+  "/apps/log-analyzer/dyno",
   "/apps/log-analyzer/remote",
   "/apps/log-analyzer/specs",
   "/apps/log-analyzer/history",
