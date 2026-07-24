@@ -9,6 +9,8 @@ import { findExistingDatabaseFile } from "./system-storage";
 
 export type DatabaseStats = {
   sizeBytes: number | null;
+  /** Bytes occupied by the raw datalog CSVs, or null when unavailable. */
+  logCsvBytes: number | null;
   counts: {
     users: number;
     tokens: number;
@@ -17,24 +19,46 @@ export type DatabaseStats = {
     tarife: number;
     locations: number;
     auditLogs: number;
+    logFiles: number;
   };
 };
 
 export async function getDatabaseStats(): Promise<DatabaseStats> {
-  const [users, tokens, zaehler, ablesungen, tarife, locations, auditLogs] = await Promise.all([
-    prisma.user.count(),
-    prisma.apiToken.count(),
-    prisma.zaehler.count(),
-    prisma.ablesung.count(),
-    prisma.tarif.count(),
-    prisma.location.count(),
-    prisma.auditLog.count(),
-  ]);
+  const [users, tokens, zaehler, ablesungen, tarife, locations, auditLogs, logFiles] =
+    await Promise.all([
+      prisma.user.count(),
+      prisma.apiToken.count(),
+      prisma.zaehler.count(),
+      prisma.ablesung.count(),
+      prisma.tarif.count(),
+      prisma.location.count(),
+      prisma.auditLog.count(),
+      prisma.logFile.count(),
+    ]);
 
   return {
     sizeBytes: await databaseSizeBytes(),
-    counts: { users, tokens, zaehler, ablesungen, tarife, locations, auditLogs },
+    logCsvBytes: await logCsvBytes(),
+    counts: { users, tokens, zaehler, ablesungen, tarife, locations, auditLogs, logFiles },
   };
+}
+
+/**
+ * Total size of the stored raw CSVs. This is the column that actually drives DB
+ * growth, so the maintenance UI shows it next to the file size to make the case
+ * for a retention policy concrete. Aggregated in SQL — reading the CSVs into the
+ * app just to measure them would defeat the purpose.
+ */
+async function logCsvBytes(): Promise<number | null> {
+  try {
+    const rows = await prisma.$queryRaw<{ bytes: number | bigint | null }[]>`
+      SELECT COALESCE(SUM(LENGTH(csv)), 0) AS bytes FROM log_files
+    `;
+    const value = rows[0]?.bytes;
+    return value === null || value === undefined ? null : Number(value);
+  } catch {
+    return null;
+  }
 }
 
 /** Sum of the DB file and its WAL/SHM sidecars, or null if the file is absent. */

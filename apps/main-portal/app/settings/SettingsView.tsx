@@ -37,7 +37,7 @@ import type { ApiTokenSummary } from "@/app/lib/api-token-actions";
 import type { AuditEvent } from "@/app/lib/audit";
 import type { SnapshotFile } from "@/app/lib/backup-engine";
 import type { DatabaseStats } from "@/app/lib/db-maintenance";
-import type { BackupPolicy } from "@/app/lib/settings";
+import type { BackupPolicy, LogRetentionPolicy } from "@/app/lib/settings";
 import { normalizeUpdateState, UPDATE_STEPS, type UpdateState } from "@/app/lib/update-status";
 import { SystemBackupCard } from "./SystemBackupCard";
 import { UserManagementCard } from "./UserManagementCard";
@@ -54,6 +54,7 @@ export type GovernanceData = {
   snapshots: SnapshotFile[];
   dbStats: DatabaseStats;
   auditEvents: AuditEvent[];
+  logRetention: LogRetentionPolicy;
 };
 
 const dateFormatter = new Intl.DateTimeFormat("de-DE", {
@@ -101,7 +102,10 @@ export function SettingsView({
       {isAdmin && governance && (
         <>
           <BackupPolicyCard policy={governance.policy} snapshots={governance.snapshots} />
-          <DatabaseMaintenanceCard stats={governance.dbStats} />
+          <DatabaseMaintenanceCard
+            stats={governance.dbStats}
+            logRetention={governance.logRetention}
+          />
           <AuditLogCard events={governance.auditEvents} />
         </>
       )}

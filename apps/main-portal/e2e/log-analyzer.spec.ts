@@ -115,8 +115,10 @@ test.describe("Log Analyzer: local upload", () => {
     await page.getByRole("button", { name: "Beispiel laden" }).click();
 
     await expect(page.getByText("WBSDEMO0SYNTHETIC1")).toBeVisible();
+    // The chart stack is a lazily-loaded chunk, so it lands a moment after the
+    // metadata does; wait for it rather than snapshotting the count too early.
+    await expect(page.locator(".recharts-surface").first()).toBeVisible();
     const chartsBefore = await page.locator(".recharts-surface").count();
-    expect(chartsBefore).toBeGreaterThan(0);
 
     // Toggling a channel off updates the charts (interaction). RPM is the only
     // Engine channel in the default selection, so its group chart disappears.

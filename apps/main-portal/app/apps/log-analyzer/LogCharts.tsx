@@ -14,7 +14,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { buildChartData } from "./lib/chart-data";
+import { buildChartData, groupSelectedSeries } from "./lib/chart-data";
 import type { AxisSide, LogSeries, ParsedLog } from "./lib/types";
 import type { PullRange, Violation } from "./lib/evaluate-log-pull";
 import classes from "./LogAnalyzer.module.css";
@@ -59,8 +59,6 @@ export function LogCharts({
   violations,
   exclusionRanges,
 }: Props) {
-  const selectedSet = useMemo(() => new Set(selectedKeys), [selectedKeys]);
-
   // Points (decimated) for the visible window, shared by every chart so the
   // syncId cursor lines up 1:1 across the stack.
   const data = useMemo(
@@ -68,17 +66,12 @@ export function LogCharts({
     [log, selectedKeys, range],
   );
 
-  // Group the *selected* series so each group gets its own chart.
-  const groups = useMemo(() => {
-    const map = new Map<string, LogSeries[]>();
-    for (const s of log.series) {
-      if (!selectedSet.has(s.key)) continue;
-      const list = map.get(s.group) ?? [];
-      list.push(s);
-      map.set(s.group, list);
-    }
-    return [...map.entries()];
-  }, [log.series, selectedSet]);
+  // Group the *selected* series so each group gets its own chart. Shared with
+  // the loading placeholder so both agree on the panel count.
+  const groups = useMemo(
+    () => groupSelectedSeries(log.series, selectedKeys),
+    [log.series, selectedKeys],
+  );
 
   if (groups.length === 0) {
     return (

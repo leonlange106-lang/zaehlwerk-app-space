@@ -5,7 +5,14 @@ import { requireAdmin } from "./auth-helpers";
 import { AUDIT_ACTIONS, recordAuditEvent } from "./audit";
 import { createSnapshot, deleteSnapshot, pruneSnapshots } from "./backup-engine";
 import { optimizeDatabase, vacuumDatabase } from "./db-maintenance";
-import { getBackupPolicy, markBackupRun, setBackupPolicy } from "./settings";
+import { runMaintenance } from "./maintenance";
+import {
+  getBackupPolicy,
+  getLogRetentionPolicy,
+  markBackupRun,
+  setBackupPolicy,
+  setLogRetentionPolicy,
+} from "./settings";
 
 export type GovernanceResult = { success: boolean; message: string };
 
@@ -72,6 +79,55 @@ export async function runVacuum(): Promise<GovernanceResult> {
     console.error("[runVacuum]", error);
     return { success: false, message: "VACUUM fehlgeschlagen (Details im Server-Log)." };
   }
+}
+
+/** Apply the log retention policy now, then reclaim the freed space. */
+export async function runLogMaintenance(): Promise<GovernanceResult> {
+  const admin = await requireAdmin();
+  try {
+    const report = await runMaintenance();
+    if (!report.retentionEnabled) {
+      return {
+        success: false,
+        message: "Keine Aufbewahrungsgrenze gesetzt — es wurde nichts gelöscht.",
+      };
+    }
+    if (report.prunedLogs === 0) {
+      return { success: true, message: "Aufräumen abgeschlossen — kein Log war zu alt." };
+    }
+
+    await recordAuditEvent(
+      AUDIT_ACTIONS.logPrune,
+      admin.email,
+      `${report.prunedLogs} Log(s) gelöscht, ${report.freedBytes} Bytes freigegeben`,
+    );
+    revalidatePath("/settings");
+    const freed = report.freedBytes > 0 ? ` ${formatBytes(report.freedBytes)} freigegeben.` : "";
+    return {
+      success: true,
+      message: `${report.prunedLogs} Log(s) gelöscht.${freed}`,
+    };
+  } catch (error) {
+    console.error("[runLogMaintenance]", error);
+    return { success: false, message: "Aufräumen fehlgeschlagen (Details im Server-Log)." };
+  }
+}
+
+export async function updateLogRetentionPolicy(patch: {
+  retentionDays?: number;
+  maxCount?: number;
+}): Promise<GovernanceResult> {
+  const admin = await requireAdmin();
+  await setLogRetentionPolicy(patch);
+  const policy = await getLogRetentionPolicy();
+  await recordAuditEvent(
+    AUDIT_ACTIONS.logRetentionPolicy,
+    admin.email,
+    `${policy.retentionDays === 0 ? "unbegrenzte" : policy.retentionDays + "-Tage-"}Aufbewahrung, ` +
+      `${policy.maxCount === 0 ? "kein Limit" : "max. " + policy.maxCount + " Logs"}`,
+  );
+  revalidatePath("/settings");
+  return { success: true, message: "Log-Aufbewahrung gespeichert." };
 }
 
 export async function runOptimize(): Promise<GovernanceResult> {

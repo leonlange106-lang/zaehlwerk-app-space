@@ -10,6 +10,9 @@ export const SETTING_KEYS = {
   backupAutoEnabled: "backup.autoEnabled",
   backupIntervalHours: "backup.intervalHours",
   backupLastRunAt: "backup.lastRunAt",
+  logRetentionDays: "logs.retentionDays",
+  logMaxCount: "logs.maxCount",
+  maintenanceLastRunAt: "maintenance.lastRunAt",
 } as const;
 
 export const DEFAULT_RETENTION_DAYS = 30;
@@ -78,4 +81,60 @@ export async function setBackupPolicy(patch: {
 
 export async function markBackupRun(when: Date = new Date()): Promise<void> {
   await writeSetting(SETTING_KEYS.backupLastRunAt, when.toISOString());
+}
+
+// ---------------------------------------------------------------------------
+// Log retention
+// ---------------------------------------------------------------------------
+
+/**
+ * Retention policy for stored datalogs. The raw CSVs are by far the largest
+ * thing this instance keeps, and nothing ever removed them automatically — on a
+ * home server with a watch-folder importer that is an unbounded disk leak (a
+ * full disk is the recurring failure mode here, see DEPLOYMENT.md).
+ *
+ * BOTH limits default to 0 = unlimited, i.e. retention is strictly opt-in.
+ * Enabling it deletes real user data, so that has to be an admin's decision,
+ * never a side effect of upgrading. When both are set the stricter one wins:
+ * a log is removed if it is too old OR beyond the newest `maxCount`.
+ */
+export type LogRetentionPolicy = {
+  /** Delete logs older than this many days. 0 = keep forever. */
+  retentionDays: number;
+  /** Keep only the newest N logs. 0 = no cap. */
+  maxCount: number;
+  /** ISO timestamp of the last automatic maintenance run, or null. */
+  lastRunAt: string | null;
+};
+
+export async function getLogRetentionPolicy(): Promise<LogRetentionPolicy> {
+  const [days, maxCount, lastRun] = await Promise.all([
+    readSetting(SETTING_KEYS.logRetentionDays),
+    readSetting(SETTING_KEYS.logMaxCount),
+    readSetting(SETTING_KEYS.maintenanceLastRunAt),
+  ]);
+
+  return {
+    retentionDays: Math.max(0, toInt(days, 0)),
+    maxCount: Math.max(0, toInt(maxCount, 0)),
+    lastRunAt: lastRun,
+  };
+}
+
+export async function setLogRetentionPolicy(patch: {
+  retentionDays?: number;
+  maxCount?: number;
+}): Promise<void> {
+  const writes: Promise<void>[] = [];
+  if (patch.retentionDays !== undefined) {
+    writes.push(writeSetting(SETTING_KEYS.logRetentionDays, String(Math.max(0, Math.trunc(patch.retentionDays)))));
+  }
+  if (patch.maxCount !== undefined) {
+    writes.push(writeSetting(SETTING_KEYS.logMaxCount, String(Math.max(0, Math.trunc(patch.maxCount)))));
+  }
+  await Promise.all(writes);
+}
+
+export async function markMaintenanceRun(when: Date = new Date()): Promise<void> {
+  await writeSetting(SETTING_KEYS.maintenanceLastRunAt, when.toISOString());
 }

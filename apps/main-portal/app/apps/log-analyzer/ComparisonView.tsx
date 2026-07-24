@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Badge,
@@ -35,7 +35,13 @@ import {
 import type { AlignMode, OverlayAxis } from "./lib/log-align";
 import { fetchLog, fetchLogs, type LogSummaryDTO } from "./lib/log-api";
 import type { ParsedLog } from "./lib/types";
-import { OverlayChart } from "./OverlayChart";
+import { OverlayChartSkeleton } from "./ChartSkeletons";
+
+// Recharts is only needed once two logs are actually being compared, so it is
+// split out of the page shell (which is what the picker cards are).
+const OverlayChart = lazy(() =>
+  import("./OverlayChart").then((m) => ({ default: m.OverlayChart })),
+);
 import { LegendItem, SERIES_COLORS } from "./ChartLegend";
 import { XS_INPUT_HEIGHT } from "./ui-metrics";
 
@@ -307,7 +313,11 @@ export function ComparisonView() {
                 />
               )}
             </Group>
-            {overlay && <OverlayChart overlay={overlay} nameA={a.name} nameB={b.name} />}
+            {overlay && (
+              <Suspense fallback={<OverlayChartSkeleton />}>
+                <OverlayChart overlay={overlay} nameA={a.name} nameB={b.name} />
+              </Suspense>
+            )}
           </Card>
         </>
       )}

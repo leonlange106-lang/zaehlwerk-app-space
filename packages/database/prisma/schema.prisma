@@ -224,6 +224,13 @@ model LogFile {
   status     String   @default("invalid")
   /// Hardware-Health aus den Safety-Alerts: "safe" | "caution" | "danger".
   health     String   @default("safe")
+  /// Fingerprint der Bewertungslogik+Grenzwerte, mit denen `status`/`health`
+  /// zuletzt berechnet wurden (siehe `lib/evaluation-version.ts`). Stimmt er mit
+  /// der aktuellen Version überein, gelten die Spalten als gültiger Cache und
+  /// die Übersicht muss das Roh-CSV nicht erneut parsen; sonst wird der Log beim
+  /// nächsten Lesen neu bewertet und die Spalten aktualisiert. NULL = unbewertet
+  /// (z.B. vor Einführung der Spalte) und damit immer stale.
+  evalVersion String?
   /// SHA-256 des Roh-CSV (hex) — zur Deduplizierung automatischer Importe
   /// (Ingestion-API / Watch-Folder). Manuelle Uploads setzen ihn ebenfalls.
   contentHash String?

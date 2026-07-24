@@ -94,7 +94,31 @@ async function main() {
   }));
   await prisma.ablesung.createMany({ data: readings });
 
+  await reclaimSpace();
+
   console.log(`[e2e-seed] admin + meter ${meter.id} with ${readings.length} readings ready`);
+}
+
+/**
+ * Shrink the E2E database file back down after the wipe above.
+ *
+ * The DELETEs only mark pages free — SQLite never returns them to the
+ * filesystem on its own. Because the E2E database file is REUSED between local
+ * runs (it can't be replaced while the dev server holds it open, see
+ * global-setup.ts), every run would otherwise leave the freed pages behind and
+ * the file would creep upwards forever, driven mostly by the raw CSVs the
+ * log-analyzer specs upload. VACUUM rewrites it compactly; the WAL checkpoint
+ * then truncates the -wal sidecar, which grows the same way.
+ *
+ * Best-effort: a locked database is not a reason to fail the whole suite.
+ */
+async function reclaimSpace(): Promise<void> {
+  try {
+    await prisma.$executeRawUnsafe("VACUUM");
+    await prisma.$executeRawUnsafe("PRAGMA wal_checkpoint(TRUNCATE)");
+  } catch (error) {
+    console.warn("[e2e-seed] could not reclaim space (continuing):", error);
+  }
 }
 
 main()

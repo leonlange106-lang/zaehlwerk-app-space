@@ -7,7 +7,7 @@ import { listIngestionKeys } from "@/app/lib/ingestion-key-actions";
 import { listAuditEvents } from "@/app/lib/audit";
 import { listSnapshots } from "@/app/lib/backup-engine";
 import { getDatabaseStats } from "@/app/lib/db-maintenance";
-import { getBackupPolicy } from "@/app/lib/settings";
+import { getBackupPolicy, getLogRetentionPolicy } from "@/app/lib/settings";
 import { SettingsView } from "./SettingsView";
 
 export const dynamic = "force-dynamic";
@@ -30,9 +30,19 @@ export default async function SettingsPage() {
     currentUser ? listApiTokens() : Promise.resolve([]),
     isAdmin ? listIngestionKeys() : Promise.resolve([]),
     isAdmin
-      ? Promise.all([getBackupPolicy(), listSnapshots(), getDatabaseStats(), listAuditEvents(100)]).then(
-          ([policy, snapshots, dbStats, auditEvents]) => ({ policy, snapshots, dbStats, auditEvents }),
-        )
+      ? Promise.all([
+          getBackupPolicy(),
+          listSnapshots(),
+          getDatabaseStats(),
+          listAuditEvents(100),
+          getLogRetentionPolicy(),
+        ]).then(([policy, snapshots, dbStats, auditEvents, logRetention]) => ({
+          policy,
+          snapshots,
+          dbStats,
+          auditEvents,
+          logRetention,
+        }))
       : Promise.resolve(null),
   ]);
 

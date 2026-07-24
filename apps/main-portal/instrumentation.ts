@@ -13,6 +13,13 @@ export async function register(): Promise<void> {
   }
 
   try {
+    const { startMaintenanceScheduler } = await import("./app/lib/maintenance-scheduler");
+    startMaintenanceScheduler();
+  } catch (error) {
+    console.error("[instrumentation] failed to start maintenance scheduler", error);
+  }
+
+  try {
     // No-op unless LOG_WATCH_DIR is configured (see watcher/config.ts).
     const { startWatchFolder } = await import("./app/apps/log-analyzer/watcher/watch-folder");
     await startWatchFolder();
