@@ -27,6 +27,8 @@ export const AUDIT_ACTIONS = {
   backupPolicy: "backup.policy",
   dbVacuum: "db.vacuum",
   dbOptimize: "db.optimize",
+  logPrune: "loganalyzer.prune",
+  logRetentionPolicy: "loganalyzer.retention",
 } as const;
 
 export type AuditEvent = {

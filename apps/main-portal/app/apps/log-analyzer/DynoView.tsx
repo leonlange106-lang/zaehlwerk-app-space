@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Badge,
@@ -52,9 +52,16 @@ import { loadDynoProfile } from "./lib/dyno-store";
 import { loadVehicleSpec } from "./lib/spec-store";
 import { DEFAULT_VEHICLE_SPEC, type VehicleSpec } from "./lib/vehicle-spec";
 import type { ParsedLog } from "./lib/types";
-import { DynoChart } from "./DynoChart";
-import { DynoProfileDrawer } from "./DynoProfileDrawer";
-import { ExportModal } from "./ExportModal";
+import { DynoChartSkeleton } from "./ChartSkeletons";
+
+// The plot (Recharts), the profile drawer and the export dialog are all reached
+// only after the user picks a log or opens an overlay, so none of them belong in
+// the chunk that renders this page.
+const DynoChart = lazy(() => import("./DynoChart").then((m) => ({ default: m.DynoChart })));
+const DynoProfileDrawer = lazy(() =>
+  import("./DynoProfileDrawer").then((m) => ({ default: m.DynoProfileDrawer })),
+);
+const ExportModal = lazy(() => import("./ExportModal").then((m) => ({ default: m.ExportModal })));
 import { LegendItem, SERIES_COLORS } from "./ChartLegend";
 import { XS_INPUT_HEIGHT } from "./ui-metrics";
 
@@ -401,12 +408,14 @@ export function DynoView() {
                     )}
                   </Group>
                 </Group>
-                <DynoChart
-                  rows={rows}
-                  curve={curve}
-                  output={output}
-                  crossCheckLabel={estimate.crossCheck ? METHOD_LABELS[estimate.crossCheck.method] : null}
-                />
+                <Suspense fallback={<DynoChartSkeleton />}>
+                  <DynoChart
+                    rows={rows}
+                    curve={curve}
+                    output={output}
+                    crossCheckLabel={estimate.crossCheck ? METHOD_LABELS[estimate.crossCheck.method] : null}
+                  />
+                </Suspense>
                 {estimate.crossCheck?.peakPower && curve.peakPower && (
                   <Text size="xs" c="dimmed" mt="sm">
                     Gegenprobe ({METHOD_LABELS[estimate.crossCheck.method]}):{" "}
@@ -454,23 +463,33 @@ export function DynoView() {
         </>
       )}
 
-      <DynoProfileDrawer
-        opened={drawerOpen}
-        profile={effectiveProfile}
-        engineCode={spec.engineCode}
-        onClose={() => setDrawerOpen(false)}
-        onSave={setProfile}
-      />
+      {/* Both are overlays: closed they render nothing, so there is no geometry
+          to reserve and mounting them on demand cannot shift the page. */}
+      {drawerOpen && (
+        <Suspense fallback={null}>
+          <DynoProfileDrawer
+            opened
+            profile={effectiveProfile}
+            engineCode={spec.engineCode}
+            onClose={() => setDrawerOpen(false)}
+            onSave={setProfile}
+          />
+        </Suspense>
+      )}
 
-      <ExportModal
-        opened={exportOpen}
-        onClose={() => setExportOpen(false)}
-        target={active ? (active.id ? { logId: active.id } : { name: active.name, csv: active.csv }) : null}
-        spec={spec}
-        dyno={{ profile: effectiveProfile, output, correction }}
-        // The dyno page leads with the power curve; the raw-file block is noise here.
-        initialSections={{ fileSummary: false }}
-      />
+      {exportOpen && (
+        <Suspense fallback={null}>
+          <ExportModal
+            opened
+            onClose={() => setExportOpen(false)}
+            target={active ? (active.id ? { logId: active.id } : { name: active.name, csv: active.csv }) : null}
+            spec={spec}
+            dyno={{ profile: effectiveProfile, output, correction }}
+            // The dyno page leads with the power curve; the raw-file block is noise here.
+            initialSections={{ fileSummary: false }}
+          />
+        </Suspense>
+      )}
     </Stack>
   );
 }

@@ -1,4 +1,4 @@
-import type { ParsedLog } from "./types";
+import type { LogSeries, ParsedLog } from "./types";
 
 // Turning a parsed log into Recharts-ready points, with decimation so even a
 // large log stays smooth. Charting every sample of a multi-minute log would
@@ -48,4 +48,29 @@ export function buildChartData(
     points.push(point);
   }
   return points;
+}
+
+/**
+ * Bucket the *selected* series by parameter group, preserving the order in which
+ * the groups first appear in the log. The chart stack renders one panel per
+ * entry.
+ *
+ * This lives here rather than inside the chart component because the loading
+ * placeholder has to reserve the right number of panels while the chart chunk is
+ * still downloading — sizing it from the same function is what keeps the
+ * skeleton and the real stack from ever disagreeing.
+ */
+export function groupSelectedSeries(
+  series: LogSeries[],
+  selectedKeys: string[],
+): [string, LogSeries[]][] {
+  const selected = new Set(selectedKeys);
+  const map = new Map<string, LogSeries[]>();
+  for (const s of series) {
+    if (!selected.has(s.key)) continue;
+    const list = map.get(s.group) ?? [];
+    list.push(s);
+    map.set(s.group, list);
+  }
+  return [...map.entries()];
 }

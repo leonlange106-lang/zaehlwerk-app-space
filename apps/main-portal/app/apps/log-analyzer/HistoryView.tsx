@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { notifications } from "@mantine/notifications";
 import {
@@ -26,6 +26,7 @@ import {
   IconShieldCheck,
   IconTrash,
 } from "@tabler/icons-react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { setActiveLogId } from "./lib/log-store";
 import {
   deleteLogById,
@@ -44,6 +45,17 @@ import type { PullHealth, PullStatus } from "./lib/evaluate-log-pull";
 // tag inputs). Rows are content-sized, so this only has to be close enough that
 // the arriving list grows into space the page already reserved.
 const LOG_ROW_HEIGHT = 132;
+
+// Above this many logs the list is windowed. Below it a plain stack is simpler
+// and keeps the natural page flow (no inner scroll area) for the common case —
+// same trade-off as the reading history table. It matters here because the
+// watch-folder importer can accumulate logs indefinitely, and every row carries
+// two live Mantine inputs, so an unwindowed list of a few hundred is thousands
+// of DOM nodes and a visibly sluggish page.
+const VIRTUALIZE_THRESHOLD = 40;
+/** Height of a day heading (uppercase caption + the stack gap around it). */
+const GROUP_HEADER_HEIGHT = 38;
+const VIEWPORT_HEIGHT = 640;
 
 const STATUS_META: Record<PullStatus, { label: string; color: string }> = {
   verified: { label: "VERIFIED", color: "teal" },
@@ -103,6 +115,24 @@ function groupByDay(logs: LogSummaryDTO[]): DayGroup[] {
     group.logs.push(log);
   }
   return groups;
+}
+
+/** A windowed list can only measure a flat sequence, so day headings become rows. */
+type FlatRow =
+  | { kind: "header"; key: string; label: string }
+  | { kind: "log"; key: string; log: LogSummaryDTO };
+
+function flattenGroups(groups: DayGroup[]): FlatRow[] {
+  const rows: FlatRow[] = [];
+  for (const group of groups) {
+    rows.push({
+      kind: "header",
+      key: `h-${group.key}`,
+      label: `${group.label} · ${group.logs.length} Log${group.logs.length === 1 ? "" : "s"}`,
+    });
+    for (const log of group.logs) rows.push({ kind: "log", key: log.id, log });
+  }
+  return rows;
 }
 
 export function HistoryView() {
@@ -178,6 +208,20 @@ export function HistoryView() {
     [],
   );
 
+  // Stable per-row handlers, so a memoized LogRow only re-renders when its own
+  // log actually changes rather than on every list update.
+  const handlers: RowHandlers = useMemo(
+    () => ({
+      onOpen: open,
+      onRemove: (id) => void remove(id),
+      onSaveOctane: (id, octane) => void saveTags(id, { octane }),
+      onSaveTags: (id, tags) => void saveTags(id, { tags }),
+    }),
+    [open, remove, saveTags],
+  );
+
+  const groups = useMemo(() => (items ? groupByDay(items) : []), [items]);
+
   return (
     <Stack gap="lg">
       {/* The header renders immediately, loaded or not: swapping the WHOLE view
@@ -214,22 +258,17 @@ export function HistoryView() {
             Noch keine Logs gespeichert. Lade im Analyzer eine oder mehrere CSV-Dateien hoch.
           </Text>
         </Card>
+      ) : items.length > VIRTUALIZE_THRESHOLD ? (
+        <VirtualizedLogList rows={flattenGroups(groups)} handlers={handlers} />
       ) : (
         <Stack gap="lg">
-          {groupByDay(items).map((group) => (
+          {groups.map((group) => (
             <Stack key={group.key} gap="sm">
               <Text size="xs" fw={700} tt="uppercase" c="dimmed">
                 {group.label} · {group.logs.length} Log{group.logs.length === 1 ? "" : "s"}
               </Text>
               {group.logs.map((log) => (
-                <LogRow
-                  key={log.id}
-                  log={log}
-                  onOpen={() => open(log.id)}
-                  onRemove={() => void remove(log.id)}
-                  onSaveOctane={(octane) => void saveTags(log.id, { octane })}
-                  onSaveTags={(tags) => void saveTags(log.id, { tags })}
-                />
+                <LogRow key={log.id} log={log} handlers={handlers} />
               ))}
             </Stack>
           ))}
@@ -239,18 +278,23 @@ export function HistoryView() {
   );
 }
 
-function LogRow({
+/** Callbacks shared by every row; identity-stable so `memo` below can bite. */
+type RowHandlers = {
+  onOpen: (id: string) => void;
+  onRemove: (id: string) => void;
+  onSaveOctane: (id: string, octane: string) => void;
+  onSaveTags: (id: string, tags: string[]) => void;
+};
+
+// Memoized: editing the tags on one row re-renders the whole list, and every row
+// holds two Mantine inputs. Without this a long list re-mounts all of them for a
+// single keystroke's worth of state.
+const LogRow = memo(function LogRow({
   log,
-  onOpen,
-  onRemove,
-  onSaveOctane,
-  onSaveTags,
+  handlers,
 }: {
   log: LogSummaryDTO;
-  onOpen: () => void;
-  onRemove: () => void;
-  onSaveOctane: (octane: string) => void;
-  onSaveTags: (tags: string[]) => void;
+  handlers: RowHandlers;
 }) {
   const status = STATUS_META[log.status];
   const health = HEALTH_META[log.health];
@@ -304,7 +348,7 @@ function LogRow({
               value={octane}
               onChange={(e) => setOctane(e.currentTarget.value)}
               onBlur={() => {
-                if ((log.octane ?? "") !== octane) onSaveOctane(octane);
+                if ((log.octane ?? "") !== octane) handlers.onSaveOctane(log.id, octane);
               }}
               data-testid="log-octane"
             />
@@ -314,7 +358,7 @@ function LogRow({
               w={260}
               placeholder="Tag hinzufügen…"
               value={log.tags}
-              onChange={onSaveTags}
+              onChange={(tags) => handlers.onSaveTags(log.id, tags)}
               data-testid="log-tags"
             />
           </Group>
@@ -326,17 +370,81 @@ function LogRow({
             color="orange"
             variant="light"
             leftSection={<IconChartHistogram size={14} />}
-            onClick={onOpen}
+            onClick={() => handlers.onOpen(log.id)}
           >
             Öffnen
           </Button>
           <Tooltip label="Log löschen" withArrow>
-            <ActionIcon color="red" variant="subtle" onClick={onRemove} aria-label="Log löschen">
+            <ActionIcon
+              color="red"
+              variant="subtle"
+              onClick={() => handlers.onRemove(log.id)}
+              aria-label="Log löschen"
+            >
               <IconTrash size={16} />
             </ActionIcon>
           </Tooltip>
         </Group>
       </Group>
     </Card>
+  );
+});
+
+/**
+ * Windowed variant used once the list gets long. Rows are content-sized (tags
+ * wrap, badges reflow), so `measureElement` reports their real heights and the
+ * estimates below only have to be close enough to keep the scrollbar honest
+ * before a row has been seen.
+ */
+function VirtualizedLogList({ rows, handlers }: { rows: FlatRow[]; handlers: RowHandlers }) {
+  const parentRef = useRef<HTMLDivElement>(null);
+  // TanStack Virtual returns live (non-memoizable) functions, so React Compiler
+  // intentionally skips memoizing this component — expected and safe here.
+  // eslint-disable-next-line react-hooks/incompatible-library
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: (index) =>
+      rows[index]!.kind === "header" ? GROUP_HEADER_HEIGHT : LOG_ROW_HEIGHT,
+    overscan: 6,
+    gap: 8,
+  });
+
+  return (
+    <div
+      ref={parentRef}
+      style={{ height: VIEWPORT_HEIGHT, overflow: "auto" }}
+      role="region"
+      aria-label="Gespeicherte Logs"
+      tabIndex={0}
+    >
+      <div style={{ height: virtualizer.getTotalSize(), position: "relative", width: "100%" }}>
+        {virtualizer.getVirtualItems().map((item) => {
+          const row = rows[item.index]!;
+          return (
+            <div
+              key={row.key}
+              data-index={item.index}
+              ref={virtualizer.measureElement}
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                width: "100%",
+                transform: `translateY(${item.start}px)`,
+              }}
+            >
+              {row.kind === "header" ? (
+                <Text size="xs" fw={700} tt="uppercase" c="dimmed" pt="md">
+                  {row.label}
+                </Text>
+              ) : (
+                <LogRow log={row.log} handlers={handlers} />
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }

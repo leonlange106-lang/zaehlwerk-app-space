@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Alert,
@@ -39,13 +39,20 @@ import { DEFAULT_VEHICLE_SPEC, type VehicleSpec } from "./lib/vehicle-spec";
 import { loadDynoProfile } from "./lib/dyno-store";
 import { DEFAULT_DYNO_PROFILE, type DynoProfile } from "./lib/dyno-spec";
 import type { ParsedLog } from "./lib/types";
-import { LogCharts } from "./LogCharts";
+import { groupSelectedSeries } from "./lib/chart-data";
+import { ChartStackSkeleton } from "./ChartSkeletons";
 import { MetadataCard } from "./MetadataCard";
 import { EvaluationCard } from "./EvaluationCard";
-import { ExportModal } from "./ExportModal";
 import { ParameterPanel } from "./ParameterPanel";
 import type { AxisSide } from "./lib/types";
 import classes from "./LogAnalyzer.module.css";
+
+// Recharts and the report/PDF plumbing are the two heaviest things this page can
+// pull in, and neither is needed to render it: the charts only matter once a log
+// is open, and the export dialog only once it is opened. Splitting them out
+// keeps the initial analyzer bundle to the shell the user actually sees first.
+const LogCharts = lazy(() => import("./LogCharts").then((m) => ({ default: m.LogCharts })));
+const ExportModal = lazy(() => import("./ExportModal").then((m) => ({ default: m.ExportModal })));
 
 // The analyzer workspace: drop/pick one or many CSVs (bulk upload) — logs are
 // persisted server-side — or pick up a log handed over from Remote Import /
@@ -231,6 +238,13 @@ export function AnalyzerView() {
   const evaluation = useMemo(
     () => (active ? evaluateLogPull(active.log, spec) : null),
     [active, spec],
+  );
+
+  // How many chart panels the stack will render — needed up front so the
+  // loading placeholder can reserve their height while the chunk downloads.
+  const chartGroupCount = useMemo(
+    () => (active ? groupSelectedSeries(active.log.series, [...selected]).length : 0),
+    [active, selected],
   );
 
   // Crop the visible window to the detected pull, focusing on the WOT sweep.
@@ -420,28 +434,39 @@ export function AnalyzerView() {
           />
         </GridCol>
         <GridCol span={{ base: 12, md: 9 }}>
-          <LogCharts
-            key={active.id}
-            log={log}
-            selectedKeys={[...selected]}
-            range={range}
-            axisById={axisById}
-            colorById={colorById}
-            pullRange={evaluation?.pullRange ?? null}
-            pullVerified={evaluation?.validity.status === "verified"}
-            violations={evaluation?.violations ?? []}
-            exclusionRanges={evaluation?.exclusionRanges ?? []}
-          />
+          {/* The placeholder is sized from the same grouping the stack uses, so
+              the chunk arriving swaps content into a box that is already the
+              right height. */}
+          <Suspense fallback={<ChartStackSkeleton count={chartGroupCount} />}>
+            <LogCharts
+              key={active.id}
+              log={log}
+              selectedKeys={[...selected]}
+              range={range}
+              axisById={axisById}
+              colorById={colorById}
+              pullRange={evaluation?.pullRange ?? null}
+              pullVerified={evaluation?.validity.status === "verified"}
+              violations={evaluation?.violations ?? []}
+              exclusionRanges={evaluation?.exclusionRanges ?? []}
+            />
+          </Suspense>
         </GridCol>
       </Grid>
 
-      <ExportModal
-        opened={exportOpen}
-        onClose={() => setExportOpen(false)}
-        target={{ logId: active.id }}
-        spec={spec}
-        dyno={{ profile: dynoProfile, output: "crank", correction: "none" }}
-      />
+      {/* An unopened Mantine Modal renders nothing, so there is no geometry to
+          reserve and no fallback to show. */}
+      {exportOpen && (
+        <Suspense fallback={null}>
+          <ExportModal
+            opened
+            onClose={() => setExportOpen(false)}
+            target={{ logId: active.id }}
+            spec={spec}
+            dyno={{ profile: dynoProfile, output: "crank", correction: "none" }}
+          />
+        </Suspense>
+      )}
     </Stack>
   );
 }
