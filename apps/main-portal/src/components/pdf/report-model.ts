@@ -126,7 +126,19 @@ function intervalCost(
   return calculateTariffCost(tarif, verbrauch, days);
 }
 
-/** Baut die Datum→Zelle-Zuordnung für einen Zähler einer Sparte. */
+/**
+ * Baut die Datum→Zelle-Zuordnung für einen Zähler einer Sparte.
+ *
+ * Zählertausch-Faltung: ein Intervall, das an einer Tausch-Ablesung endet, ist
+ * nur die Teilstrecke auf dem ALTEN Zähler (letzter Stand alt − vorherige
+ * Ablesung). Es bildet KEINE eigene Jahreszeile, sondern wird auf die nächste
+ * ECHTE Ablesung übertragen und dort mit der Neu-Zähler-Strecke (neue Ablesung −
+ * Startwert neu) zu einem vollen Jahr zusammengefasst. Genau so wird der
+ * Zählertausch von Hand geführt: der Jahresverbrauch läuft von der letzten
+ * richtigen Ablesung (≈ 12 Monate vorher) bis zum Endstand des Altgeräts PLUS
+ * vom Startwert des Neugeräts bis zur neuen Ablesung. Die Tausch-Ablesung selbst
+ * bleibt eine reine „Zählertausch"-Markierung ohne eigene Jahreszahl.
+ */
 function buildCellMap(meter: ReportZaehlerInput | undefined, sparte: Sparte): Map<string, UtilityCell> {
   const map = new Map<string, UtilityCell>();
   if (!meter) return map;
@@ -135,17 +147,73 @@ function buildCellMap(meter: ReportZaehlerInput | undefined, sparte: Sparte): Ma
   const intervals = calculateConsumption(ascending);
   const byReadingId = new Map(ascending.map((reading) => [reading.id, reading]));
 
+  // Erst-Ablesung = Installations-Stand: der Zähler startet bei 0, der erste
+  // abgelesene Wert ist der Verbrauch seit dem Einbau. Er bildet eine eigene
+  // Zeile mit 0 Tagen (kein Vorintervall → keine Rate, keine Kosten). Der
+  // Referenz-Bericht führt diese Zeile ebenso, und die Gesamtsumme je Zähler
+  // rechnet sie mit (Zähler-Lebensverbrauch = Endstand − 0). Bewusst hier im
+  // Bericht statt in `calculateConsumption`, damit die Kernlogik keinen
+  // mitten im Leben übernommenen Zähler (erster Stand ≠ 0) fälschlich als
+  // Verbrauch verbucht.
+  const first = ascending[0];
+  if (first) {
+    map.set(toIsoDate(first.datum), {
+      consumption: first.zaehlerGetauscht ? null : first.wert,
+      consumptionKwh:
+        sparte === "Gas" && !first.zaehlerGetauscht ? first.wert * GAS_KWH_FACTOR : null,
+      days: 0,
+      cost: first.kosten,
+      swap: first.zaehlerGetauscht,
+    });
+  }
+
+  // Über offene Tausch-Strecken zurückgestellter Verbrauch + Tage, bis die
+  // nächste echte Ablesung sie aufnimmt.
+  let carryAmount = 0;
+  let carryDays = 0;
+  let carryImplausible = false;
+  let carrying = false;
+
   for (const interval of intervals) {
     const ending = byReadingId.get(interval.toReadingId);
     if (!ending) continue;
+
+    if (ending.zaehlerGetauscht) {
+      // Tausch-Zeile: nur Markierung, Verbrauch der Altgerät-Strecke zurückstellen.
+      map.set(toIsoDate(ending.datum), {
+        consumption: null,
+        consumptionKwh: null,
+        days: interval.days,
+        cost: null,
+        swap: true,
+      });
+      carrying = true;
+      carryDays += interval.days;
+      if (interval.amount === null) carryImplausible = true;
+      else carryAmount += interval.amount;
+      continue;
+    }
+
+    // Echte Ablesung: eine ggf. offene Tausch-Strecke einrechnen.
+    const amount = carrying
+      ? carryImplausible || interval.amount === null
+        ? null
+        : carryAmount + interval.amount
+      : interval.amount;
+    const days = carrying ? carryDays + interval.days : interval.days;
+
     map.set(toIsoDate(ending.datum), {
-      consumption: interval.amount,
-      consumptionKwh:
-        sparte === "Gas" && interval.amount !== null ? interval.amount * GAS_KWH_FACTOR : null,
-      days: interval.days,
-      cost: intervalCost(meter, interval.amount, interval.days, ending.datum, ending.kosten),
-      swap: ending.zaehlerGetauscht,
+      consumption: amount,
+      consumptionKwh: sparte === "Gas" && amount !== null ? amount * GAS_KWH_FACTOR : null,
+      days,
+      cost: intervalCost(meter, amount, days, ending.datum, ending.kosten),
+      swap: false,
     });
+
+    carrying = false;
+    carryAmount = 0;
+    carryDays = 0;
+    carryImplausible = false;
   }
   return map;
 }

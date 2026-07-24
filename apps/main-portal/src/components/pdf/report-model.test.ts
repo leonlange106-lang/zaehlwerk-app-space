@@ -50,40 +50,106 @@ function cellsByDate(meter: ReportZaehlerInput) {
 }
 
 describe("buildYearlyReport – Zählertausch", () => {
-  it("weist die Ablesung nach dem Tausch mit Verbrauch UND Kosten aus", () => {
+  it("faltet die Tausch-Strecke in das volle Jahr der Folge-Ablesung", () => {
     const cells = cellsByDate(waterMeter());
     const after = cells.get("2005-09-15");
 
-    // Der neue Zähler lief von 0 auf 95.
-    expect(after?.consumption).toBe(95);
+    // Jahresverbrauch = letzte richtige Ablesung (1000) → Endstand alt (1120)
+    // PLUS Startwert neu (0) → neue Ablesung (95) = 120 + 95 = 215.
+    expect(after?.consumption).toBe(215);
+    // Und über den vollen Zeitraum 11.09.2004 → 15.09.2005 (≈ 369 Tage), nicht
+    // nur die halbe Strecke seit dem Tausch.
+    expect(after?.days).toBe(369);
     expect(after?.cost).not.toBeNull();
     expect(after?.swap).toBe(false);
   });
 
-  it("bucht auf die Tausch-Ablesung nur den Verbrauch des ALTEN Geräts", () => {
+  it("zeigt die Tausch-Ablesung nur als Markierung, ohne eigene Jahreszahl", () => {
     const cells = cellsByDate(waterMeter());
     const swap = cells.get("2005-03-31");
 
-    // 1120 − 1000, nicht der komplette Endstand 1120: Letzteres hat früher jede
-    // Gesamtsumme und jede Hochrechnung des Zählers verfälscht.
-    expect(swap?.consumption).toBe(120);
     expect(swap?.swap).toBe(true);
+    expect(swap?.consumption).toBeNull();
+    expect(swap?.cost).toBeNull();
   });
 
   it("berücksichtigt einen erfassten Startwert des neuen Zählers", () => {
     const cells = cellsByDate(waterMeter(5));
-    expect(cells.get("2005-09-15")?.consumption).toBe(90); // 95 − 5
-    expect(cells.get("2005-03-31")?.consumption).toBe(120); // unverändert
+    // 120 (alt) + (95 − 5) (neu) = 210.
+    expect(cells.get("2005-09-15")?.consumption).toBe(210);
+    expect(cells.get("2005-03-31")?.swap).toBe(true);
   });
 
-  it("lässt kein Intervall unplausibel werden, nur weil getauscht wurde", () => {
+  it("verliert durch den Tausch keinen Verbrauch aus der Gesamtsumme", () => {
+    // Summe der ausgewiesenen Jahreszeilen (die Markierung zählt nicht):
+    // 2005 = 215, 2006 = 95. Nichts fällt weg.
+    const cells = cellsByDate(waterMeter());
+    const yearly = [...cells.values()]
+      .filter((c): c is NonNullable<typeof c> => c !== null && !c.swap)
+      .map((c) => c.consumption);
+    // Einbau-Stand (1000), 2005 gefaltet (215), 2006 (95).
+    expect(yearly).toEqual([1000, 215, 95]);
+  });
+
+  it("markiert eine Jahreszeile nur dann als unplausibel, wenn sie es wirklich ist", () => {
     const report = buildYearlyReport([waterMeter()]);
-    const implausible = report.rows.filter((row) => row.wasser && row.wasser.consumption === null);
-    expect(implausible).toEqual([]);
+    // Tausch-Markierungen (consumption null) dürfen NICHT als unplausible
+    // Jahreszeilen zählen.
+    const implausibleYears = report.rows.filter(
+      (row) => row.wasser && !row.wasser.swap && row.wasser.consumption === null,
+    );
+    expect(implausibleYears).toEqual([]);
   });
 
   it("hält die Folgejahre unverändert", () => {
     const cells = cellsByDate(waterMeter());
     expect(cells.get("2006-09-19")?.consumption).toBe(95); // 190 − 95
+  });
+});
+
+describe("buildYearlyReport – Erst-Ablesung (Installations-Stand)", () => {
+  function stromMeter() {
+    return {
+      id: "s",
+      name: "Strom",
+      kategorie: "STROM" as const,
+      einheit: "kWh",
+      tarife: [],
+      ablesungen: [
+        { id: "a", datum: d("2000-05-31"), wert: 48, zaehlerGetauscht: false, startwertNeu: null, kosten: null },
+        { id: "b", datum: d("2000-09-16"), wert: 1180, zaehlerGetauscht: false, startwertNeu: null, kosten: 327.4 },
+      ],
+    };
+  }
+
+  it("führt die erste Ablesung als Verbrauch seit Einbau (Stand ab 0), mit 0 Tagen", () => {
+    const report = buildYearlyReport([stromMeter()]);
+    const first = report.rows.find((r) => r.date === "2000-05-31")?.strom;
+    expect(first?.consumption).toBe(48); // 48 − 0
+    expect(first?.days).toBe(0); // kein Vorintervall → keine Rate/Kosten
+    expect(first?.swap).toBe(false);
+  });
+
+  it("rechnet die zweite Ablesung normal gegen die erste", () => {
+    const report = buildYearlyReport([stromMeter()]);
+    expect(report.rows.find((r) => r.date === "2000-09-16")?.strom?.consumption).toBe(1132);
+  });
+
+  it("weist Gas den Einbau-Verbrauch auch in kWh aus", () => {
+    const gas = {
+      id: "g",
+      name: "Gas",
+      kategorie: "GAS" as const,
+      einheit: "m³",
+      tarife: [],
+      ablesungen: [
+        { id: "a", datum: d("2000-05-31"), wert: 85, zaehlerGetauscht: false, startwertNeu: null, kosten: null },
+        { id: "b", datum: d("2000-09-16"), wert: 649, zaehlerGetauscht: false, startwertNeu: null, kosten: null },
+      ],
+    };
+    const first = buildYearlyReport([gas]).rows.find((r) => r.date === "2000-05-31")?.gas;
+    expect(first?.consumption).toBe(85);
+    // 85 m³ × Brennwert × Zustandszahl ≈ 843 kWh (Referenz-Bericht).
+    expect(Math.round(first!.consumptionKwh!)).toBe(843);
   });
 });
