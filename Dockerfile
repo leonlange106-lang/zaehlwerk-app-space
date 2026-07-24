@@ -45,11 +45,21 @@ ENV DATABASE_URL="file:./build-placeholder.db"
 #
 # Cache mounts persist Next's webpack cache and Turbo's cache across builds, so
 # an incremental rebuild only recompiles what actually changed instead of the
-# whole app every time. These live in BuildKit's cache (not the image layer),
-# so they never bloat the shipped image.
+# whole app every time. The mounts themselves are BuildKit state and never land
+# in a layer.
+#
+# The standalone output is the catch, though: `next build` copies the whole
+# `.next/` tree into `.next/standalone/…/.next/`, and it does that while the
+# cache mount is still attached — so the webpack cache gets COPIED out of the
+# mount into a real directory that the runner then ships. That was ~1.2 GB of
+# pure garbage per image and it is what made `docker compose build` die with
+# ENOSPC while unpacking the layer. Drop it inside the same RUN, so the bytes
+# are gone before the layer is committed (deleting it later would not shrink
+# anything — the earlier layer would still carry it).
 RUN --mount=type=cache,id=zw-next-cache,target=/repo/apps/main-portal/.next/cache \
     --mount=type=cache,id=zw-turbo-cache,target=/repo/.turbo \
-    pnpm build
+    pnpm build \
+ && rm -rf apps/main-portal/.next/standalone/apps/main-portal/.next/cache
 
 # ---- runner: minimal production image
 #

@@ -92,17 +92,51 @@ df -h "$REPO_ROOT" 2>/dev/null || true
 docker container prune -f || true
 docker image prune -f || true
 
+# `docker builder prune` is a buildx subcommand. On a host where the buildx
+# component is missing or broken it fails outright ("BuildKit is enabled but the
+# buildx component is missing"), and because every call here is best-effort the
+# error used to be swallowed — the low-disk branch reclaimed nothing, the build
+# started anyway with ~3GB free and died unpacking the image layer. So: fall back
+# to `docker system prune`, which goes through the daemon and needs no buildx.
+# `--volumes` is deliberately NOT passed — that would delete the database.
+# $1 = "all" (disk is tight — reclaim everything) or "some" (keep ~6GB of cache).
+# The system-prune fallback only runs in the "all" case: it also drops unused
+# images, i.e. the previous version's image we would roll back to. That is a fair
+# trade when the alternative is a failed deploy, but not worth it on a host that
+# has plenty of space and merely lacks buildx.
+prune_build_cache() {
+  if [ "$1" = "all" ]; then
+    docker builder prune -af && return 0
+    echo "[update] builder prune unavailable (no buildx?) — falling back to system prune"
+    docker system prune -af || true
+  else
+    docker builder prune -f --keep-storage=6GB && return 0
+    docker builder prune -f && return 0
+    echo "[update] builder prune unavailable (no buildx?) — skipping, disk has room"
+  fi
+}
+
 MIN_FREE_KB="${MIN_FREE_KB:-8388608}"
 free_kb="$(df -Pk "$REPO_ROOT" 2>/dev/null | awk 'NR==2 {print $4}')"
 if [ -n "$free_kb" ] && [ "$free_kb" -lt "$MIN_FREE_KB" ]; then
   echo "[update] low disk: ${free_kb}KB free < ${MIN_FREE_KB}KB — pruning ALL build cache"
-  docker builder prune -af || true
+  prune_build_cache all
 else
   echo "[update] disk ok: ${free_kb:-?}KB free — keeping ~6GB build cache"
-  docker builder prune -f --keep-storage=6GB || docker builder prune -f || true
+  prune_build_cache some
 fi
 echo "[update] disk after prune:"
 df -h "$REPO_ROOT" 2>/dev/null || true
+
+# Refuse to start a build that cannot finish. A build needs room for the image
+# layers on top of everything else; below this hard floor the export step is
+# going to hit ENOSPC after burning several minutes, and an abort HERE leaves the
+# old app serving instead. Override with ABORT_FREE_KB (default 4 GiB).
+ABORT_FREE_KB="${ABORT_FREE_KB:-4194304}"
+free_kb="$(df -Pk "$REPO_ROOT" 2>/dev/null | awk 'NR==2 {print $4}')"
+if [ -n "$free_kb" ] && [ "$free_kb" -lt "$ABORT_FREE_KB" ]; then
+  fail "Zu wenig Speicher: nur $((free_kb / 1024))MB frei, mindestens $((ABORT_FREE_KB / 1024))MB nötig. Alte Images/Build-Cache aufräumen oder die Disk vergrößern." "$GIT_SHA"
+fi
 
 # 2) Build the NEW image ----------------------------------------------------
 # The old container keeps serving during this; buildkit steps stream to the
