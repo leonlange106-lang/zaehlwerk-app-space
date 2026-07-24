@@ -43,6 +43,7 @@ const OverlayChart = lazy(() =>
   import("./OverlayChart").then((m) => ({ default: m.OverlayChart })),
 );
 import { LegendItem, SERIES_COLORS } from "./ChartLegend";
+import { MetricTile } from "@/app/components/ui/MetricTile";
 import { XS_INPUT_HEIGHT } from "./ui-metrics";
 
 // Dual-log comparison workspace. Two logs — Baseline (A) and Comparison (B) —
@@ -237,28 +238,25 @@ export function ComparisonView() {
               Über das erkannte WOT-Fenster je Log · A ab {fmtAnchor(comparison.alignment.a.offset)},
               B ab {fmtAnchor(comparison.alignment.b.offset)}
             </Text>
-            <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="md">
+            <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="xs">
               {comparison.metrics.map((m) => {
                 const d = fmtDelta(m);
                 return (
-                  <Card withBorder radius="md" p="md" key={m.key}>
-                    <Text size="xs" c="dimmed" tt="uppercase" fw={600} lh={1.3}>
-                      {m.label}
-                    </Text>
-                    <Group gap={6} mt={4} align="baseline" wrap="nowrap">
-                      <Text size="lg" fw={700}>
-                        {fmtNum(m.b, m.unit)}
-                      </Text>
-                    </Group>
-                    <Group gap={6} mt={4} wrap="nowrap">
-                      <Badge size="sm" variant="light" color={d.color}>
-                        {d.text}
-                      </Badge>
-                      <Text size="xs" c="dimmed">
-                        A: {fmtNum(m.a, m.unit)}
-                      </Text>
-                    </Group>
-                  </Card>
+                  <MetricTile
+                    key={m.key}
+                    label={m.label}
+                    value={fmtNum(m.b, m.unit)}
+                    hint={
+                      <Group gap={6} wrap="nowrap">
+                        <Badge size="xs" variant="light" color={d.color}>
+                          {d.text}
+                        </Badge>
+                        <Text size="xs" c="dimmed" truncate>
+                          A: {fmtNum(m.a, m.unit)}
+                        </Text>
+                      </Group>
+                    }
+                  />
                 );
               })}
             </SimpleGrid>

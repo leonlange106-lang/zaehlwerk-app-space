@@ -8,10 +8,15 @@ import { Group, Text } from "@mantine/core";
 // the line it stands for are defined together and cannot drift apart.
 
 export const SERIES_COLORS = {
-  /** Log A · power — the leading trace. */
+  /** Log A · power — the leading trace, in the app's own high-octane orange. */
   primary: "var(--mantine-color-orange-6)",
-  /** Log B · torque — the second trace, drawn dashed. */
-  secondary: "var(--mantine-color-blue-6)",
+  /**
+   * Log B · torque — the second trace, drawn dashed. Electric cyan is the
+   * furthest hue from the primary that still holds up at 1.8px on the near-black
+   * canvas, and the pair stays distinguishable under both common red-green
+   * deficiencies (the dash pattern carries the distinction regardless).
+   */
+  secondary: "var(--mantine-color-cyan-4)",
   /** Companion/cross-check trace: muted and theme-aware in light and dark. */
   reference: "var(--mantine-color-dimmed)",
 } as const;

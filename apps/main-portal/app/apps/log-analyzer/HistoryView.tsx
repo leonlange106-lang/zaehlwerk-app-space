@@ -19,14 +19,13 @@ import {
   Tooltip,
 } from "@mantine/core";
 import {
-  IconAlertTriangle,
   IconChartHistogram,
   IconClockHour4,
   IconGasStation,
-  IconShieldCheck,
   IconTrash,
 } from "@tabler/icons-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { StatusBadge, type StatusTone } from "@/app/components/ui/StatusBadge";
 import { setActiveLogId } from "./lib/log-store";
 import {
   deleteLogById,
@@ -57,23 +56,25 @@ const VIRTUALIZE_THRESHOLD = 40;
 const GROUP_HEADER_HEIGHT = 38;
 const VIEWPORT_HEIGHT = 640;
 
-const STATUS_META: Record<PullStatus, { label: string; color: string }> = {
-  verified: { label: "VERIFIED", color: "teal" },
-  partial: { label: "PARTIAL", color: "yellow" },
-  invalid: { label: "INVALID", color: "red" },
+// Verdicts go through StatusBadge (colour + icon, never colour alone); the
+// source tag is a plain label, not a status, so it stays a neutral badge.
+const STATUS_META: Record<PullStatus, { label: string; tone: StatusTone }> = {
+  verified: { label: "VERIFIED", tone: "ok" },
+  partial: { label: "PARTIAL", tone: "watch" },
+  invalid: { label: "INVALID", tone: "risk" },
 };
 
 const SOURCE_META: Record<string, { label: string; color: string }> = {
   upload: { label: "Upload", color: "orange" },
-  remote: { label: "Remote", color: "blue" },
-  ingest: { label: "Auto · API", color: "grape" },
-  watch: { label: "Auto · Ordner", color: "grape" },
+  remote: { label: "Remote", color: "cyan" },
+  ingest: { label: "Auto · API", color: "slate" },
+  watch: { label: "Auto · Ordner", color: "slate" },
 };
 
-const HEALTH_META: Record<PullHealth, { label: string; color: string; safe: boolean }> = {
-  safe: { label: "Hardware-sicher", color: "green", safe: true },
-  caution: { label: "Beobachten", color: "yellow", safe: false },
-  danger: { label: "Hardware-Risiko", color: "red", safe: false },
+const HEALTH_META: Record<PullHealth, { label: string; tone: StatusTone }> = {
+  safe: { label: "Hardware-sicher", tone: "ok" },
+  caution: { label: "Beobachten", tone: "watch" },
+  danger: { label: "Hardware-Risiko", tone: "risk" },
 };
 
 const dateFormatter = new Intl.DateTimeFormat("de-DE", {
@@ -308,21 +309,20 @@ const LogRow = memo(function LogRow({
             <Text fw={600} style={{ wordBreak: "break-all" }}>
               {log.name}
             </Text>
-            <Badge
-              color={health.color}
+            <StatusBadge
+              tone={health.tone}
+              label={health.label}
               variant="filled"
               size="sm"
-              leftSection={
-                health.safe ? <IconShieldCheck size={12} /> : <IconAlertTriangle size={12} />
-              }
               data-testid="log-health"
-            >
-              {health.label}
-            </Badge>
-            <Badge color={status.color} variant="light" size="sm" data-testid="log-status">
-              {status.label}
-            </Badge>
-            <Badge variant="light" color={SOURCE_META[log.source]?.color ?? "orange"} size="sm">
+            />
+            <StatusBadge
+              tone={status.tone}
+              label={status.label}
+              size="sm"
+              data-testid="log-status"
+            />
+            <Badge variant="outline" color={SOURCE_META[log.source]?.color ?? "orange"} size="sm">
               {SOURCE_META[log.source]?.label ?? "Upload"}
             </Badge>
           </Group>

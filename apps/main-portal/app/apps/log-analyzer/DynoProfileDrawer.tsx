@@ -14,7 +14,9 @@ import {
   Text,
   TextInput,
 } from "@mantine/core";
+import { useMediaQuery } from "@mantine/hooks";
 import { IconDeviceFloppy, IconRotate } from "@tabler/icons-react";
+import sheet from "@/app/components/ui/ResponsiveDialog.module.css";
 import {
   applyVehicleEngine,
   DYNO_PRESETS,
@@ -59,13 +61,20 @@ export function DynoProfileDrawer({
   onClose: () => void;
   onSave: (profile: DynoProfile) => void;
 }) {
+  // A right-hand drawer is a desktop idiom — at 390px it covers the screen and
+  // its Save button lands in the top-right corner, the least reachable spot on
+  // a phone. Below `sm` the same form slides up from the bottom instead. Safe to
+  // read at first render: this component only mounts on user interaction.
+  const isPhone = useMediaQuery("(max-width: 48em)", false, { getInitialValueInEffect: true });
+
   return (
     <Drawer
       opened={opened}
       onClose={onClose}
-      position="right"
+      position={isPhone ? "bottom" : "right"}
       size="lg"
       title="Fahrzeug-Parameter (Virtueller Prüfstand)"
+      classNames={isPhone ? { content: sheet.sheet, body: sheet.sheetBody } : undefined}
     >
       {/* Mounted only while open, so every open re-seeds from the saved profile
           and a cancelled edit can never leak into the next session. */}

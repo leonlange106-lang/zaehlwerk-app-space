@@ -37,6 +37,18 @@ async function gotoMeterDetail(page: Page) {
   await expect(page.getByRole("heading", { name: E2E_METER_NAME })).toBeVisible();
 }
 
+/**
+ * Below `sm` the detail page shows one section at a time behind a pill bar
+ * (Verlauf / Erfassen / Verwalten) instead of one very long vertical stack.
+ * "Verlauf" is the landing section, so only the other two need selecting.
+ */
+async function selectDetailPane(page: Page, label: "Verlauf" | "Erfassen" | "Verwalten") {
+  // Mantine renders the segment's <input type="radio"> visually hidden and puts
+  // the hit area on the label, so the click has to land on the text. Scoped to
+  // the radiogroup because "Verlauf" is also a card heading on this page.
+  await page.getByRole("radiogroup", { name: "Bereich wählen" }).getByText(label).click();
+}
+
 test.describe("Mobile: no horizontal viewport scroll", () => {
   for (const route of CORE_ROUTES) {
     test(`renders without error + no horizontal scroll on ${route}`, async ({ page }) => {
@@ -131,6 +143,7 @@ test.describe("Mobile: modals & forms", () => {
 
   test("create reading via the inline form", async ({ page }) => {
     await gotoMeterDetail(page);
+    await selectDetailPane(page, "Erfassen");
     await page.getByLabel("Zählerstand (kWh)").fill("2000");
     await page.getByRole("button", { name: "Ablesung speichern" }).click();
     await expect(page.getByText("Ablesung wurde erfasst.")).toBeVisible();
@@ -138,6 +151,7 @@ test.describe("Mobile: modals & forms", () => {
 
   test("delete meter surfaces a confirmation (dismiss keeps the meter)", async ({ page }) => {
     await gotoMeterDetail(page);
+    await selectDetailPane(page, "Verwalten");
     let dialogMessage = "";
     page.once("dialog", (dialog) => {
       dialogMessage = dialog.message();

@@ -1,18 +1,50 @@
-.colorDot {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  flex-shrink: 0;
+/*
+ * Phone-only section switching.
+ *
+ * The pill bar above the grid sets `data-active` on each pane, but that only
+ * means anything below `sm`: from tablet up every pane is on screen at once and
+ * the rule below simply does not apply, so the desktop grid keeps its original
+ * two-column layout with no JS involved. Because the initial pane is chosen
+ * before the first paint, nothing ever appears and then collapses.
+ */
+@media (max-width: $mantine-breakpoint-sm) {
+  .pane[data-active="false"] {
+    display: none;
+  }
 }
 
 .zaehlerCard {
   display: block;
   text-decoration: none;
   color: inherit;
-  transition: border-color 100ms ease;
+  /* The meter's identity colour as a hard left spine — scannable down a list
+     without reading a single label. */
+  border-left: 3px solid var(--meter-color, var(--zw-border-strong));
+  transition: border-color 100ms ease, background-color 100ms ease;
 }
 
-.zaehlerCard:hover {
-  border-color: light-dark(var(--mantine-color-gray-5), var(--mantine-color-dark-3));
+.zaehlerCard:hover,
+.zaehlerCard:focus-visible {
+  border-color: var(--zw-border-strong);
+  border-left-color: var(--meter-color, var(--zw-accent));
+  background: var(--zw-elevated);
+}
+
+/* Let the name column shrink so a long meter name truncates instead of pushing
+   the category badge off the right edge at 390px. */
+.meterName {
+  min-width: 0;
+}
+
+.alignEnd {
+  text-align: right;
+}
+
+/* The repeated micro-caption above every figure in a card. */
+.microLabel {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--mantine-color-dimmed);
 }

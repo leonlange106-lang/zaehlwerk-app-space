@@ -1,19 +1,20 @@
 <svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Zählwerk">
   <defs>
     <linearGradient id="zw-bg" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#586a7e"/>
-      <stop offset="1" stop-color="#3c4b5a"/>
+      <stop stop-color="#1f293d"/>
+      <stop offset="1" stop-color="#080c14"/>
     </linearGradient>
   </defs>
-  <rect width="64" height="64" rx="15" fill="url(#zw-bg)"/>
+  <rect width="64" height="64" rx="6" fill="url(#zw-bg)"/>
+  <rect x="0.75" y="0.75" width="62.5" height="62.5" rx="5.25" fill="none" stroke="#374151" stroke-width="1.5"/>
   <!-- odometer / counter housing -->
-  <rect x="12" y="24" width="40" height="18" rx="4" fill="#2d3945"/>
+  <rect x="12" y="24" width="40" height="18" rx="2" fill="#080c14" stroke="#374151"/>
   <!-- digit wheels -->
-  <rect x="16" y="27" width="9" height="12" rx="2" fill="#e5e9ed"/>
-  <rect x="27.5" y="27" width="9" height="12" rx="2" fill="#e5e9ed"/>
-  <rect x="39" y="27" width="9" height="12" rx="2" fill="#20c997"/>
+  <rect x="16" y="27" width="9" height="12" rx="1" fill="#e5e9f0"/>
+  <rect x="27.5" y="27" width="9" height="12" rx="1" fill="#e5e9f0"/>
+  <rect x="39" y="27" width="9" height="12" rx="1" fill="#06b6d4"/>
   <!-- center reading band -->
-  <line x1="12" y1="33" x2="52" y2="33" stroke="#778ba0" stroke-width="1.5" opacity="0.5"/>
+  <line x1="12" y1="33" x2="52" y2="33" stroke="#64748b" stroke-width="1.5" opacity="0.6"/>
   <!-- energy tick / bolt above the counter -->
-  <path d="M33 12 L27 22 L32 22 L30 30 L38 19 L33 19 Z" fill="#20c997"/>
+  <path d="M33 12 L27 22 L32 22 L30 30 L38 19 L33 19 Z" fill="#06b6d4"/>
 </svg>

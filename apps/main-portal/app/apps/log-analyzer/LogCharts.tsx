@@ -38,10 +38,17 @@ interface Props {
   exclusionRanges: PullRange[];
 }
 
-const GREEN = "#22c55e";
-const CRITICAL = "#e03131";
-const WARNING = "#f08c00";
-const SHIFT_GREY = "#868e96";
+// Overlay colours come from the global status tokens rather than literals, so
+// the analytical layer keeps the same meaning as every badge in the product and
+// automatically re-resolves for the light scheme. SVG resolves `var()` in
+// stroke/fill just as CSS does.
+const OK = "var(--zw-ok)";
+const CRITICAL = "var(--zw-risk)";
+const WARNING = "var(--zw-watch)";
+const SHIFT_GREY = "var(--zw-neutral)";
+/** Axis/grid furniture — deliberately quiet so the traces stay the loudest thing. */
+const GRID = "var(--zw-border)";
+const AXIS_TEXT = "var(--mantine-color-dimmed)";
 
 function formatX(value: number, unit: "s" | "#"): string {
   if (unit === "#") return String(Math.round(value));
@@ -85,7 +92,7 @@ export function LogCharts({
 
   const colorFor = (s: LogSeries) => colorById[s.key] ?? s.color;
   const sideFor = (s: LogSeries): AxisSide => axisById[s.key] ?? "left";
-  const areaColor = pullVerified ? GREEN : WARNING;
+  const areaColor = pullVerified ? OK : WARNING;
 
   return (
     <Stack gap="md">
@@ -120,22 +127,29 @@ export function LogCharts({
                     syncId="log-analyzer"
                     margin={{ top: 4, right: 8, bottom: 4, left: 0 }}
                   >
-                    <CartesianGrid strokeDasharray="3 3" opacity={0.25} />
+                    <CartesianGrid strokeDasharray="2 4" stroke={GRID} />
                     <XAxis
                       dataKey="x"
                       type="number"
                       domain={["dataMin", "dataMax"]}
                       tickFormatter={(v) => formatX(Number(v), log.timeUnit)}
-                      tick={{ fontSize: 11 }}
+                      tick={{ fontSize: 10, fill: AXIS_TEXT }}
+                      stroke={GRID}
                       minTickGap={32}
                     />
-                    <YAxis yAxisId="left" tick={{ fontSize: 11 }} width={44} />
+                    <YAxis
+                      yAxisId="left"
+                      tick={{ fontSize: 10, fill: AXIS_TEXT }}
+                      stroke={GRID}
+                      width={40}
+                    />
                     {usesRight && (
                       <YAxis
                         yAxisId="right"
                         orientation="right"
-                        tick={{ fontSize: 11 }}
-                        width={44}
+                        tick={{ fontSize: 10, fill: AXIS_TEXT }}
+                        stroke={GRID}
+                        width={40}
                       />
                     )}
 
@@ -217,7 +231,17 @@ export function LogCharts({
                           s?.label ?? String(item.dataKey),
                         ];
                       }}
-                      contentStyle={{ fontSize: 12, borderRadius: 8 }}
+                      // The tooltip is a raised plate like every other floating
+                      // surface: elevated fill, hairline outline, hard corners.
+                      contentStyle={{
+                        fontSize: 12,
+                        borderRadius: 4,
+                        background: "var(--zw-elevated)",
+                        border: "1px solid var(--zw-border)",
+                        color: "var(--mantine-color-text)",
+                      }}
+                      labelStyle={{ color: "var(--mantine-color-dimmed)" }}
+                      cursor={{ stroke: "var(--zw-border-strong)", strokeWidth: 1 }}
                     />
                     {series.map((s) => (
                       <Line
@@ -228,7 +252,10 @@ export function LogCharts({
                         name={s.label}
                         stroke={colorFor(s)}
                         dot={false}
-                        strokeWidth={1.6}
+                        // Slightly heavier than before: on the near-black canvas
+                        // a 1.6px stroke reads thin, especially for the cooler
+                        // channel colours.
+                        strokeWidth={1.8}
                         isAnimationActive={false}
                         connectNulls
                       />

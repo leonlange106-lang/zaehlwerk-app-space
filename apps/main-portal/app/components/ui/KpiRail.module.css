@@ -1,0 +1,74 @@
+/*
+ * Sticky Micro-KPI Rail.
+ *
+ * On a 390px phone the top metrics used to be a four-high vertical stack that
+ * pushed the actual content below the fold. Here they become one horizontally
+ * scrollable row that *stays* pinned under the header while you scroll the page,
+ * so the headline numbers are readable at any scroll depth without a thumb
+ * journey back to the top. From `sm` up there is room for a real grid, and the
+ * rail stops sticking (nothing to save).
+ */
+.rail {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  padding-block: 8px;
+  -webkit-overflow-scrolling: touch;
+}
+
+/*
+ * The pinned bar bleeds to the viewport edges while the tiles inside it stay
+ * aligned to the page's content column: the background and the hairline rule
+ * have to span the full width (otherwise content scrolls visibly through the
+ * gutters beside the rail), but a tile hanging off the left edge just reads as
+ * clipped. Bleeding the wrapper and padding it back gives both.
+ */
+.sticky {
+  position: sticky;
+  top: var(--zw-header-height);
+  z-index: 3;
+  /* Opaque, or the page would smear through the pinned rail as it scrolls. */
+  background: var(--zw-canvas);
+  border-bottom: 1px solid var(--zw-border);
+  margin-inline: calc(-1 * var(--mantine-spacing-xs));
+  padding-inline: var(--mantine-spacing-xs);
+}
+
+.item {
+  flex: 0 0 auto;
+  /* Wide enough for "1.234,5 kWh" without wrapping, narrow enough that a second
+     tile peeks in at 390px — the affordance that says "this scrolls". */
+  width: 148px;
+  scroll-snap-align: start;
+}
+
+@media (min-width: $mantine-breakpoint-sm) {
+  .rail {
+    display: grid;
+    grid-template-columns: repeat(var(--rail-cols, 4), minmax(0, 1fr));
+    gap: var(--mantine-spacing-sm);
+    overflow-x: visible;
+  }
+
+  .sticky {
+    position: static;
+    border-bottom: none;
+    background: transparent;
+    margin-inline: 0;
+    padding-inline: 0;
+  }
+
+  .item {
+    width: auto;
+  }
+}
+
+/* Between phone and tablet, two columns beat four cramped ones. */
+@media (min-width: $mantine-breakpoint-sm) and (max-width: $mantine-breakpoint-md) {
+  .rail {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

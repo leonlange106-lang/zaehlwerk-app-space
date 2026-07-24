@@ -1,11 +1,15 @@
 .screen {
   min-height: 100vh;
   padding: var(--mantine-spacing-md);
-  background: light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-8));
+  background: var(--zw-canvas);
 }
 
 .card {
   width: 100%;
   max-width: 420px;
-  background: light-dark(var(--mantine-color-white), var(--mantine-color-dark-7));
+  background: var(--zw-surface);
+  /* Same accent top rule as the login plate — first-boot and sign-in are the
+     two screens that render without the app shell, so they carry the language
+     themselves. */
+  border-top: 2px solid var(--zw-accent);
 }

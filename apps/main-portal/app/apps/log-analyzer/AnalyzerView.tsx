@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   Alert,
   Badge,
+  Box,
   Button,
   Card,
   FileButton,
@@ -43,7 +44,9 @@ import { groupSelectedSeries } from "./lib/chart-data";
 import { ChartStackSkeleton } from "./ChartSkeletons";
 import { MetadataCard } from "./MetadataCard";
 import { EvaluationCard } from "./EvaluationCard";
-import { ParameterPanel } from "./ParameterPanel";
+import { ParameterPanel, ParameterPanelBody } from "./ParameterPanel";
+import { ChannelChips } from "./ChannelChips";
+import { ResponsiveDialog } from "@/app/components/ui/ResponsiveDialog";
 import type { AxisSide } from "./lib/types";
 import classes from "./LogAnalyzer.module.css";
 
@@ -79,6 +82,9 @@ export function AnalyzerView() {
   const [spec, setSpec] = useState<VehicleSpec>(DEFAULT_VEHICLE_SPEC);
   const [dynoProfile, setDynoProfile] = useState<DynoProfile>(DEFAULT_DYNO_PROFILE);
   const [exportOpen, setExportOpen] = useState(false);
+  // Phones reach the full parameter panel through a bottom sheet; the chip bar
+  // above the charts covers the common "drop this trace" case without it.
+  const [channelSheetOpen, setChannelSheetOpen] = useState(false);
   // Per-channel display overrides: which Y axis (left/right) and line colour.
   const [axisById, setAxisById] = useState<Record<string, AxisSide>>({});
   const [colorById, setColorById] = useState<Record<string, string>>({});
@@ -324,21 +330,24 @@ export function AnalyzerView() {
             </Text>
           )}
         </div>
-        <Group gap="xs">
+        {/* One wrapping row of compact actions rather than four full-width
+            stacked buttons — at 390px the old layout pushed the metadata and the
+            verdict a whole screen down before anything useful was visible. */}
+        <Group gap={6} wrap="wrap">
           <Button
             variant="light"
-            color="teal"
-            size="xs"
+            color="emerald"
+            size="compact-sm"
             leftSection={<IconFileExport size={14} />}
             onClick={() => setExportOpen(true)}
             data-testid="open-export"
           >
-            Exportieren / Bericht erstellen
+            Bericht
           </Button>
           <Button
             variant="light"
             color="orange"
-            size="xs"
+            size="compact-sm"
             leftSection={<IconGauge size={14} />}
             onClick={() => {
               // Hand the open log over to the dyno page (one-shot, by id).
@@ -347,19 +356,26 @@ export function AnalyzerView() {
             }}
             data-testid="open-dyno"
           >
-            Virtueller Prüfstand
+            Prüfstand
           </Button>
           <FileButton onChange={handleFiles} accept=".csv,.log,.txt,text/csv,text/plain" multiple>
             {(props) => (
-              <Button {...props} variant="light" color="slate" size="xs" leftSection={<IconRefresh size={14} />} loading={uploading}>
-                Logs hochladen
+              <Button
+                {...props}
+                variant="light"
+                color="slate"
+                size="compact-sm"
+                leftSection={<IconRefresh size={14} />}
+                loading={uploading}
+              >
+                Hochladen
               </Button>
             )}
           </FileButton>
           <Button
             variant="subtle"
             color="slate"
-            size="xs"
+            size="compact-sm"
             leftSection={<IconX size={14} />}
             onClick={() => {
               setActive(null);
@@ -420,8 +436,10 @@ export function AnalyzerView() {
         />
       </Card>
 
-      <Grid gutter="lg">
-        <GridCol span={{ base: 12, md: 3 }}>
+      <Grid gutter="md">
+        {/* The parameter sidebar is a tablet/desktop affordance — at 390px it
+            would eat the entire viewport before a single chart appeared. */}
+        <GridCol span={{ base: 12, md: 3 }} visibleFrom="md">
           <ParameterPanel
             series={log.series}
             selected={selected}
@@ -434,6 +452,15 @@ export function AnalyzerView() {
           />
         </GridCol>
         <GridCol span={{ base: 12, md: 9 }}>
+          <Box hiddenFrom="md" mb="xs">
+            <ChannelChips
+              series={log.series}
+              selected={selected}
+              colorById={colorById}
+              onToggle={toggle}
+              onOpenAll={() => setChannelSheetOpen(true)}
+            />
+          </Box>
           {/* The placeholder is sized from the same grouping the stack uses, so
               the chunk arriving swaps content into a box that is already the
               right height. */}
@@ -453,6 +480,26 @@ export function AnalyzerView() {
           </Suspense>
         </GridCol>
       </Grid>
+
+      {/* Full channel panel for phones. Mounted only while open, so it costs
+          nothing on the desktop path where the sidebar already shows it. */}
+      <ResponsiveDialog
+        opened={channelSheetOpen}
+        onClose={() => setChannelSheetOpen(false)}
+        title="Parameter & Kanäle"
+        data-testid="channel-sheet"
+      >
+        <ParameterPanelBody
+          series={log.series}
+          selected={selected}
+          axisById={axisById}
+          colorById={colorById}
+          onToggle={toggle}
+          onToggleGroup={toggleGroup}
+          onAxis={setAxis}
+          onColor={setColor}
+        />
+      </ResponsiveDialog>
 
       {/* An unopened Mantine Modal renders nothing, so there is no geometry to
           reserve and no fallback to show. */}

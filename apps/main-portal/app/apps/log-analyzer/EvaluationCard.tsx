@@ -4,7 +4,6 @@ import Link from "next/link";
 import {
   Alert,
   Anchor,
-  Badge,
   Card,
   Group,
   List,
@@ -16,10 +15,12 @@ import {
 } from "@mantine/core";
 import {
   IconAlertTriangle,
-  IconCircleCheck,
+  IconCheck,
   IconInfoCircle,
   IconShieldCheck,
+  IconShieldX,
 } from "@tabler/icons-react";
+import { StatusBadge, toneForCheck, type StatusTone } from "@/app/components/ui/StatusBadge";
 import { healthFromAlerts, type LogPullEvaluation, type PullStatus } from "./lib/evaluate-log-pull";
 import { summarizeSpec, type VehicleSpec } from "./lib/vehicle-spec";
 
@@ -27,18 +28,22 @@ import { summarizeSpec, type VehicleSpec } from "./lib/vehicle-spec";
 // PARTIAL / INVALID status badge, missing-parameter hints, and safety alerts.
 // All judgement lives in the pure engine (evaluate-log-pull.ts); this component
 // only renders its result.
+//
+// Every verdict here goes through StatusBadge, which pairs the colour with an
+// icon — these are exactly the states someone screenshots into a forum thread
+// or prints in greyscale, where "the green one" carries no information at all.
 
-const STATUS_META: Record<PullStatus, { label: string; color: string }> = {
-  verified: { label: "VERIFIED PULL", color: "teal" },
-  partial: { label: "PARTIAL PULL", color: "yellow" },
-  invalid: { label: "INVALID / INCOMPLETE", color: "red" },
+const STATUS_META: Record<PullStatus, { label: string; tone: StatusTone }> = {
+  verified: { label: "VERIFIED PULL", tone: "ok" },
+  partial: { label: "PARTIAL PULL", tone: "watch" },
+  invalid: { label: "INVALID / INCOMPLETE", tone: "risk" },
 };
 
 const HEALTH_META = {
-  safe: { label: "Hardware-sicher", color: "green" },
-  caution: { label: "Beobachten", color: "yellow" },
-  danger: { label: "Hardware-Risiko", color: "red" },
-} as const;
+  safe: { label: "Hardware-sicher", tone: "ok" },
+  caution: { label: "Beobachten", tone: "watch" },
+  danger: { label: "Hardware-Risiko", tone: "risk" },
+} as const satisfies Record<string, { label: string; tone: StatusTone }>;
 
 function fmtPct(v: number | null): string {
   return v === null ? "—" : `${Math.round(v * 100)}%`;
@@ -87,21 +92,37 @@ export function EvaluationCard({
   ];
 
   return (
-    <Card withBorder radius="md" p="lg" data-testid="evaluation-card">
-      <Group justify="space-between" mb="md" wrap="wrap">
+    <Card p="md" data-testid="evaluation-card">
+      <Group justify="space-between" mb="md" wrap="wrap" gap="xs">
         <Group gap="xs">
-          <ThemeIcon variant="light" color={status.color} radius="md" size={30}>
-            <IconShieldCheck size={17} stroke={1.6} />
+          <ThemeIcon
+            variant="light"
+            color={status.tone === "ok" ? "emerald" : status.tone === "watch" ? "amber" : "red"}
+            radius="sm"
+            size={28}
+          >
+            {status.tone === "risk" ? (
+              <IconShieldX size={16} stroke={1.75} />
+            ) : (
+              <IconShieldCheck size={16} stroke={1.75} />
+            )}
           </ThemeIcon>
           <Title order={5}>Log-Pull Bewertung</Title>
         </Group>
-        <Group gap="xs">
-          <Badge size="lg" color={health.color} variant="filled" data-testid="pull-health">
-            {health.label}
-          </Badge>
-          <Badge size="lg" color={status.color} variant="light" data-testid="pull-status">
-            {status.label}
-          </Badge>
+        <Group gap={6}>
+          <StatusBadge
+            size="lg"
+            variant="filled"
+            tone={health.tone}
+            label={health.label}
+            data-testid="pull-health"
+          />
+          <StatusBadge
+            size="lg"
+            tone={status.tone}
+            label={status.label}
+            data-testid="pull-status"
+          />
         </Group>
       </Group>
 
@@ -112,16 +133,22 @@ export function EvaluationCard({
             icon={
               <ThemeIcon
                 size={20}
-                radius="xl"
+                radius="sm"
                 variant="light"
-                color={c.ok === true ? "teal" : c.ok === false ? "red" : "gray"}
+                color={
+                  toneForCheck(c.ok) === "ok"
+                    ? "emerald"
+                    : toneForCheck(c.ok) === "risk"
+                      ? "red"
+                      : "slate"
+                }
               >
                 {c.ok === true ? (
-                  <IconCircleCheck size={14} />
+                  <IconCheck size={13} stroke={2.2} />
                 ) : c.ok === false ? (
-                  <IconAlertTriangle size={14} />
+                  <IconAlertTriangle size={13} stroke={1.75} />
                 ) : (
-                  <IconInfoCircle size={14} />
+                  <IconInfoCircle size={13} stroke={1.75} />
                 )}
               </ThemeIcon>
             }
@@ -155,7 +182,9 @@ export function EvaluationCard({
             <Alert
               key={a.id}
               variant="light"
-              color={a.severity === "critical" ? "red" : "orange"}
+              // Amber, not the app's orange accent: a warning must read as a
+              // status, not as "this is the Log Analyzer".
+              color={a.severity === "critical" ? "red" : "amber"}
               icon={<IconAlertTriangle size={16} />}
               title={a.title}
             >
@@ -171,7 +200,7 @@ export function EvaluationCard({
             Logging-Profil Hinweise
           </Text>
           {missing.map((m) => (
-            <Alert key={m.key} variant="light" color="blue" icon={<IconInfoCircle size={16} />}>
+            <Alert key={m.key} variant="light" color="cyan" icon={<IconInfoCircle size={16} />}>
               {m.message}
             </Alert>
           ))}

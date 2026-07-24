@@ -1,0 +1,100 @@
+/*
+ * Two presentations of one dataset, switched by CSS alone.
+ *
+ * A seven-column table cannot be made readable at 390px — it either scrolls
+ * sideways (losing the date column, which is the one you navigate by) or shrinks
+ * the type past legibility. Below 600px the history therefore renders as a list
+ * of collapsible cards; at 600px and up the real table takes over, and only that
+ * branch pays for virtualization.
+ *
+ * The swap is a media query, not a JS media-query hook, on purpose: a hook
+ * resolves after mount and would swap one layout for the other in front of the
+ * user — exactly the reflow the layout-stability rule in CLAUDE.md forbids.
+ * Both branches are in the DOM; the media query decides which one has a box.
+ */
+
+.cardList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tableView {
+  display: none;
+}
+
+@media (min-width: 600px) {
+  .cardList {
+    display: none;
+  }
+
+  .tableView {
+    display: block;
+  }
+}
+
+.card {
+  border: 1px solid var(--zw-border);
+  border-left: 3px solid var(--zw-border-strong);
+  border-radius: var(--mantine-radius-md);
+  background: var(--zw-surface);
+  padding: 10px 12px;
+}
+
+/* A reading that swapped the physical meter is a structural event in the
+   series, not a normal entry — mark it on the spine as well as with a badge. */
+.card[data-swapped="true"] {
+  border-left-color: var(--zw-watch);
+}
+
+.head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.value {
+  font-size: 1.05rem;
+  font-weight: 700;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+
+.date {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--mantine-color-dimmed);
+}
+
+/* Action row: toggle on the left, per-row actions on the right, all on one
+   44px thumb line so nothing needs a precise tap. */
+.actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.detailGrid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--zw-border);
+  font-size: 12px;
+}
+
+.detailKey {
+  color: var(--mantine-color-dimmed);
+  white-space: nowrap;
+}
+
+.detailValue {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}

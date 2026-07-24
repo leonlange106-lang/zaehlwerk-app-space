@@ -24,11 +24,16 @@ export const metadata: Metadata = {
 
 // Mobile/PWA viewport: scale to the device width and extend under the notch /
 // home indicator so the fixed AppShell header sits flush on modern phones.
+// The theme colour is the deep-night canvas, so the status bar and the URL bar
+// merge into the app instead of framing it with a lighter strip.
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: "#3c4b5a",
+  themeColor: [
+    { media: "(prefers-color-scheme: dark)", color: "#080c14" },
+    { media: "(prefers-color-scheme: light)", color: "#eef2f6" },
+  ],
 };
 
 export default async function RootLayout({
@@ -45,10 +50,12 @@ export default async function RootLayout({
   return (
     <html lang="de" {...mantineHtmlProps}>
       <head>
-        <ColorSchemeScript defaultColorScheme="light" />
+        {/* Dark-mode native: the palette is designed on the OLED canvas first,
+            and light mode is the derived variant. */}
+        <ColorSchemeScript defaultColorScheme="dark" />
       </head>
       <body>
-        <MantineProvider theme={theme} defaultColorScheme="light">
+        <MantineProvider theme={theme} defaultColorScheme="dark">
           <Notifications position="top-right" />
           <SessionProvider session={session}>
             <PortalShell

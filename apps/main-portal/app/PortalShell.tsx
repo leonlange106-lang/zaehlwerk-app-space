@@ -217,13 +217,26 @@ export function PortalShell({
     closeMobile();
   }, [pathname, closeMobile]);
 
+  const activeApp = activeAppFor(pathname);
+  const activeAppId = activeApp?.id;
+
+  // Mirror the app context onto <html>. The AppShell carries `data-app` for
+  // everything rendered in the tree, but Modals, Drawers, Menus and Tooltips are
+  // portalled to document.body — outside the shell — where they would otherwise
+  // fall back to the root accent and show, say, a cyan rule on a bottom sheet
+  // opened inside the (orange) Log Analyzer.
+  useEffect(() => {
+    const root = document.documentElement;
+    if (activeAppId) root.dataset.app = activeAppId;
+    else delete root.dataset.app;
+  }, [activeAppId]);
+
   // Login / first-boot setup render without the app chrome.
   if (BARE_PATHS.includes(pathname)) {
     return <>{children}</>;
   }
 
   const user = session?.user;
-  const activeApp = activeAppFor(pathname);
   const navItems = activeApp ? APP_NAV[activeApp.id] ?? [] : [];
   const showNavbar = navItems.length > 0;
 
@@ -241,8 +254,13 @@ export function PortalShell({
             }
           : undefined
       }
-      padding="lg"
+      // Ultra-dense on phones (every horizontal pixel counts at 390px), roomier
+      // once there is a sidebar beside the content.
+      padding={{ base: "xs", sm: "md", lg: "lg" }}
       className={classes.shell}
+      // Re-points `--zw-accent` for everything inside the shell, so accent-tinted
+      // chrome (header underline, nav spine, focus rings) follows the active app.
+      data-app={activeApp?.id}
     >
       <AppShell.Header className={classes.header}>
         <Group h="100%" px="md" justify="space-between" wrap="nowrap">

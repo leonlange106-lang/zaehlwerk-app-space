@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useRef, useTransition } from "react";
+import { useActionState, useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -15,6 +15,7 @@ import {
   GridCol,
   Group,
   NumberInput,
+  SegmentedControl,
   Select,
   Stack,
   Text,
@@ -29,7 +30,9 @@ import {
   IconCheck,
   IconGaugeFilled,
   IconReceipt2,
+  IconSum,
   IconTrash,
+  IconTrendingUp,
 } from "@tabler/icons-react";
 import {
   ENERGY_CATEGORIES,
@@ -55,6 +58,7 @@ import { SmartHomeCard, type SmartHomeTokenOption } from "./SmartHomeCard";
 import { MeterDataCard } from "./MeterDataCard";
 import { ReadingHistoryTable, type ReadingRow } from "./ReadingHistoryTable";
 import { ProjectionStats } from "@/app/apps/zaehlwerk/berichte/projection-ui";
+import { MetricTile } from "@/app/components/ui/MetricTile";
 import classes from "./ZaehlerDetail.module.css";
 
 type ZaehlerWithHistory = NonNullable<Awaited<ReturnType<typeof getZaehlerById>>>;
@@ -64,6 +68,9 @@ const dateFormatter = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: 
 const numberFormatter = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 });
 const perDayFormatter = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 2 });
 const eur = new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" });
+
+/** Mobile sections of the meter detail page. */
+type DetailPane = "verlauf" | "erfassen" | "verwalten";
 
 export function ZaehlerDetail({
   zaehler,
@@ -97,6 +104,10 @@ export function ZaehlerDetail({
     return calculateTariffCost(tarif, verbrauch, interval.days);
   }
   const hasTarife = zaehler.tarife.length > 0;
+  // Phone-only section switch — same contract as the meter list. Everything is
+  // rendered from the first paint; below `sm` the CSS simply gives one pane a
+  // box at a time, so switching never re-flows the page.
+  const [pane, setPane] = useState<DetailPane>("verlauf");
 
   // Render-ready rows: do the per-row formatting/consumption/tariff math once
   // here so the (potentially virtualized) history table stays a pure view.
@@ -129,7 +140,7 @@ export function ZaehlerDetail({
   });
 
   return (
-    <Stack gap="lg">
+    <Stack gap="md">
       <div>
         <Button
           component={Link}
@@ -158,37 +169,53 @@ export function ZaehlerDetail({
         </Group>
       </div>
 
+      <SegmentedControl
+        hiddenFrom="sm"
+        fullWidth
+        value={pane}
+        onChange={(value) => setPane(value as DetailPane)}
+        aria-label="Bereich wählen"
+        data={[
+          { value: "verlauf", label: "Verlauf" },
+          { value: "erfassen", label: "Erfassen" },
+          { value: "verwalten", label: "Verwalten" },
+        ]}
+      />
+
       <Grid gutter="md">
-        <GridCol span={{ base: 12, lg: 8 }}>
-          <Card withBorder radius="md" p="lg">
-            <Group justify="space-between" align="flex-start" mb="sm">
-              <Title order={4}>Verlauf</Title>
-              {intervals.length > 0 && (
-                <Group gap="lg" align="flex-start">
-                  <div>
-                    <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
-                      Verbrauch gesamt
-                    </Text>
-                    <Text fw={600}>
-                      {numberFormatter.format(stats.total)} {zaehler.einheit}
-                    </Text>
-                  </div>
-                  <div>
-                    <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
-                      Ø pro Tag
-                    </Text>
-                    <Text fw={600}>
-                      {stats.avgPerDay !== null
-                        ? `${perDayFormatter.format(stats.avgPerDay)} ${zaehler.einheit}`
-                        : "–"}
-                    </Text>
-                  </div>
-                </Group>
-              )}
-            </Group>
+        <GridCol
+          span={{ base: 12, lg: 8 }}
+          className={classes.pane}
+          data-active={pane === "verlauf" ? "true" : "false"}
+        >
+          <Card p="md">
+            <Title order={4} mb="sm">
+              Verlauf
+            </Title>
+
+            {intervals.length > 0 && (
+              <div className={classes.detailStats}>
+                <MetricTile
+                  label="Verbrauch gesamt"
+                  value={`${numberFormatter.format(stats.total)} ${zaehler.einheit}`}
+                  hint={`${intervals.length} Intervalle`}
+                  icon={<IconSum size={15} stroke={1.6} />}
+                />
+                <MetricTile
+                  label="Ø pro Tag"
+                  value={
+                    stats.avgPerDay !== null
+                      ? `${perDayFormatter.format(stats.avgPerDay)} ${zaehler.einheit}`
+                      : "–"
+                  }
+                  hint="über den gesamten Zeitraum"
+                  icon={<IconTrendingUp size={15} stroke={1.6} />}
+                />
+              </div>
+            )}
 
             {stats.hasImplausibleIntervals && (
-              <Alert color="orange" icon={<IconAlertCircle size={16} />} variant="light" mb="sm">
+              <Alert color="amber" icon={<IconAlertCircle size={16} />} variant="light" mb="sm">
                 Mindestens ein Intervall ist unplausibel (negativer Verbrauch) und fließt nicht in
                 die Summe ein. Bitte betroffene Ablesungen prüfen.
               </Alert>
@@ -209,33 +236,45 @@ export function ZaehlerDetail({
           </Card>
         </GridCol>
 
-        <GridCol span={{ base: 12, lg: 4 }}>
+        <GridCol
+          span={{ base: 12, lg: 4 }}
+          className={classes.pane}
+          data-active={pane !== "verlauf" ? "true" : "false"}
+        >
           <Stack gap="md">
-            <CreateReadingCard zaehler={zaehler} />
-            <EditZaehlerForm zaehler={zaehler} locations={locations} />
+            <div className={classes.pane} data-active={pane === "erfassen" ? "true" : "false"}>
+              <CreateReadingCard zaehler={zaehler} />
+            </div>
 
-            <MeterDataCard zaehlerId={zaehler.id} />
+            <div className={classes.pane} data-active={pane === "verwalten" ? "true" : "false"}>
+              <Stack gap="md">
+                <EditZaehlerForm zaehler={zaehler} locations={locations} />
+                <MeterDataCard zaehlerId={zaehler.id} />
 
-            <Card withBorder radius="md" p="lg">
-              <Group gap="xs" mb="sm">
-                <IconChartLine size={18} stroke={1.6} />
-                <Title order={4}>Jahres-Hochrechnung</Title>
-              </Group>
-              <ProjectionStats projection={projection} />
-            </Card>
+                <Card p="md">
+                  <Group gap="xs" mb="sm">
+                    <IconChartLine size={18} stroke={1.6} />
+                    <Title order={4}>Jahres-Hochrechnung</Title>
+                  </Group>
+                  <ProjectionStats projection={projection} />
+                </Card>
 
-            <TarifeCard zaehler={zaehler} />
+                <TarifeCard zaehler={zaehler} />
+              </Stack>
+            </div>
           </Stack>
         </GridCol>
       </Grid>
 
-      <SmartHomeCard
-        meterId={zaehler.id}
-        meterName={zaehler.name}
-        tips={tips}
-        tokens={apiTokens}
-        origin={origin}
-      />
+      <div className={classes.pane} data-active={pane === "verwalten" ? "true" : "false"}>
+        <SmartHomeCard
+          meterId={zaehler.id}
+          meterName={zaehler.name}
+          tips={tips}
+          tokens={apiTokens}
+          origin={origin}
+        />
+      </div>
     </Stack>
   );
 }
@@ -252,7 +291,7 @@ function CreateReadingCard({ zaehler }: { zaehler: ZaehlerWithHistory }) {
   }, [state.success]);
 
   return (
-    <Card withBorder radius="md" p="lg">
+    <Card p="md">
       <Group gap="xs" mb="sm">
         <IconGaugeFilled size={18} stroke={1.6} />
         <Title order={4}>Neue Ablesung erfassen</Title>
@@ -354,7 +393,7 @@ function EditZaehlerForm({
   }
 
   return (
-    <Card withBorder radius="md" p="lg">
+    <Card p="md">
       <Title order={4} mb="sm">
         Zähler bearbeiten
       </Title>
@@ -434,7 +473,7 @@ function TarifeCard({ zaehler }: { zaehler: ZaehlerWithHistory }) {
   }, [createState.success]);
 
   return (
-    <Card withBorder radius="md" p="lg">
+    <Card p="md">
       <Group gap="xs" mb="sm">
         <IconReceipt2 size={18} stroke={1.6} />
         <Title order={4}>Tarife</Title>

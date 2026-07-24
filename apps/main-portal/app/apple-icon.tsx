@@ -33,13 +33,15 @@ export default function AppleIcon() {
           position: "relative",
           alignItems: "center",
           justifyContent: "center",
-          background: "linear-gradient(135deg, #586a7e 0%, #3c4b5a 100%)",
+          // Industrial slate → deep night, with the accented satellite in the
+          // energy cyan the rest of the product uses.
+          background: "linear-gradient(135deg, #1f293d 0%, #080c14 100%)",
         }}
       >
-        <Dot top={38} left={38} color="#e5e9ed" />
-        <Dot top={38} left={112} color="#e5e9ed" />
-        <Dot top={112} left={38} color="#e5e9ed" />
-        <Dot top={112} left={112} color="#20c997" />
+        <Dot top={38} left={38} color="#e5e9f0" />
+        <Dot top={38} left={112} color="#e5e9f0" />
+        <Dot top={112} left={38} color="#e5e9f0" />
+        <Dot top={112} left={112} color="#06b6d4" />
         <div
           style={{
             width: 46,

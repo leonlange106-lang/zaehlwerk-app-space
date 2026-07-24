@@ -1,7 +1,27 @@
+/* Meter identity chip — square, matching the card spines in the meter list. */
 .colorDot {
   display: inline-block;
   width: 12px;
   height: 12px;
-  border-radius: 50%;
+  border-radius: 2px;
   flex-shrink: 0;
+}
+
+/*
+ * Phone-only section switching, same contract as the meter list: the pill bar
+ * sets `data-active`, and only below `sm` does that hide a pane. Tablet and
+ * desktop keep every panel on screen in the two-column grid.
+ */
+@media (max-width: $mantine-breakpoint-sm) {
+  .pane[data-active="false"] {
+    display: none;
+  }
+}
+
+/* The detail page's own KPI pair (total + daily average). Two up on a phone. */
+.detailStats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: var(--mantine-spacing-sm);
 }

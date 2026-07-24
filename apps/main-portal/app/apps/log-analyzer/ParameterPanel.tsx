@@ -22,11 +22,14 @@ import classes from "./LogAnalyzer.module.css";
 // columns under "Sonstige / Custom" so nothing is hidden. Each selected channel
 // also exposes a per-channel Y-axis side (L/R) picker and a line-colour swatch.
 
-// A compact palette users can recolour a channel with.
+// A compact palette users can recolour a channel with. Every entry is picked to
+// stay legible as a 1.6px stroke on the #080c14 canvas — nothing darker than
+// roughly 45% luminance, and no two neighbours that collapse into one another
+// for the common red-green deficiencies.
 const SWATCHES = [
-  "#fd7e14", "#fa5252", "#4dabf7", "#20c997", "#f783ac", "#845ef7",
-  "#e8590c", "#e03131", "#1971c2", "#0ca678", "#d6336c", "#5f3dc4",
-  "#f59f00", "#adb5bd", "#495057", "#12b886",
+  "#f97316", "#ef4444", "#06b6d4", "#10b981", "#f472b6", "#a78bfa",
+  "#fb923c", "#f87171", "#38bdf8", "#34d399", "#e879f9", "#818cf8",
+  "#f59e0b", "#94a3b8", "#e5e9f0", "#2dd4bf",
 ];
 
 interface Props {
@@ -40,7 +43,25 @@ interface Props {
   onColor: (key: string, color: string) => void;
 }
 
-export function ParameterPanel({
+/**
+ * The panel in its own card — the desktop sidebar presentation.
+ *
+ * On phones the same controls are rendered *bare* inside a bottom sheet (which
+ * brings its own surface and title), so the card chrome would be a second frame
+ * around a frame. `ParameterPanelBody` is that shared inner content.
+ */
+export function ParameterPanel(props: Props) {
+  return (
+    <Card p="md">
+      <Title order={5} mb={4}>
+        Parameter
+      </Title>
+      <ParameterPanelBody {...props} />
+    </Card>
+  );
+}
+
+export function ParameterPanelBody({
   series,
   selected,
   axisById,
@@ -61,10 +82,7 @@ export function ParameterPanel({
   }, [series]);
 
   return (
-    <Card withBorder radius="md" p="md">
-      <Title order={5} mb={4}>
-        Parameter
-      </Title>
+    <>
       <Text size="xs" c="dimmed" mb="sm">
         Alle {series.length} erkannten Kanäle. Ausgewählte lassen sich links/rechts der
         Y-Achse zuordnen und einfärben.
@@ -140,6 +158,7 @@ export function ParameterPanel({
                                 <ColorSwatch
                                   color={color}
                                   size={20}
+                                  radius="xs"
                                   style={{ cursor: "pointer" }}
                                   role="button"
                                   aria-label={`Farbe für ${s.label}`}
@@ -153,6 +172,7 @@ export function ParameterPanel({
                                     key={c}
                                     color={c}
                                     size={20}
+                                    radius="xs"
                                     style={{ cursor: "pointer" }}
                                     role="button"
                                     aria-label={c}
@@ -172,6 +192,6 @@ export function ParameterPanel({
           );
         })}
       </Stack>
-    </Card>
+    </>
   );
 }

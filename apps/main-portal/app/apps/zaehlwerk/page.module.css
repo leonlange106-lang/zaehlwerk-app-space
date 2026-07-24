@@ -1,28 +1,22 @@
-.statCard {
-  padding: var(--mantine-spacing-md);
-}
-
-.statIcon {
-  color: var(--mantine-color-dimmed);
-}
-
 .panel {
   padding: var(--mantine-spacing-md);
 }
 
 .activityItem {
   padding-block: var(--mantine-spacing-xs);
-  border-bottom: 1px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-4));
+  border-bottom: 1px solid var(--zw-border);
 }
 
 .activityItem:last-child {
   border-bottom: none;
 }
 
+/* Per-meter identity colour. Square, not a dot — round pills read as decorative
+   here, while a hard 3px chip matches the industrial grammar of the badges. */
 .colorDot {
   display: inline-block;
   width: 10px;
   height: 10px;
-  border-radius: 50%;
+  border-radius: 2px;
   flex-shrink: 0;
 }
