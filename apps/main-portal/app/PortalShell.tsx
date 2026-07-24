@@ -106,7 +106,7 @@ const APP_NAV: Record<string, NavItem[]> = {
     { label: "Log-Vergleich", href: "/apps/log-analyzer/compare", icon: IconArrowsDiff },
     { label: "Remote-Import", href: "/apps/log-analyzer/remote", icon: IconWorldDownload },
     { label: "Fahrzeug-Profil", href: "/apps/log-analyzer/specs", icon: IconEngine },
-    { label: "Log-Historie", href: "/apps/log-analyzer/history", icon: IconClockHour4 },
+    { label: "Log-Übersicht", href: "/apps/log-analyzer/history", icon: IconClockHour4 },
   ],
 };
 

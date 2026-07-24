@@ -14,6 +14,25 @@ async function typeUrl(page: Page, value: string) {
   await expect(field).toHaveValue(value);
 }
 
+/**
+ * Load the built-in Baseline (A) and Comparison (B) samples on the compare page.
+ *
+ * Two ordering hazards, both of which flaked on WebKit:
+ *  - the view fetches the stored-log list in an effect, and once any log exists
+ *    that render inserts a history Select ABOVE the buttons in both picker
+ *    cards. A click dispatched into the pre-shift layout is lost, so wait for
+ *    that request to settle before touching anything.
+ *  - the two clicks must each be confirmed via their "picked" badge; firing
+ *    them back-to-back can drop the second.
+ */
+async function loadBothSamples(page: Page) {
+  await page.waitForLoadState("networkidle");
+  await page.getByRole("button", { name: "Beispiel" }).nth(0).click();
+  await expect(page.getByTestId("picked-a")).toBeVisible();
+  await page.getByRole("button", { name: "Beispiel" }).nth(1).click();
+  await expect(page.getByTestId("picked-b")).toBeVisible();
+}
+
 async function expectNoHorizontalScroll(page: Page) {
   const { scrollWidth, innerWidth } = await page.evaluate(() => ({
     scrollWidth: document.documentElement.scrollWidth,
@@ -32,6 +51,17 @@ const SAMPLE_CSV = [
   "0.1,3500,9.5,7.0",
   "0.2,6200,18.5,3.5",
   "0.3,6800,17.0,4.0",
+].join("\n");
+
+/** Stands in for the CSV the (mocked) MGflasher host would serve. */
+const REMOTE_CSV = [
+  "# VIN: REMOTESYNTH0001",
+  "# Vehicle: Remote Import Coupe",
+  "Time (s),RPM,Boost Actual (psi),Ignition Timing (deg)",
+  "0.0,900,0.2,13.0",
+  "0.1,3200,9.1,7.0",
+  "0.2,6100,18.2,3.5",
+  "0.3,6800,17.4,4.0",
 ].join("\n");
 
 test.describe("Log Analyzer: local upload", () => {
@@ -91,54 +121,14 @@ test.describe("Log Analyzer: remote import", () => {
 
   test("a valid link imports (mocked) and opens in the analyzer", async ({ page }) => {
     // Mock the server route so the test never touches the real MGflasher host.
+    // The shape must match the real route: it returns the raw `csv`, which the
+    // view persists via uploadLogs and then opens by id. (A mock that only
+    // carries a pre-parsed `log` silently fails the view's `!json.csv` guard.)
     await page.route("**/api/apps/log-analyzer/fetch-remote", async (route) => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({
-          ok: true,
-          source: VALID,
-          log: {
-            time: [0, 1, 2, 3],
-            timeUnit: "s",
-            series: [
-              {
-                key: "rpm",
-                label: "RPM",
-                unit: null,
-                group: "Engine & Drivetrain",
-                color: "#20c997",
-                values: [900, 3200, 6100, 6800],
-                min: 900,
-                max: 6800,
-              },
-              {
-                key: "boost-actual",
-                label: "Boost Actual",
-                unit: "psi",
-                group: "Boost Control",
-                color: "#fd7e14",
-                values: [0.2, 9.1, 18.2, 17.4],
-                min: 0.2,
-                max: 18.2,
-              },
-            ],
-            meta: {
-              vin: "REMOTESYNTH0001",
-              vehicle: null,
-              mapVersion: null,
-              software: null,
-              date: null,
-              peakBoost: 18.2,
-              peakBoostUnit: "psi",
-              maxRpm: 6800,
-              gearRange: null,
-              duration: 3,
-            },
-            rowCount: 4,
-            skippedRows: 0,
-          },
-        }),
+        body: JSON.stringify({ ok: true, source: VALID, csv: REMOTE_CSV }),
       });
     });
 
@@ -155,7 +145,7 @@ test.describe("Log Analyzer: remote import", () => {
 });
 
 test.describe("Log Analyzer: sub-navigation", () => {
-  test("sidebar exposes Analyzer, Remote-Import and Log-Historie", async ({ page }) => {
+  test("sidebar exposes Analyzer, Remote-Import and Log-Übersicht", async ({ page }) => {
     await page.goto("/apps/log-analyzer");
     // Open the mobile drawer to reach the nav links.
     await page.getByRole("button", { name: "Navigation umschalten" }).click();
@@ -164,9 +154,9 @@ test.describe("Log Analyzer: sub-navigation", () => {
     await expect(page.getByRole("heading", { name: "Remote-Import" })).toBeVisible();
 
     await page.getByRole("button", { name: "Navigation umschalten" }).click();
-    await page.getByRole("link", { name: "Log-Historie" }).click();
+    await page.getByRole("link", { name: "Log-Übersicht" }).click();
     await page.waitForURL(/\/apps\/log-analyzer\/history$/);
-    await expect(page.getByRole("heading", { name: "Log-Historie" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Log-Übersicht" })).toBeVisible();
   });
 });
 
@@ -221,11 +211,7 @@ test.describe("Log Analyzer: dual-log comparison", () => {
     await page.goto("/apps/log-analyzer/compare");
     await expect(page.getByText(ERROR_BOUNDARY_TEXT)).toHaveCount(0);
 
-    // Load the built-in baseline (A) and comparison (B) samples.
-    await page.getByRole("button", { name: "Beispiel" }).nth(0).click();
-    await expect(page.getByTestId("picked-a")).toBeVisible();
-    await page.getByRole("button", { name: "Beispiel" }).nth(1).click();
-    await expect(page.getByTestId("picked-b")).toBeVisible();
+    await loadBothSamples(page);
 
     // Diff cards + overlay chart appear once both sides are loaded.
     await expect(page.getByTestId("diff-cards")).toBeVisible();
@@ -241,8 +227,7 @@ test.describe("Log Analyzer: dual-log comparison", () => {
 
   test("the overlay switches between the RPM and the WOT-aligned time axis", async ({ page }) => {
     await page.goto("/apps/log-analyzer/compare");
-    await page.getByRole("button", { name: "Beispiel" }).nth(0).click();
-    await page.getByRole("button", { name: "Beispiel" }).nth(1).click();
+    await loadBothSamples(page);
     await expect(page.getByTestId("diff-cards")).toBeVisible();
 
     // Alignment only applies to the time axis, so it starts disabled on RPM.
@@ -263,8 +248,7 @@ test.describe("Log Analyzer: dual-log comparison", () => {
 
   test("boost overlays target as a companion trace on all four lines", async ({ page }) => {
     await page.goto("/apps/log-analyzer/compare");
-    await page.getByRole("button", { name: "Beispiel" }).nth(0).click();
-    await page.getByRole("button", { name: "Beispiel" }).nth(1).click();
+    await loadBothSamples(page);
     await expect(page.getByTestId("diff-cards")).toBeVisible();
 
     // Boost is the default channel: A/B actual + A/B target = four line traces.
