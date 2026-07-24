@@ -20,10 +20,11 @@ Monorepo (pnpm + Turbo) for the Zählwerk App-Space dashboard. German UI.
 1. Dedicated feature branch: `feature/<name>` — **never work on `main`**.
 2. Before committing: `pnpm typecheck`, `pnpm lint`, `pnpm build` (+ relevant tests). Atomic, concise commits.
 3. `gh pr create --fill` → `gh pr merge --squash --delete-branch` (use `--auto` if branch protection requires CI). Then `git checkout main && git pull`.
-4. Don't stage e2e artifacts (`e2e/.auth`, `e2e/.data`, `e2e/.report`).
+4. E2E artifacts (`e2e/.auth`, `.data`, `.report`, `.test-results`) are git-ignored — the patterns need a `**/` prefix to reach `apps/main-portal/e2e/`, and ESLint ignores them too (the HTML report bundles minified vendor JS).
 
 ## Where things live (paths under `apps/main-portal/app`)
 - **Log Analyzer** (main feature): UI in `apps/log-analyzer/*View.tsx` + `EvaluationCard/LogCharts/ParameterPanel/VehicleSpecForm.tsx`; pure logic + colocated `*.test.ts` in `apps/log-analyzer/lib/` — eval engine `lib/evaluate-log-pull.ts`, thresholds `lib/engines.ts` + `lib/vehicle-spec.ts` + `lib/catalog.ts`, parsing `lib/log-parser.ts` + `lib/channels.ts` + `lib/parameters.ts`.
+- **Log comparison** (Base vs. Compare): UI `apps/log-analyzer/ComparisonView.tsx` + `OverlayChart.tsx`, route `apps/log-analyzer/compare/`; deltas + overlay resampling `lib/compare-logs.ts`, WOT anchoring / time-vs-RPM axis `lib/log-align.ts` (reuses `detectPull` from the eval engine).
 - **Persisted logs** (`LogFile`): server `lib/log-repository.ts`, REST `api/apps/log-analyzer/logs/` (+`/[id]`), client `apps/log-analyzer/lib/log-api.ts`.
 - **System Update:** `lib/update-status.ts` + `lib/update-state.ts`, SSE/API `api/system/update/`, UI `settings/SettingsView.tsx`; shell `scripts/update.sh` + `scripts/deploy-swap.sh`.
 - **Admin / metrics:** `AdminPanel.tsx`, `lib/system-metrics.ts`, `api/system/metrics/` + `api/system/cache/clear/`; mounted in `page.tsx` (admin-only).
