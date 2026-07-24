@@ -6,13 +6,17 @@ build/
 coverage/
 *.log
 
-# Playwright / E2E artifacts
-e2e/.data/
-e2e/.auth/
-e2e/.report/
-e2e/.test-results/
-playwright-report/
-test-results/
+# Playwright / E2E artifacts.
+# NOTE the `**/` prefix: a pattern containing a slash is anchored to this file's
+# directory, so a bare `e2e/.data/` would only ever match a top-level `e2e/` —
+# never the real `apps/main-portal/e2e/`. That mismatch is how these artifacts
+# got committed in the first place.
+**/e2e/.data/
+**/e2e/.auth/
+**/e2e/.report/
+**/e2e/.test-results/
+**/playwright-report/
+**/test-results/
 
 # Local machine-specific settings, not shared with the team
 .claude/settings.local.json
