@@ -29,9 +29,23 @@ const MS_PER_DAY = 86_400_000;
 
 /**
  * Verbrauch je Ablesungs-Intervall aus einer Reihe von Zählerständen.
- * Bei einem Zählertausch (`zaehlerGetauscht`) wird nicht gegen die vorherige
- * Ablesung (altes Gerät) gerechnet, sondern gegen `startwertNeu` des neuen
- * Zählers — analog zu `meter_replaced` / `meter_start` im Referenzprojekt.
+ *
+ * Zählertausch: eine Ablesung mit `zaehlerGetauscht` hält in `wert` den
+ * **Endstand des ALTEN** Zählers und in `startwertNeu` den **Anfangsstand des
+ * NEUEN** Geräts (so sind die Eingabefelder beschriftet: „Zählerstand" ist,
+ * was man abliest; „Startwert neuer Zähler", wo das Ersatzgerät beginnt).
+ * Daraus folgt, gegen welchen Vorwert ein Intervall rechnet:
+ *
+ *   … → Tausch : gegen `previous.wert`        (Verbrauch auf dem alten Gerät)
+ *   Tausch → … : gegen `previous.startwertNeu` (Verbrauch auf dem neuen Gerät)
+ *
+ * Der Startwert gehört also zum FOLGENDEN Intervall, nicht zum Intervall, das
+ * an der Tausch-Ablesung endet. Andersherum entstehen zwei Fehler auf einmal:
+ * das Tausch-Intervall wird auf den kompletten Zählerstand des Altgeräts
+ * aufgebläht (es rechnet Endstand − 0 statt Endstand − Vorablesung), und die
+ * darauffolgende Ablesung wird gegen ebendiesen hohen Altstand gerechnet, wird
+ * damit negativ und fällt als „unplausibel" (`null`) komplett aus Bericht und
+ * Summen heraus.
  */
 export function calculateConsumption(
   readings: ConsumptionInputReading[],
@@ -40,7 +54,11 @@ export function calculateConsumption(
 
   return sorted.slice(1).map((reading, index) => {
     const previous = sorted[index];
-    const baseline = reading.zaehlerGetauscht ? reading.startwertNeu ?? 0 : previous.wert;
+    // Endstand des Geräts, das WÄHREND dieses Intervalls gelaufen ist: nach
+    // einem Tausch ist das der Startwert des Neugeräts, sonst schlicht der
+    // vorherige Zählerstand. `?? 0` deckt den Tausch ohne erfassten Startwert
+    // ab — ein neues Gerät beginnt praktisch immer bei 0.
+    const baseline = previous.zaehlerGetauscht ? previous.startwertNeu ?? 0 : previous.wert;
     const rawAmount = reading.wert - baseline;
     // Negativer Verbrauch = Datenfehler (Zählerüberlauf, Fehleingabe, Tausch
     // ohne Startwert). Als `null` markieren statt auf 0 zu klemmen.

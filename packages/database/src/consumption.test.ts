@@ -53,21 +53,61 @@ describe("calculateConsumption", () => {
     expect(intervals[0].amountPerDay).toBeNull();
   });
 
-  it("uses startwertNeu as the baseline on a meter swap", () => {
-    // New meter installed reading 5, current reading 40 → consumed 35 on the new meter.
+  // --- Zählertausch -------------------------------------------------------
+  // Eine Tausch-Ablesung hält den ENDSTAND des alten Geräts in `wert` und den
+  // ANFANGSSTAND des neuen in `startwertNeu`. Der Startwert gehört damit zum
+  // FOLGENDEN Intervall — beide Seiten des Tauschs werden hier geprüft, weil
+  // genau diese Verwechslung den Verbrauch nach jedem Tausch verschluckt hat.
+
+  it("rechnet das Intervall BIS zum Tausch gegen die vorherige Ablesung (altes Gerät)", () => {
+    // Altgerät läuft von 1000 auf 1120 → 120 verbraucht, nicht 1120.
     const intervals = calculateConsumption([
-      reading("a", 0, 900),
-      reading("b", 10, 40, { zaehlerGetauscht: true, startwertNeu: 5 }),
+      reading("a", 0, 1000),
+      reading("b", 10, 1120, { zaehlerGetauscht: true, startwertNeu: 0 }),
     ]);
-    expect(intervals[0].amount).toBe(35);
+    expect(intervals[0].amount).toBe(120);
   });
 
-  it("treats a swap without startwertNeu as a baseline of 0", () => {
+  it("rechnet das Intervall NACH dem Tausch gegen startwertNeu (neues Gerät)", () => {
     const intervals = calculateConsumption([
-      reading("a", 0, 900),
-      reading("b", 10, 40, { zaehlerGetauscht: true, startwertNeu: null }),
+      reading("a", 0, 1000),
+      reading("b", 10, 1120, { zaehlerGetauscht: true, startwertNeu: 5 }),
+      reading("c", 20, 95),
     ]);
-    expect(intervals[0].amount).toBe(40);
+    expect(intervals[0].amount).toBe(120); // altes Gerät
+    expect(intervals[1].amount).toBe(90); // neues Gerät: 95 − 5
+  });
+
+  it("nimmt beim Tausch ohne startwertNeu einen Anfangsstand von 0 an", () => {
+    const intervals = calculateConsumption([
+      reading("a", 0, 1000),
+      reading("b", 10, 1120, { zaehlerGetauscht: true, startwertNeu: null }),
+      reading("c", 20, 40),
+    ]);
+    expect(intervals[1].amount).toBe(40);
+  });
+
+  it("verliert nach einem Tausch weder Verbrauch noch ein Intervall", () => {
+    // Regression: vorher wurde das Tausch-Intervall auf 1120 aufgebläht und das
+    // Folge-Intervall (40 − 1120 < 0) als unplausibel verworfen — im Bericht
+    // blieb die Zeile nach jedem Zählertausch leer.
+    const intervals = calculateConsumption([
+      reading("a", 0, 1000),
+      reading("b", 10, 1120, { zaehlerGetauscht: true, startwertNeu: 0 }),
+      reading("c", 20, 40),
+    ]);
+    expect(intervals.map((i) => i.amount)).toEqual([120, 40]);
+    expect(sumConsumption(intervals)).toBe(160);
+  });
+
+  it("behandelt zwei aufeinanderfolgende Tausche korrekt", () => {
+    const intervals = calculateConsumption([
+      reading("a", 0, 1000),
+      reading("b", 10, 1120, { zaehlerGetauscht: true, startwertNeu: 0 }),
+      reading("c", 20, 30, { zaehlerGetauscht: true, startwertNeu: 7 }),
+      reading("d", 30, 50),
+    ]);
+    expect(intervals.map((i) => i.amount)).toEqual([120, 30, 43]);
   });
 
   it("never emits negative day counts and rounds to whole calendar days", () => {
