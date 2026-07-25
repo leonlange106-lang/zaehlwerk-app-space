@@ -20,7 +20,7 @@ import {
   IconStack2,
   IconWorldDownload,
 } from "@tabler/icons-react";
-import { APPS } from "@/app/lib/apps";
+import { activeAppFor, APPS } from "@/app/lib/apps";
 import { cn } from "@/app/lib/cn";
 import { Skeleton } from "@/app/components/ui/Skeleton";
 import { BetaBadge } from "@/app/components/ui/Badge";
@@ -113,39 +113,46 @@ export function AppMenu({ allowedAppIds }: { allowedAppIds: string[] }) {
   const [metersFailed, setMetersFailed] = useState(false);
   const [logs, setLogs] = useState<MenuLog[] | null>(null);
   const [logsFailed, setLogsFailed] = useState(false);
-  // Survive close/reopen within the session; a nav menu that re-fetches on every
-  // open would show a spinner for lists that barely change.
-  const metersRequested = useRef(false);
-  const logsRequested = useRef(false);
+  // These guard against DUPLICATE IN-FLIGHT requests, not against re-fetching.
+  // The lists are re-read every time their level is opened: naming a log is what
+  // promotes it to this menu, so a list cached from before the naming would
+  // quietly break the promise the log overview makes on screen. The previously
+  // loaded list stays rendered while the new one arrives, so nothing flashes.
+  const metersInFlight = useRef(false);
+  const logsInFlight = useRef(false);
 
   const apps = APPS.filter((app) => allowedAppIds.includes(app.id));
 
   const loadMeters = useCallback(async () => {
-    if (metersRequested.current) return;
-    metersRequested.current = true;
+    if (metersInFlight.current) return;
+    metersInFlight.current = true;
     try {
       const res = await fetch("/api/apps/zaehlwerk/meters");
       if (!res.ok) throw new Error(String(res.status));
       const body = (await res.json()) as { meters: MenuMeter[] };
       setMeters(body.meters);
+      setMetersFailed(false);
     } catch {
       // Let the user retry by reopening rather than stranding them on a spinner.
-      metersRequested.current = false;
       setMetersFailed(true);
+    } finally {
+      metersInFlight.current = false;
     }
   }, []);
 
   const loadLogs = useCallback(async () => {
-    if (logsRequested.current) return;
-    logsRequested.current = true;
+    if (logsInFlight.current) return;
+    logsInFlight.current = true;
     try {
       const res = await fetch("/api/apps/log-analyzer/named-logs");
       if (!res.ok) throw new Error(String(res.status));
       const body = (await res.json()) as { logs: MenuLog[] };
       setLogs(body.logs);
+      setLogsFailed(false);
     } catch {
-      logsRequested.current = false;
       setLogsFailed(true);
+    } finally {
+      logsInFlight.current = false;
     }
   }, []);
 
@@ -158,17 +165,28 @@ export function AppMenu({ allowedAppIds }: { allowedAppIds: string[] }) {
     [loadMeters, loadLogs],
   );
 
+  // Where the menu opens. Inside an app that app's own level, so the sections you
+  // are actually near are one tap away and the root is one back-arrow up. Only
+  // outside an app (launcher, settings, changelog) is the root the right start.
+  //
+  // Deliberately NOT the level you were last on: resuming three levels deep from
+  // some earlier navigation is disorienting, and the path you took is not state
+  // worth preserving.
+  const homeLevel = useCallback((): Level => {
+    const app = activeAppFor(pathname);
+    if (app && allowedAppIds.includes(app.id)) return { kind: "app", appId: app.id };
+    return { kind: "root" };
+  }, [pathname, allowedAppIds]);
+
   return (
     <DropdownMenu.Root
       open={open}
       onOpenChange={(next) => {
         setOpen(next);
-        // Always reopen at the root: resuming three levels deep from last time is
-        // disorienting, and the path you took is not state worth preserving.
-        // Reset on the close event rather than in an effect watching `open` —
-        // that is where the transition actually happens, and the effect form is a
-        // synchronous setState inside a render pass.
-        if (!next) setLevel({ kind: "root" });
+        // Computed on OPEN, not on close: the pathname may well have changed
+        // since the menu was last closed — usually because the menu itself
+        // navigated somewhere.
+        if (next) setLevel(homeLevel());
       }}
     >
       <DropdownMenu.Trigger asChild>
