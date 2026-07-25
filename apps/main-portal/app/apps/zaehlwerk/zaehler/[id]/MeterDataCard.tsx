@@ -1,24 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import {
-  Alert,
-  Button,
-  Card,
-  FileButton,
-  Group,
-  Modal,
-  Select,
-  Stack,
-  Table,
-  TableTbody,
-  TableTd,
-  TableThead,
-  TableTh,
-  TableTr,
-  Text,
-  Title,
-} from "@mantine/core";
+import { Button, ButtonLink } from "@/app/components/ui/Button";
+import { Field, Select, SelectShell } from "@/app/components/ui/Field";
+import { Panel } from "@/app/components/ui/Panel";
+import { ResponsiveDialog } from "@/app/components/ui/ResponsiveDialog";
+import { Alert, FilePicker, Table, TableScroll, Td, Th } from "@/app/components/ui/primitives";
 import { IconAlertCircle, IconCheck, IconDownload, IconFileImport } from "@tabler/icons-react";
 import { parseCsv } from "@/app/lib/csv";
 import { importReadings, type CsvReadingInput } from "@/app/lib/backup-actions";
@@ -105,111 +92,114 @@ export function MeterDataCard({ zaehlerId }: { zaehlerId: string }) {
   const colOptions = (csv?.headers ?? []).map((h, i) => ({ value: String(i), label: h || `Spalte ${i + 1}` }));
   const optionalOptions = [{ value: NONE, label: "— keine —" }, ...colOptions];
 
-  return (
-    <Card withBorder radius="md" p="lg">
-      <Group gap="xs" mb="sm">
-        <IconDownload size={18} stroke={1.6} />
-        <Title order={4}>Daten</Title>
-      </Group>
-      <Text size="sm" c="dimmed" mb="md">
-        Diesen Zähler mit allen Ablesungen und Tarifen exportieren, oder historische Zählerstände aus
-        einer CSV importieren.
-      </Text>
+  /** One column mapping select. */
+  const columnField = (
+    label: string,
+    value: string,
+    onChange: (value: string) => void,
+    opts: { value: string; label: string }[],
+  ) => (
+    <Field label={label}>
+      {({ id }) => (
+        <SelectShell>
+          <Select id={id} value={value} onChange={(event) => onChange(event.currentTarget.value)}>
+            {opts.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </Select>
+        </SelectShell>
+      )}
+    </Field>
+  );
 
-      <Group>
-        <Button
-          component="a"
-          href={`/api/export/meter?id=${zaehlerId}`}
-          download
-          variant="light"
-          color="slate"
-          leftSection={<IconDownload size={16} />}
-        >
+  return (
+    <Panel
+      title="Daten"
+      icon={<IconDownload size={17} stroke={1.7} />}
+      description="Diesen Zähler mit allen Ablesungen und Tarifen exportieren, oder historische Zählerstände aus einer CSV importieren."
+    >
+      <div className="flex flex-wrap gap-2">
+        <ButtonLink href={`/api/export/meter?id=${zaehlerId}`} download>
+          <IconDownload size={16} />
           Zähler exportieren (JSON)
-        </Button>
-        <FileButton onChange={handlePick} accept=".csv,text/csv">
-          {(props) => (
-            <Button {...props} variant="light" color="slate" leftSection={<IconFileImport size={16} />}>
-              Ablesungen aus CSV
-            </Button>
-          )}
-        </FileButton>
-      </Group>
+        </ButtonLink>
+        <FilePicker
+          accept=".csv,text/csv"
+          onChange={(event) => void handlePick(event.currentTarget.files?.[0] ?? null)}
+        >
+          <IconFileImport size={16} />
+          Ablesungen aus CSV
+        </FilePicker>
+      </div>
 
       {result && (
         <Alert
-          mt="md"
-          variant="light"
-          color={result.ok ? "green" : "red"}
+          className="mt-4"
+          tone={result.ok ? "ok" : "risk"}
+          role={result.ok ? "status" : "alert"}
           icon={result.ok ? <IconCheck size={16} /> : <IconAlertCircle size={16} />}
         >
           {result.message}
         </Alert>
       )}
 
-      <Modal
+      <ResponsiveDialog
         opened={csv !== null}
-        onClose={() => !busy && setCsv(null)}
+        onClose={() => setCsv(null)}
+        closeDisabled={busy}
         title="CSV-Spalten zuordnen"
-        centered
         size="lg"
+        footer={
+          <>
+            <Button type="button" onClick={() => setCsv(null)} disabled={busy}>
+              Abbrechen
+            </Button>
+            <Button type="button" variant="primary" disabled={busy} onClick={handleConfirm}>
+              {busy ? "Wird importiert…" : "Ablesungen importieren"}
+            </Button>
+          </>
+        }
       >
-        <Stack gap="sm">
-          <Group grow>
-            <Select label="Datum" data={colOptions} value={datumCol} onChange={(v) => setDatumCol(v ?? "0")} />
-            <Select label="Zählerstand" data={colOptions} value={wertCol} onChange={(v) => setWertCol(v ?? "1")} />
-          </Group>
-          <Group grow>
-            <Select
-              label="Hinweis / Notiz (optional)"
-              data={optionalOptions}
-              value={notizCol}
-              onChange={(v) => setNotizCol(v ?? NONE)}
-            />
-            <Select
-              label="Zählertausch (optional)"
-              data={optionalOptions}
-              value={tauschCol}
-              onChange={(v) => setTauschCol(v ?? NONE)}
-            />
-          </Group>
+        <div className="flex flex-col gap-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            {columnField("Datum", datumCol, setDatumCol, colOptions)}
+            {columnField("Zählerstand", wertCol, setWertCol, colOptions)}
+            {columnField("Hinweis / Notiz (optional)", notizCol, setNotizCol, optionalOptions)}
+            {columnField("Zählertausch (optional)", tauschCol, setTauschCol, optionalOptions)}
+          </div>
 
           {csv && (
             <>
-              <Text size="xs" c="dimmed">
-                Vorschau ({csv.rows.length} Zeilen):
-              </Text>
-              <Table fz="xs" withTableBorder>
-                <TableThead>
-                  <TableTr>
-                    {csv.headers.map((h, i) => (
-                      <TableTh key={i}>{h || `Spalte ${i + 1}`}</TableTh>
-                    ))}
-                  </TableTr>
-                </TableThead>
-                <TableTbody>
-                  {csv.rows.slice(0, 4).map((row, ri) => (
-                    <TableTr key={ri}>
-                      {csv.headers.map((_, ci) => (
-                        <TableTd key={ci}>{row[ci] ?? ""}</TableTd>
+              <p className="text-xs text-dim">Vorschau ({csv.rows.length} Zeilen):</p>
+              {/* Scrolls inside the dialog: a wide CSV must not widen the sheet. */}
+              <TableScroll className="rounded-control border border-line">
+                <Table className="text-xs">
+                  <thead>
+                    <tr>
+                      {csv.headers.map((h, i) => (
+                        <Th key={i}>{h || `Spalte ${i + 1}`}</Th>
                       ))}
-                    </TableTr>
-                  ))}
-                </TableTbody>
-              </Table>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {csv.rows.slice(0, 4).map((row, ri) => (
+                      <tr key={ri} className="last:[&>td]:border-0">
+                        {csv.headers.map((_, ci) => (
+                          <Td key={ci} className="whitespace-nowrap">
+                            {row[ci] ?? ""}
+                          </Td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </Table>
+              </TableScroll>
             </>
           )}
-
-          <Group justify="flex-end" mt="sm">
-            <Button variant="default" onClick={() => setCsv(null)} disabled={busy}>
-              Abbrechen
-            </Button>
-            <Button color="slate" loading={busy} onClick={handleConfirm}>
-              Ablesungen importieren
-            </Button>
-          </Group>
-        </Stack>
-      </Modal>
-    </Card>
+        </div>
+      </ResponsiveDialog>
+    </Panel>
   );
 }
