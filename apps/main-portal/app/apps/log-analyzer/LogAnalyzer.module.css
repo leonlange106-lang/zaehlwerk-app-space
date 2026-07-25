@@ -1,7 +1,7 @@
 .dropzone {
   border: 2px dashed var(--zw-border-strong);
-  border-radius: var(--mantine-radius-md);
-  padding: var(--mantine-spacing-lg);
+  border-radius: var(--zw-radius-panel);
+  padding: 20px;
   text-align: center;
   transition: border-color 120ms ease, background-color 120ms ease;
   background-color: var(--zw-surface);
@@ -87,9 +87,9 @@
   height: 34px;
   padding: 0 10px;
   border: 1px solid var(--zw-border);
-  border-radius: var(--mantine-radius-sm);
+  border-radius: var(--zw-radius-control);
   background: var(--zw-surface);
-  color: var(--mantine-color-dimmed);
+  color: var(--zw-text-dim);
   font-size: 12px;
   font-weight: 600;
   white-space: nowrap;
@@ -102,7 +102,7 @@
 .chip[data-active="true"] {
   border-color: var(--chip-color, var(--zw-accent));
   background: color-mix(in srgb, var(--chip-color, var(--zw-accent)) 16%, transparent);
-  color: var(--mantine-color-text);
+  color: var(--zw-text);
 }
 
 /* Inactive chips still show their swatch, but drained, so the row reads as

@@ -7,7 +7,7 @@
  * two-column layout with no JS involved. Because the initial pane is chosen
  * before the first paint, nothing ever appears and then collapses.
  */
-@media (max-width: $mantine-breakpoint-sm) {
+@media (max-width: 48em) {
   .pane[data-active="false"] {
     display: none;
   }
@@ -46,5 +46,5 @@
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--mantine-color-dimmed);
+  color: var(--zw-text-dim);
 }

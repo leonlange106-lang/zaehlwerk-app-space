@@ -15,7 +15,7 @@
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  font-family: var(--mantine-font-family-monospace);
+  font-family: var(--zw-font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
 }
 
 /* The commit body is quoted text, so it sits one elevation step above the card
@@ -23,7 +23,7 @@
 .body {
   margin-top: 8px;
   padding: 10px 12px;
-  border-radius: var(--mantine-radius-sm);
+  border-radius: var(--zw-radius-control);
   border: 1px solid var(--zw-border);
   background: var(--zw-elevated);
   white-space: pre-wrap;
@@ -31,7 +31,7 @@
 }
 
 .expandButton {
-  font-size: var(--mantine-font-size-xs);
+  font-size: 0.75rem;
   color: var(--zw-text-dim);
 }
 

@@ -413,7 +413,8 @@ body {
  * comfortable ~44px thumb area (WCAG 2.5.5 / iOS HIG), while desktop keeps the
  * compact density. Scoped to the sm breakpoint so nothing changes ≥ tablet.
  */
-@media (max-width: $mantine-breakpoint-sm) {
+/* 48em is the `sm` breakpoint the whole product uses. */
+@media (max-width: 48em) {
   .mantine-Button-root,
   .mantine-Input-input {
     min-height: 44px;

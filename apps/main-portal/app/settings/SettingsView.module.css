@@ -6,7 +6,7 @@
    colour schemes — a console that turns white in light mode reads as a bug. */
 .logScroll {
   margin-top: 8px;
-  border-radius: var(--mantine-radius-sm);
+  border-radius: var(--zw-radius-control);
   border: 1px solid var(--zw-border-strong);
   background: #080c14;
 }
@@ -14,7 +14,7 @@
 .logPre {
   margin: 0;
   padding: 12px 14px;
-  font-family: var(--mantine-font-family-monospace);
+  font-family: var(--zw-font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
   font-size: 12px;
   line-height: 1.5;
   color: #c3cbd9;
