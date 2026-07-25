@@ -50,6 +50,54 @@ function transmissionOptions(codes: readonly TransmissionCode[]) {
   return codes.map((code) => ({ value: code, label: TRANSMISSIONS[code] }));
 }
 
+/**
+ * One labelled native select. Keeps the data-testid the E2E suite locates.
+ *
+ * Module scope on purpose: declared inside the form it would be a NEW component
+ * type on every render, so React would unmount and remount each select — losing
+ * focus mid-interaction and closing an open dropdown on the next keystroke.
+ */
+function Choice({
+  label,
+  testId,
+  value,
+  onChange,
+  disabled,
+  placeholder,
+  options: opts,
+}: {
+  label: string;
+  testId: string;
+  value: string | null;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+  placeholder?: string;
+  options: { value: string; label: string }[];
+}) {
+  return (
+    <Field label={label}>
+      {({ id }) => (
+        <SelectShell>
+          <Select
+            id={id}
+            data-testid={testId}
+            value={value ?? ""}
+            disabled={disabled}
+            onChange={(event) => onChange(event.currentTarget.value)}
+          >
+            {placeholder && <option value="">{placeholder}</option>}
+            {opts.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </Select>
+        </SelectShell>
+      )}
+    </Field>
+  );
+}
+
 export function VehicleSpecForm() {
   const [spec, setSpec] = useState<VehicleSpec | null>(null);
   const [saved, setSaved] = useState(false);
@@ -109,48 +157,6 @@ export function VehicleSpecForm() {
     if (!spec) return;
     saveVehicleSpec(spec);
     setSaved(true);
-  }
-
-  /** One labelled native select. Keeps the data-testid the E2E suite locates. */
-  function Choice({
-    label,
-    testId,
-    value,
-    onChange,
-    disabled,
-    placeholder,
-    options: opts,
-  }: {
-    label: string;
-    testId: string;
-    value: string | null;
-    onChange: (value: string) => void;
-    disabled?: boolean;
-    placeholder?: string;
-    options: { value: string; label: string }[];
-  }) {
-    return (
-      <Field label={label}>
-        {({ id }) => (
-          <SelectShell>
-            <Select
-              id={id}
-              data-testid={testId}
-              value={value ?? ""}
-              disabled={disabled}
-              onChange={(event) => onChange(event.currentTarget.value)}
-            >
-              {placeholder && <option value="">{placeholder}</option>}
-              {opts.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </Select>
-          </SelectShell>
-        )}
-      </Field>
-    );
   }
 
   return (
