@@ -161,7 +161,70 @@ den Hostname kennt, steht direkt am Login.
 
 ---
 
-## 6. Reihenfolge-Vorschlag
+## 6. Backlog nach 3.0.0 (Log Analyzer)
+
+Ideen für spätere Releases. **Erst nach** Redesign-Push, HA-/Cloudflare-Anbindung
+und dem vollen 3.0.0. Hier festgehalten mit den Stellen im Code, an denen sie
+ansetzen — damit später niemand von vorn sucht.
+
+### 6.1 Grenzwerte je Sensor anzeigen, auch wenn nicht erreicht
+
+Heute wird ein Grenzwert nur sichtbar, wenn er verletzt wurde (als `Violation`
+mit Marker im Chart). Gewünscht: Min/Max je Kanal immer sichtbar.
+
+- **Quelle:** `lib/engines.ts` + `lib/vehicle-spec.ts` kennen die Limits bereits
+  zum Auswertungszeitpunkt; `evaluateLogPull()` müsste sie nur mit ausgeben statt
+  nur gegen sie zu prüfen.
+- **Darstellung:** `ReferenceLine` in `LogCharts`/`OverlayChart` plus eine Spalte
+  im `ParameterPanel`.
+- **Fallstrick:** Ein *nicht* erreichter Grenzwert ist **kein Urteil**. Er darf
+  nicht über `StatusBadge` oder die ok/watch/risk-Tokens laufen, sonst sieht ein
+  völlig unauffälliger Log alarmierend aus. Eigene, neutrale Darstellung.
+
+### 6.2 Handlungsempfehlungen bei „Hardware-Risiko"
+
+- **Anker:** `SafetyAlert.id` ist bereits stabil (`knock`, …). Eine Map
+  `alertId → Empfehlungen[]` in einem eigenen Modul (z. B.
+  `lib/remediation.ts`), geordnet von billig/wahrscheinlich nach teuer:
+  höhere Oktanzahl → Zündkerzen → Zündspulen → Chargepipe/Ladeluftstrecke.
+- **Ton:** Das sind Eingriffe an einem Fahrzeug. Formulierung als „prüfen" /
+  „erwägen", nicht als Anweisung, und mit dem Hinweis, dass die Auswertung ein
+  Datenlog interpretiert und keine Diagnose ersetzt.
+- **Wichtig:** Empfehlungen ändern das Urteil **nicht** — sie erklären es nur.
+  Deshalb ist hier **kein** `EVALUATION_RULES_VERSION`-Bump nötig. (Genau das
+  wird reflexhaft gemacht; er gehört nur an Änderungen der Bewertungs*logik*.)
+
+### 6.3 Eigene Fahrzeugmodelle mit ableitbaren, überschreibbaren Grenzwerten
+
+- **Heute:** `lib/catalog.ts` + `lib/engineProfiles.ts` liefern die Profile,
+  `lib/spec-store.ts` hält die Auswahl im **localStorage**.
+- **Nötig:** Eigene Modelle gehören in die DB (neues Prisma-Modell) — also
+  Schemaänderung und damit erst nach einem Self-Update wirksam.
+- **UI-Wunsch:** abgeleiteter Wert durchgestrichen daneben, manueller Wert rot.
+  **Achtung:** Rot allein verstößt gegen die Projektregel, dass Farbe nie
+  alleiniger Bedeutungsträger ist (Graustufendruck der Berichte, Rot-Grün-
+  Schwäche). Der manuelle Wert braucht eine zweite Ebene — Label „manuell" oder
+  ein Icon.
+- **Nicht offensichtlich:** Der Bewertungs-Cache (`LogFile.evalVersion`) hasht
+  heute die Grenzwert-*Tabellen*. Benutzereigene Limits stehen nicht in diesem
+  Hash — ein geändertes eigenes Modell würde die gespeicherten Verdikte also
+  **nicht** invalidieren. Der Cache-Key muss die aktive Spec mit einbeziehen,
+  sonst zeigen Logs veraltete Badges.
+
+### 6.4 API-Anbindung / automatischer CSV-Pull weiter evaluieren
+
+- **Vorhandene Bausteine:** `api/apps/log-analyzer/fetch-remote` (Share-Link),
+  `api/v1/logs/ingest` (Push per API-Key), `apps/log-analyzer/watcher`
+  (Watch-Folder). Alle drei sind aktuell als **Beta** gekennzeichnet.
+- **Offen:** Ein echter Crawler zieht wiederkehrend von einer fremden Seite —
+  das braucht eine Prüfung von Nutzungsbedingungen und Authentifizierung, ein
+  Rate-Limit gegen die Fremdseite und einen Umgang mit Layout-Änderungen dort.
+  Vor dem Bauen entscheiden, ob es wirklich Crawling sein muss oder ob ein
+  Push-Weg (der schon existiert) reicht.
+
+---
+
+## 7. Reihenfolge-Vorschlag
 
 1. Pre-Release testen (aktueller Stand)
 2. Mantine-Rest entfernen (§ 2) → das ist der Löwenanteil
@@ -169,3 +232,5 @@ den Hostname kennt, steht direkt am Login.
 4. Tunnel-Hardening (§ 5, Teil 1) — unabhängig, sofort machbar
 5. Cloudflare-Integration + 2FA-Zwang (§ 5, Teil 2)
 6. HA über eigenen HTTPS-Hostname (§ 4, Weg A) — setzt 5 voraus
+7. **v3.0.0 Full Release**
+8. Danach erst das Log-Analyzer-Backlog (§ 6)
