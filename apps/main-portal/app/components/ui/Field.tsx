@@ -103,9 +103,15 @@ export function Select({ className, children, ...rest }: ComponentProps<"select"
 }
 
 /** Select wrapper that draws the chevron — `appearance: none` removes the native one. */
-export function SelectShell({ children }: { children: ReactNode }) {
+export function SelectShell({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
   return (
-    <div className="relative">
+    <div className={cn("relative", className)}>
       {children}
       <svg
         aria-hidden

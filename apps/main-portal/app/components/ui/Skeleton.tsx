@@ -12,12 +12,19 @@ export interface SkeletonProps {
   /** Inline width/height for the cases where a utility class would be silly. */
   width?: number | string;
   height?: number | string;
+  /**
+   * Declared explicitly: TypeScript accepts any hyphenated prop on a component
+   * without complaint, so an undeclared `data-testid` is silently dropped and
+   * the CLS specs would assert against a locator that never existed.
+   */
+  "data-testid"?: string;
 }
 
-export function Skeleton({ className, width, height }: SkeletonProps) {
+export function Skeleton({ className, width, height, "data-testid": testId }: SkeletonProps) {
   return (
     <span
       aria-hidden
+      data-testid={testId}
       className={cn("block animate-pulse bg-line-strong/40 rounded-control", className)}
       style={{ width, height }}
     />

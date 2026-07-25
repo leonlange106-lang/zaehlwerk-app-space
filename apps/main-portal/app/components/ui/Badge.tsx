@@ -27,15 +27,21 @@ export function Badge({
   children,
   className,
   title,
+  "data-testid": testId,
 }: {
   tone?: BadgeTone;
   children: ReactNode;
   className?: string;
   title?: string;
+  // Declared explicitly: TypeScript accepts any hyphenated prop on a component
+  // without complaint, so an undeclared `data-testid` is silently dropped and
+  // the E2E locator that depends on it fails only at runtime.
+  "data-testid"?: string;
 }) {
   return (
     <span
       title={title}
+      data-testid={testId}
       className={cn(
         "inline-flex h-[22px] flex-none items-center rounded-full border px-2.5",
         "text-[11px] font-semibold uppercase tracking-[0.05em] whitespace-nowrap",

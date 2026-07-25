@@ -1,22 +1,18 @@
 "use client";
 
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
+import { Badge } from "@/app/components/ui/Badge";
+import { Button } from "@/app/components/ui/Button";
+import { Select, SelectShell } from "@/app/components/ui/Field";
+import { Panel } from "@/app/components/ui/Panel";
+import { Skeleton } from "@/app/components/ui/Skeleton";
 import {
   Alert,
-  Badge,
-  Button,
-  Card,
-  FileButton,
-  Group,
+  FilePicker,
+  IconChip,
+  PageHeader,
   SegmentedControl,
-  Select,
-  SimpleGrid,
-  Skeleton,
-  Stack,
-  Text,
-  ThemeIcon,
-  Title,
-} from "@mantine/core";
+} from "@/app/components/ui/primitives";
 import {
   IconAdjustments,
   IconAlertCircle,
@@ -64,7 +60,7 @@ const DynoProfileDrawer = lazy(() =>
 const ExportModal = lazy(() => import("./ExportModal").then((m) => ({ default: m.ExportModal })));
 import { LegendItem, SERIES_COLORS } from "./ChartLegend";
 import { MetricTile } from "@/app/components/ui/MetricTile";
-import { XS_INPUT_HEIGHT } from "./ui-metrics";
+import { CONTROL_SKELETON_CLASS } from "./ui-metrics";
 
 // The virtual dyno workspace: pick a log, and its detected WOT pull is turned
 // into power and torque curves over engine speed. All physics lives in the pure
@@ -212,173 +208,186 @@ export function DynoView() {
   const curve = estimate?.primary ?? null;
 
   return (
-    <Stack gap="lg">
-      <Group justify="space-between" align="flex-start" wrap="wrap">
-        <Group gap="md">
-          <ThemeIcon variant="light" color="orange" radius="md" size={44}>
-            <IconGauge size={24} stroke={1.5} />
-          </ThemeIcon>
-          <div>
-            <Title order={2}>Virtueller Prüfstand</Title>
-            <Text c="dimmed" size="sm">
-              Leistung und Drehmoment aus dem WOT-Pull schätzen – Luftmasse und Fahrdynamik.
-            </Text>
-          </div>
-        </Group>
-        <Group gap="xs">
-          {/* Always mounted, disabled until a log is open: a log handed over
-              from the Analyzer arrives asynchronously, and a button appearing
-              at that moment would push the header around on narrow screens. */}
-          <Button
-            variant="light"
-            color="teal"
-            leftSection={<IconFileExport size={16} />}
-            onClick={() => setExportOpen(true)}
-            disabled={!active}
-            data-testid="open-export"
-          >
-            Exportieren / Bericht erstellen
-          </Button>
-          <Button
-            variant="light"
-            color="slate"
-            leftSection={<IconAdjustments size={16} />}
-            onClick={() => setDrawerOpen(true)}
-            data-testid="dyno-open-profile"
-          >
-            Fahrzeug-Parameter
-          </Button>
-        </Group>
-      </Group>
+    <div className="flex flex-col gap-6">
+      <div className="flex items-start gap-3">
+        <IconChip size={44}>
+          <IconGauge size={22} stroke={1.6} />
+        </IconChip>
+        <PageHeader
+          title="Virtueller Prüfstand"
+          description="Leistung und Drehmoment aus dem WOT-Pull schätzen – Luftmasse und Fahrdynamik."
+          action={
+            <>
+              {/* Always mounted, disabled until a log is open: a log handed over
+                  from the Analyzer arrives asynchronously, and a button appearing
+                  at that moment would push the header around on narrow screens. */}
+              <Button
+                variant="subtle"
+                onClick={() => setExportOpen(true)}
+                disabled={!active}
+                data-testid="open-export"
+              >
+                <IconFileExport size={16} />
+                <span className="hidden sm:inline">Exportieren / Bericht erstellen</span>
+                <span className="sm:hidden">Bericht</span>
+              </Button>
+              <Button onClick={() => setDrawerOpen(true)} data-testid="dyno-open-profile">
+                <IconAdjustments size={16} />
+                <span className="hidden sm:inline">Fahrzeug-Parameter</span>
+                <span className="sm:hidden">Parameter</span>
+              </Button>
+            </>
+          }
+        />
+      </div>
 
       {error && (
-        <Alert color="red" variant="light" icon={<IconAlertCircle size={16} />} withCloseButton onClose={() => setError(null)}>
+        <Alert
+          tone="risk"
+          role="alert"
+          icon={<IconAlertCircle size={16} />}
+          onDismiss={() => setError(null)}
+        >
           {error}
         </Alert>
       )}
 
-      <Card withBorder radius="md" p="md">
-        <Group justify="space-between" mb="sm" wrap="nowrap">
-          <Text fw={600} size="sm" lineClamp={1}>
-            {active ? active.name : "Log wählen"}
-          </Text>
+      <Panel className="[&]:p-4">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <p className="truncate text-sm font-semibold">{active ? active.name : "Log wählen"}</p>
           {active && (
-            <Badge variant="light" color="orange" data-testid="dyno-log-badge">
+            <Badge tone="accent" data-testid="dyno-log-badge">
               {active.log.rowCount.toLocaleString("de-DE")} Zeilen
             </Badge>
           )}
-        </Group>
-        <Group gap="sm" align="flex-end" wrap="wrap">
+        </div>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           {/* Reserved either way: a Select that only mounts once the stored-log
               list arrives reflows the whole row (and eats clicks) mid-load. */}
           {historyLoading ? (
-            <Skeleton height={XS_INPUT_HEIGHT} w={260} radius="sm" data-testid="dyno-history-skeleton" />
-          ) : (
-            <Select
-              placeholder={
-                verifiedHistory.length > 0
-                  ? "Verifizierten Pull wählen…"
-                  : "Keine verifizierten Pulls"
-              }
-              data={verifiedHistory.map((h) => ({ value: h.id, label: h.name }))}
-              disabled={verifiedHistory.length === 0}
-              onChange={(id) => id && void openById(id)}
-              searchable
-              clearable
-              size="xs"
-              w={260}
-              data-testid="dyno-history"
+            <Skeleton
+              className={`${CONTROL_SKELETON_CLASS} sm:w-72`}
+              data-testid="dyno-history-skeleton"
             />
+          ) : (
+            <SelectShell className="sm:w-72">
+              <Select
+                aria-label="Verifizierten Pull wählen"
+                defaultValue=""
+                disabled={verifiedHistory.length === 0}
+                onChange={(event) => {
+                  const id = event.currentTarget.value;
+                  if (id) void openById(id);
+                }}
+                data-testid="dyno-history"
+              >
+                <option value="">
+                  {verifiedHistory.length > 0
+                    ? "Verifizierten Pull wählen…"
+                    : "Keine verifizierten Pulls"}
+                </option>
+                {verifiedHistory.map((h) => (
+                  <option key={h.id} value={h.id}>
+                    {h.name}
+                  </option>
+                ))}
+              </Select>
+            </SelectShell>
           )}
-          <FileButton onChange={(f) => void handleFile(f)} accept=".csv,.log,.txt,text/csv,text/plain">
-            {(props) => (
-              <Button {...props} size="xs" variant="light" color="orange" leftSection={<IconFileText size={14} />}>
-                Datei
-              </Button>
-            )}
-          </FileButton>
-          <Button
-            size="xs"
-            variant="subtle"
-            color="slate"
-            leftSection={<IconSparkles size={14} />}
-            onClick={() => ingest("Beispiel-Log.csv", makeSampleCsv())}
-            data-testid="dyno-sample"
-          >
-            Beispiel
-          </Button>
-        </Group>
+          <div className="flex flex-wrap gap-2">
+            <FilePicker
+              accept=".csv,.log,.txt,text/csv,text/plain"
+              className="min-h-11 px-3 text-[13px] sm:min-h-10"
+              onChange={(event) => void handleFile(event.currentTarget.files?.[0] ?? null)}
+            >
+              <IconFileText size={14} />
+              Datei
+            </FilePicker>
+            <Button
+              variant="ghost"
+              onClick={() => ingest("Beispiel-Log.csv", makeSampleCsv())}
+              data-testid="dyno-sample"
+            >
+              <IconSparkles size={14} />
+              Beispiel
+            </Button>
+          </div>
+        </div>
         {/* Deliberately one CONSTANT sentence: swapping it once the log list
             arrives would reflow the card. The "nothing verified yet" case is
             carried by the disabled picker and its placeholder instead. */}
-        <Text size="xs" c="dimmed" mt="sm">
+        <p className="mt-3 text-xs text-dim">
           Nur verifizierte WOT-Pulls stehen zur Auswahl – andere Logs verfälschen die
           Leistungsschätzung. Einen sauberen Pull zuerst im Analyzer prüfen.
-        </Text>
-        <Text size="xs" c="dimmed" mt={4}>
+        </p>
+        <p className="mt-1 text-xs text-dim">
           Profil: {summarizeDynoProfile(effectiveProfile)} · Motor {spec.engineCode} aus dem
           Fahrzeugprofil
-        </Text>
-      </Card>
+        </p>
+      </Panel>
 
       {active && estimate && (
         <>
-          <Card withBorder radius="md" p="md">
-            <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
+          <Panel className="[&]:p-4">
+            <div className="grid gap-4 sm:grid-cols-3">
               <Control label="Methode">
                 <SegmentedControl
-                  size="xs"
-                  fullWidth
+                  label="Methode"
                   value={method}
-                  onChange={(v) => setMethod(v as MethodPreference)}
-                  data={METHOD_OPTIONS}
+                  onChange={setMethod}
+                  options={METHOD_OPTIONS}
                   data-testid="dyno-method"
                 />
               </Control>
               <Control label="Korrektur">
                 <SegmentedControl
-                  size="xs"
-                  fullWidth
+                  label="Korrektur"
                   value={correction}
-                  onChange={(v) => setCorrection(v as CorrectionStandard)}
-                  data={CORRECTION_OPTIONS}
+                  onChange={setCorrection}
+                  options={CORRECTION_OPTIONS}
                   data-testid="dyno-correction"
                 />
               </Control>
               <Control label="Bezug">
                 <SegmentedControl
-                  size="xs"
-                  fullWidth
+                  label="Bezug"
                   value={output}
-                  onChange={(v) => setOutput(v as DynoOutput)}
-                  data={OUTPUT_OPTIONS}
+                  onChange={setOutput}
+                  options={OUTPUT_OPTIONS}
                   data-testid="dyno-output"
                 />
               </Control>
-            </SimpleGrid>
-          </Card>
+            </div>
+          </Panel>
 
           {curve ? (
             <>
-              <Card withBorder radius="md" p="lg" data-testid="dyno-peaks">
-                <Group justify="space-between" mb="md" wrap="wrap">
-                  <Title order={5}>Spitzenwerte · {OUTPUT_LABELS[output]}</Title>
-                  <Group gap="xs">
-                    <Badge variant="light" color="orange">
-                      {METHOD_LABELS[curve.method]}
-                    </Badge>
-                    <Badge variant="light" color="slate">
+              <Panel
+                title={`Spitzenwerte · ${OUTPUT_LABELS[output]}`}
+                action={
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge tone="accent">{METHOD_LABELS[curve.method]}</Badge>
+                    <Badge>
                       {CORRECTION_LABELS[correction]}
                       {correction !== "none" ? ` · ×${curve.correctionFactor.toFixed(3)}` : ""}
                     </Badge>
-                  </Group>
-                </Group>
-                <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="md">
+                  </div>
+                }
+                data-testid="dyno-peaks"
+              >
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                   <Peak label="Max. Leistung" point={curve.peakPower} output={output} kind="power" />
-                  <Peak label="Max. Drehmoment" point={curve.peakTorque} output={output} kind="torque" />
+                  <Peak
+                    label="Max. Drehmoment"
+                    point={curve.peakTorque}
+                    output={output}
+                    kind="torque"
+                  />
                   <Metric
                     label="Leistung"
-                    value={curve.peakPower ? `${fmt(powerOf(curve.peakPower, output).kw, 1)} kW` : "—"}
+                    value={
+                      curve.peakPower ? `${fmt(powerOf(curve.peakPower, output).kw, 1)} kW` : "—"
+                    }
                     hint="bei Nennleistung"
                   />
                   <Metric
@@ -386,20 +395,20 @@ export function DynoView() {
                     value={`${fmt(curve.ambient.pressureHpa)} hPa · ${fmt(curve.ambient.tempC, 1)} °C`}
                     hint={curve.ambient.pressureFromLog ? "aus dem Log" : "Normbedingungen"}
                   />
-                </SimpleGrid>
-                <Text size="xs" c="dimmed" mt="md">
-                  Datenbasis: {curve.source}
-                </Text>
-              </Card>
+                </div>
+                <p className="mt-4 text-xs text-dim">Datenbasis: {curve.source}</p>
+              </Panel>
 
-              {/* Result cards carry p="lg", pickers and control strips p="md" —
-                  the same rhythm the comparison page uses. */}
-              <Card withBorder radius="md" p="lg">
-                <Group justify="space-between" mb="sm" wrap="wrap">
-                  <Title order={5}>Leistungs- &amp; Drehmomentkurve</Title>
-                  <Group gap="lg">
+              <Panel
+                title="Leistungs- &amp; Drehmomentkurve"
+                action={
+                  <div className="flex flex-wrap items-center gap-4">
                     <LegendItem color={SERIES_COLORS.primary} style="solid" label="Leistung (PS)" />
-                    <LegendItem color={SERIES_COLORS.secondary} style="dashed" label="Drehmoment (Nm)" />
+                    <LegendItem
+                      color={SERIES_COLORS.secondary}
+                      style="dashed"
+                      label="Drehmoment (Nm)"
+                    />
                     {estimate.crossCheck && (
                       <LegendItem
                         color={SERIES_COLORS.reference}
@@ -407,60 +416,61 @@ export function DynoView() {
                         label={`Gegenprobe: ${METHOD_LABELS[estimate.crossCheck.method]}`}
                       />
                     )}
-                  </Group>
-                </Group>
+                  </div>
+                }
+              >
                 <Suspense fallback={<DynoChartSkeleton />}>
                   <DynoChart
                     rows={rows}
                     curve={curve}
                     output={output}
-                    crossCheckLabel={estimate.crossCheck ? METHOD_LABELS[estimate.crossCheck.method] : null}
+                    crossCheckLabel={
+                      estimate.crossCheck ? METHOD_LABELS[estimate.crossCheck.method] : null
+                    }
                   />
                 </Suspense>
                 {estimate.crossCheck?.peakPower && curve.peakPower && (
-                  <Text size="xs" c="dimmed" mt="sm">
+                  <p className="mt-3 text-xs text-dim">
                     Gegenprobe ({METHOD_LABELS[estimate.crossCheck.method]}):{" "}
                     {fmt(powerOf(estimate.crossCheck.peakPower, output).ps)} PS bei{" "}
                     {fmt(estimate.crossCheck.peakPower.rpm)} 1/min – Abweichung{" "}
                     {fmt(
-                      (powerOf(estimate.crossCheck.peakPower, output).ps / powerOf(curve.peakPower, output).ps - 1) *
+                      (powerOf(estimate.crossCheck.peakPower, output).ps /
+                        powerOf(curve.peakPower, output).ps -
+                        1) *
                         100,
                       1,
                     )}{" "}
                     %.
-                  </Text>
+                  </p>
                 )}
-              </Card>
+              </Panel>
             </>
           ) : (
-            <Alert color="yellow" variant="light" icon={<IconAlertCircle size={16} />} data-testid="dyno-empty">
+            <Alert tone="watch" icon={<IconAlertCircle size={16} />} data-testid="dyno-empty">
               Aus diesem Log lässt sich keine Leistungskurve schätzen.
             </Alert>
           )}
 
           {estimate.notes.length > 0 && (
-            <Card withBorder radius="md" p="md" data-testid="dyno-notes">
-              <Text size="xs" fw={700} tt="uppercase" c="dimmed" mb="xs">
-                Hinweise zur Schätzung
-              </Text>
-              <Stack gap={6}>
+            <Panel className="[&]:p-4" data-testid="dyno-notes">
+              <p className="legend-label mb-2">Hinweise zur Schätzung</p>
+              <ul className="flex flex-col gap-1.5">
                 {estimate.notes.map((n) => (
-                  <Group key={n} gap={8} wrap="nowrap" align="flex-start">
-                    <IconInfoCircle size={15} style={{ marginTop: 2, flex: "none" }} />
-                    <Text size="xs" c="dimmed">
-                      {n}
-                    </Text>
-                  </Group>
+                  <li key={n} className="flex items-start gap-2">
+                    <IconInfoCircle size={15} className="mt-px flex-none text-dim" />
+                    <span className="text-xs text-dim">{n}</span>
+                  </li>
                 ))}
-              </Stack>
-            </Card>
+              </ul>
+            </Panel>
           )}
 
-          <Text size="xs" c="dimmed">
+          <p className="text-xs text-dim">
             Alle Werte sind rechnerische Schätzungen aus dem Datenlog – kein Ersatz für einen realen
             Prüfstandslauf. Für Vorher/Nachher-Vergleiche identische Fahrzeug-Parameter, Strecke und
             Gang verwenden.
-          </Text>
+          </p>
         </>
       )}
 
@@ -491,21 +501,18 @@ export function DynoView() {
           />
         </Suspense>
       )}
-    </Stack>
+    </div>
   );
 }
 
 function Control({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <Text size="xs" c="dimmed" fw={600} tt="uppercase" mb={6}>
-        {label}
-      </Text>
+      <p className="legend-label mb-1.5">{label}</p>
       {children}
     </div>
   );
 }
-
 function Peak({
   label,
   point,
