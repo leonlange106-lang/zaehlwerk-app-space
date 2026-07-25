@@ -191,6 +191,8 @@ export function Alert({
   children,
   className,
   role = "status",
+  onDismiss,
+  "data-testid": testId,
 }: {
   tone?: AlertTone;
   icon?: ReactNode;
@@ -198,11 +200,16 @@ export function Alert({
   children?: ReactNode;
   className?: string;
   role?: "status" | "alert";
+  /** Renders a close button. Omit for alerts the user cannot dismiss. */
+  onDismiss?: () => void;
+  /** Declared explicitly — see the note on Badge. */
+  "data-testid"?: string;
 }) {
   const token = ALERT_TOKEN[tone];
   return (
     <div
       role={role}
+      data-testid={testId}
       className={cn("flex gap-3 rounded-panel border p-3.5 text-sm", className)}
       style={{
         borderColor: `color-mix(in srgb, ${token} 32%, transparent)`,
@@ -214,10 +221,27 @@ export function Alert({
           {icon}
         </span>
       )}
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1">
         {title && <p className="font-semibold">{title}</p>}
         {children && <div className={cn(title && "mt-1", "text-dim")}>{children}</div>}
       </div>
+      {onDismiss && (
+        <button
+          type="button"
+          onClick={onDismiss}
+          aria-label="Meldung schließen"
+          className="-m-1 flex size-7 flex-none items-center justify-center rounded-control text-dim transition-colors hover:bg-canvas hover:text-ink"
+        >
+          <svg width="13" height="13" viewBox="0 0 13 13" aria-hidden fill="none">
+            <path
+              d="M1 1l11 11M12 1L1 12"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+            />
+          </svg>
+        </button>
+      )}
     </div>
   );
 }
@@ -291,7 +315,9 @@ export function FilePicker({
   return (
     <label
       className={cn(
-        "inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-control",
+        // `relative` for the same reason as SegmentedControl's label: it keeps
+        // the sr-only file input's containing block on this label.
+        "relative inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-control",
         "border border-line bg-elevated px-4 text-sm font-medium transition-colors",
         "hover:border-line-strong hover:bg-surface focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-accent",
         "sm:min-h-10",
@@ -370,6 +396,14 @@ export function Switch({
  * Pill bar for switching between mutually exclusive views. Radio inputs rather
  * than buttons, so it is one tab stop with arrow-key movement and announces as a
  * group — the mobile specs locate it by `role="radiogroup"`.
+ *
+ * Two or three short options are the common case, but the overlay-channel picker
+ * has eight and one of them is "Zündwinkel-Korrektur". So the bar SCROLLS rather
+ * than squeezing: `basis-0 grow` gives every option the same width while they
+ * fit, `min-w-fit` stops them shrinking past their own text, and the row then
+ * overflows into a horizontal scroll instead of the segments sliding over each
+ * other. Truncating to "Zündwinke…" would be worse — the whole point of the
+ * control is that you can read the choices.
  */
 export function SegmentedControl<T extends string>({
   value,
@@ -395,7 +429,8 @@ export function SegmentedControl<T extends string>({
       aria-label={label}
       data-testid={testId}
       className={cn(
-        "well flex w-full gap-1 rounded-full p-1",
+        "well flex w-full gap-1 overflow-x-auto rounded-full p-1",
+        "[scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
         disabled && "opacity-50",
         className,
       )}
@@ -406,8 +441,15 @@ export function SegmentedControl<T extends string>({
           <label
             key={option.value}
             className={cn(
-              "flex min-h-10 flex-1 items-center justify-center rounded-full px-3",
-              "text-[13px] font-medium transition-colors",
+              // `relative` is load-bearing, not decoration: the visually hidden
+              // radio inside is `position: absolute`, and without a positioned
+              // label its containing block becomes the enclosing panel. An
+              // absolutely positioned box is only clipped by ancestors in its
+              // containing-block chain — so once this bar scrolls, those hidden
+              // inputs escaped the scroll container, landed at x≈600 and dragged
+              // the whole page into horizontal scroll.
+              "relative flex min-h-10 min-w-fit shrink grow basis-0 items-center justify-center rounded-full px-3",
+              "text-[13px] font-medium whitespace-nowrap transition-colors",
               disabled ? "cursor-default" : "cursor-pointer",
               active ? "accent-gradient text-white shadow-panel" : "text-dim hover:text-ink",
             )}

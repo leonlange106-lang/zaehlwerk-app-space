@@ -24,6 +24,11 @@ export interface PanelProps {
   className?: string;
   /** Drop the default padding, for panels whose child manages its own (tables). */
   bare?: boolean;
+  /**
+   * Declared explicitly: TypeScript accepts any hyphenated prop on a component
+   * without complaint, so an undeclared `data-testid` is silently dropped.
+   */
+  "data-testid"?: string;
 }
 
 export function Panel({
@@ -35,13 +40,22 @@ export function Panel({
   children,
   className,
   bare,
+  "data-testid": testId,
 }: PanelProps) {
   return (
-    <section className={cn("panel flex flex-col", bare ? "p-0" : "p-5", className)}>
+    <section
+      data-testid={testId}
+      className={cn("panel flex flex-col", bare ? "p-0" : "p-5", className)}
+    >
+      {/* The header WRAPS. The action slot can hold a three-item chart legend,
+          and pinning it beside the title (`flex-none`, as this once did) made
+          the header's minimum width the sum of both — which the panel handed to
+          its column, and the phone scrolled sideways. Wrapping puts a long
+          action on its own line and leaves a short one where you expect it. */}
       {(title || action) && (
         <header
           className={cn(
-            "flex items-start justify-between gap-3",
+            "flex flex-wrap items-start justify-between gap-x-3 gap-y-2",
             bare && "px-5 pt-5",
             children ? "mb-4" : "",
           )}
@@ -66,7 +80,9 @@ export function Panel({
               {description && <p className="mt-0.5 text-xs text-dim">{description}</p>}
             </div>
           </div>
-          {action && <div className="flex flex-none items-center gap-2">{action}</div>}
+          {action && (
+            <div className="flex min-w-0 flex-wrap items-center gap-2">{action}</div>
+          )}
         </header>
       )}
       {children}

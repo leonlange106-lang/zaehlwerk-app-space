@@ -80,7 +80,13 @@ export function MetadataCard({ meta, rowCount, skippedRows }: {
 
   return (
     <div className="flex flex-col gap-3">
-      <KpiRail items={highlights} columns={4} label="Log-Kennwerte" />
+      {/* NOT sticky here, unlike the Zählwerk dashboard. Below `sm` a pinned rail
+          is ~124px of permanently occupied viewport, and on this page the thing
+          directly beneath it is the channel chip bar — the primary control on a
+          phone. The rail sat on top of it and swallowed taps. These numbers
+          describe the file, which does not change while you scroll the charts,
+          so there is nothing to keep pinned. */}
+      <KpiRail items={highlights} columns={4} label="Log-Kennwerte" sticky={false} />
 
       <Panel title="Log-Metadaten" icon={<IconGauge size={17} stroke={1.7} />}>
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">

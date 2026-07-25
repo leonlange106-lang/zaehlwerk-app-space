@@ -68,7 +68,9 @@ function AxisToggle({
         <label
           key={side}
           className={cn(
-            "cursor-pointer rounded-full px-2 py-0.5 text-[11px] font-semibold transition-colors",
+            // `relative` keeps the sr-only radio's containing block on this
+            // label — see the note on SegmentedControl in ui/primitives.tsx.
+            "relative cursor-pointer rounded-full px-2 py-0.5 text-[11px] font-semibold transition-colors",
             value === side ? "accent-gradient text-white" : "text-dim hover:text-ink",
           )}
         >

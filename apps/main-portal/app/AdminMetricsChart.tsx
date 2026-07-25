@@ -47,7 +47,11 @@ export function MetricChart({
           </defs>
           <CartesianGrid strokeDasharray="3 3" opacity={0.2} vertical={false} />
           <XAxis dataKey="label" tick={{ fontSize: 10 }} minTickGap={40} />
-          <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} width={34} unit="%" />
+          {/* 34px used to be enough and no longer is: the widest label is "100%"
+              and Recharts adds its own tick line and margin inside this width,
+              so the leading digit was being clipped. Measured against the label,
+              not guessed — 42 leaves it a couple of pixels of air. */}
+          <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} width={42} unit="%" />
           <Tooltip
             isAnimationActive={false}
             labelFormatter={(v) => `t = ${v}`}
