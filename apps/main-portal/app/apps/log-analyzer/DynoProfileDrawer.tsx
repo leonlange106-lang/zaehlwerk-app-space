@@ -1,22 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import {
-  Badge,
-  Button,
-  Divider,
-  Drawer,
-  Group,
-  NumberInput,
-  Select,
-  SimpleGrid,
-  Stack,
-  Text,
-  TextInput,
-} from "@mantine/core";
-import { useMediaQuery } from "@mantine/hooks";
+import { Badge } from "@/app/components/ui/Badge";
+import { Button } from "@/app/components/ui/Button";
+import { Field, NumberInput, Select, SelectShell, TextInput } from "@/app/components/ui/Field";
+import { ResponsiveDialog } from "@/app/components/ui/ResponsiveDialog";
+import { Divider } from "@/app/components/ui/primitives";
 import { IconDeviceFloppy, IconRotate } from "@tabler/icons-react";
-import sheet from "@/app/components/ui/ResponsiveDialog.module.css";
 import {
   applyVehicleEngine,
   DYNO_PRESETS,
@@ -62,19 +52,17 @@ export function DynoProfileDrawer({
   onSave: (profile: DynoProfile) => void;
 }) {
   // A right-hand drawer is a desktop idiom — at 390px it covers the screen and
-  // its Save button lands in the top-right corner, the least reachable spot on
-  // a phone. Below `sm` the same form slides up from the bottom instead. Safe to
-  // read at first render: this component only mounts on user interaction.
-  const isPhone = useMediaQuery("(max-width: 48em)", false, { getInitialValueInEffect: true });
-
+  // its Save button lands in the top-right corner, the least reachable spot on a
+  // phone. ResponsiveDialog already resolves that with a media query (a bottom
+  // sheet below `sm`, a centred panel above), so the useMediaQuery this used to
+  // read — which settles only after mount, and swapped the shape in front of the
+  // user — is gone.
   return (
-    <Drawer
+    <ResponsiveDialog
       opened={opened}
       onClose={onClose}
-      position={isPhone ? "bottom" : "right"}
-      size="lg"
       title="Fahrzeug-Parameter (Virtueller Prüfstand)"
-      classNames={isPhone ? { content: sheet.sheet, body: sheet.sheetBody } : undefined}
+      size="lg"
     >
       {/* Mounted only while open, so every open re-seeds from the saved profile
           and a cancelled edit can never leak into the next session. */}
@@ -86,7 +74,51 @@ export function DynoProfileDrawer({
           onSave={onSave}
         />
       )}
-    </Drawer>
+    </ResponsiveDialog>
+  );
+}
+
+/** A labelled numeric field. The unit rides in the label — a native number input
+ *  has no suffix slot, and putting it in the value would break `fill()`. */
+function NumField({
+  label,
+  unit,
+  description,
+  testId,
+  value,
+  onChange,
+  min,
+  max,
+  step,
+}: {
+  label: string;
+  unit?: string;
+  description?: string;
+  testId?: string;
+  value: number;
+  onChange: (value: number) => void;
+  min?: number;
+  max?: number;
+  step?: number;
+}) {
+  return (
+    <Field label={unit ? `${label} (${unit})` : label} description={description}>
+      {({ id, describedBy }) => (
+        <NumberInput
+          id={id}
+          aria-describedby={describedBy}
+          data-testid={testId}
+          min={min}
+          max={max}
+          step={step}
+          value={value}
+          onChange={(event) => {
+            const next = Number(event.currentTarget.value);
+            if (Number.isFinite(next)) onChange(next);
+          }}
+        />
+      )}
+    </Field>
   );
 }
 
@@ -137,201 +169,233 @@ function ProfileForm({
   };
 
   /** NumberInput hands back "" while a field is being cleared — keep the last value. */
-  const num = (value: number | string, fallback: number): number =>
-    typeof value === "number" && Number.isFinite(value) ? value : fallback;
 
   return (
-    <Stack gap="md" data-testid="dyno-drawer">
-      <Select
+    <div className="flex flex-col gap-4" data-testid="dyno-drawer">
+      <Field
         label="Plattform-Preset"
         description="Füllt alle Werte mit Referenzdaten der Plattform – danach frei anpassbar."
-        data={DYNO_PRESETS.map((p) => ({ value: p.id, label: p.label }))}
-        value={draft.presetId}
-        onChange={applyPreset}
-        placeholder="Preset wählen…"
-        searchable
-        data-testid="dyno-preset"
-      />
+      >
+        {({ id, describedBy }) => (
+          <SelectShell>
+            <Select
+              id={id}
+              aria-describedby={describedBy}
+              value={draft.presetId ?? ""}
+              onChange={(event) => applyPreset(event.currentTarget.value || null)}
+              data-testid="dyno-preset"
+            >
+              <option value="">Preset wählen…</option>
+              {DYNO_PRESETS.map((preset) => (
+                <option key={preset.id} value={preset.id}>
+                  {preset.label}
+                </option>
+              ))}
+            </Select>
+          </SelectShell>
+        )}
+      </Field>
 
-      <Divider label="Fahrzeug" labelPosition="left" />
-      <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
-        <NumberInput
+      <Divider />
+      <p className="legend-label">Fahrzeug</p>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <NumField
           label="Masse inkl. Fahrer"
-          suffix=" kg"
+          unit="kg"
+          testId="dyno-mass"
           min={300}
           max={5000}
           step={10}
           value={draft.massKg}
-          onChange={(v) => update("massKg", num(v, draft.massKg))}
-          data-testid="dyno-mass"
+          onChange={(v) => update("massKg", v)}
         />
-        <NumberInput
+        <NumField
           label="Antriebsstrang-Verlust"
-          suffix=" %"
+          unit="%"
+          testId="dyno-loss"
           min={0}
           max={45}
           step={1}
           value={draft.drivetrainLossPct}
-          onChange={(v) => update("drivetrainLossPct", num(v, draft.drivetrainLossPct))}
-          data-testid="dyno-loss"
+          onChange={(v) => update("drivetrainLossPct", v)}
         />
         {/* The engine belongs to the car, not to the dyno run — it is configured
             once in the vehicle profile and only mirrored here. */}
-        <TextInput
-          label="Hubraum"
-          description="Aus dem Fahrzeugprofil (Motor)"
-          value={`${draft.displacementL.toFixed(1)} L · ${engineProfile(engineCode).label}`}
-          readOnly
-          data-testid="dyno-displacement"
-        />
-        <NumberInput
+        <Field label="Hubraum" description="Aus dem Fahrzeugprofil (Motor)">
+          {({ id, describedBy }) => (
+            <TextInput
+              id={id}
+              aria-describedby={describedBy}
+              value={`${draft.displacementL.toFixed(1)} L · ${engineProfile(engineCode).label}`}
+              readOnly
+              data-testid="dyno-displacement"
+            />
+          )}
+        </Field>
+        <NumField
           label="Volumetrischer Wirkungsgrad (VE)"
           description="Nur relevant ohne MAF-Kanal"
           min={0.3}
           max={1.5}
           step={0.01}
-          decimalScale={2}
           value={draft.volumetricEfficiency}
-          onChange={(v) => update("volumetricEfficiency", num(v, draft.volumetricEfficiency))}
+          onChange={(v) => update("volumetricEfficiency", v)}
         />
-        <NumberInput
+        <NumField
           label="Luftmasse je PS-Einheit"
           description="g/s Luft pro hp – Effizienz-Offset (Standard 0,80)"
+          testId="dyno-grams-per-hp"
           min={0.4}
           max={1.5}
           step={0.01}
-          decimalScale={2}
           value={draft.gramsPerHp}
-          onChange={(v) => update("gramsPerHp", num(v, draft.gramsPerHp))}
-          data-testid="dyno-grams-per-hp"
+          onChange={(v) => update("gramsPerHp", v)}
         />
-      </SimpleGrid>
+      </div>
 
-      <Divider label="Reifen & Übersetzung" labelPosition="left" />
-      <SimpleGrid cols={{ base: 3 }} spacing="sm">
-        <NumberInput
+      <Divider />
+      <p className="legend-label">Reifen & Übersetzung</p>
+      <div className="grid grid-cols-3 gap-3">
+        <NumField
           label="Breite"
-          suffix=" mm"
+          unit="mm"
           min={100}
           max={400}
           step={5}
           value={draft.tire.widthMm}
-          onChange={(v) => updateTire("widthMm", num(v, draft.tire.widthMm))}
+          onChange={(v) => updateTire("widthMm", v)}
         />
-        <NumberInput
+        <NumField
           label="Querschnitt"
-          suffix=" %"
+          unit="%"
           min={15}
           max={90}
           step={5}
           value={draft.tire.aspectPct}
-          onChange={(v) => updateTire("aspectPct", num(v, draft.tire.aspectPct))}
+          onChange={(v) => updateTire("aspectPct", v)}
         />
-        <NumberInput
+        <NumField
           label="Felge"
-          suffix=" Zoll"
+          unit="Zoll"
           min={10}
           max={26}
           step={1}
           value={draft.tire.rimIn}
-          onChange={(v) => updateTire("rimIn", num(v, draft.tire.rimIn))}
+          onChange={(v) => updateTire("rimIn", v)}
         />
-      </SimpleGrid>
-      <Text size="xs" c="dimmed">
+      </div>
+      <p className="text-xs text-dim">
         Abrollumfang: {tireCircumferenceM(draft.tire).toFixed(3)} m
-      </Text>
+      </p>
 
-      <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
-        <TextInput
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field
           label="Getriebeübersetzungen"
           description="Gang 1 … n, kommagetrennt"
-          value={ratioText}
-          onChange={(e) => onRatios(e.currentTarget.value)}
-          error={ratiosValid ? null : "Nur positive Zahlen, kommagetrennt"}
-          data-testid="dyno-ratios"
-        />
-        <NumberInput
+          error={ratiosValid ? undefined : "Nur positive Zahlen, kommagetrennt"}
+        >
+          {({ id, describedBy }) => (
+            <TextInput
+              id={id}
+              aria-describedby={describedBy}
+              value={ratioText}
+              onChange={(e) => onRatios(e.currentTarget.value)}
+              data-testid="dyno-ratios"
+            />
+          )}
+        </Field>
+        <NumField
           label="Achsübersetzung"
           min={1}
           max={8}
           step={0.01}
-          decimalScale={2}
           value={draft.finalDrive}
-          onChange={(v) => update("finalDrive", num(v, draft.finalDrive))}
+          onChange={(v) => update("finalDrive", v)}
         />
-        <Select
+        <Field
           label="Gang des Pulls"
           description="Nur nötig, wenn kein Geschwindigkeits-Kanal geloggt ist"
-          data={draft.gearRatios.map((_, i) => ({ value: String(i + 1), label: `${i + 1}. Gang` }))}
-          value={draft.gear === null ? null : String(draft.gear)}
-          onChange={(v) => update("gear", v === null ? null : Number(v))}
-          placeholder="Automatisch aus dem Log"
-          clearable
-          data-testid="dyno-gear"
-        />
-      </SimpleGrid>
+        >
+          {({ id, describedBy }) => (
+            <SelectShell>
+              <Select
+                id={id}
+                aria-describedby={describedBy}
+                value={draft.gear === null ? "" : String(draft.gear)}
+                onChange={(event) =>
+                  update("gear", event.currentTarget.value ? Number(event.currentTarget.value) : null)
+                }
+                data-testid="dyno-gear"
+              >
+                <option value="">Automatisch aus dem Log</option>
+                {draft.gearRatios.map((_, i) => (
+                  <option key={i} value={String(i + 1)}>
+                    {i + 1}. Gang
+                  </option>
+                ))}
+              </Select>
+            </SelectShell>
+          )}
+        </Field>
+      </div>
 
-      <Divider label="Fahrwiderstände" labelPosition="left" />
-      <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
-        <NumberInput
+      <Divider />
+      <p className="legend-label">Fahrwiderstände</p>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <NumField
           label="cW-Wert"
           min={0.1}
           max={1}
           step={0.01}
-          decimalScale={2}
           value={draft.dragCoefficient}
-          onChange={(v) => update("dragCoefficient", num(v, draft.dragCoefficient))}
+          onChange={(v) => update("dragCoefficient", v)}
         />
-        <NumberInput
+        <NumField
           label="Stirnfläche"
-          suffix=" m²"
+          unit="m²"
           min={1}
           max={5}
           step={0.01}
-          decimalScale={2}
           value={draft.frontalAreaM2}
-          onChange={(v) => update("frontalAreaM2", num(v, draft.frontalAreaM2))}
+          onChange={(v) => update("frontalAreaM2", v)}
         />
-        <NumberInput
+        <NumField
           label="Rollwiderstandsbeiwert"
           min={0.005}
           max={0.05}
           step={0.001}
-          decimalScale={3}
           value={draft.rollingResistance}
-          onChange={(v) => update("rollingResistance", num(v, draft.rollingResistance))}
+          onChange={(v) => update("rollingResistance", v)}
         />
-        <NumberInput
+        <NumField
           label="Rotationsmassen-Faktor"
           min={1}
           max={1.3}
           step={0.01}
-          decimalScale={2}
           value={draft.rotatingMassFactor}
-          onChange={(v) => update("rotatingMassFactor", num(v, draft.rotatingMassFactor))}
+          onChange={(v) => update("rotatingMassFactor", v)}
         />
-      </SimpleGrid>
+      </div>
 
-      <Group justify="space-between" mt="md">
+      <div className="mt-2 flex items-center justify-between gap-3">
         {draft.presetId ? (
-          <Badge variant="light" color="orange">
-            {findDynoPreset(draft.presetId)?.label}
-          </Badge>
+          <Badge tone="accent">{findDynoPreset(draft.presetId)?.label}</Badge>
         ) : (
-          <Badge variant="light" color="slate" leftSection={<IconRotate size={12} />}>
+          <Badge>
+            <IconRotate size={12} className="mr-1" />
             Eigenes Profil
           </Badge>
         )}
         <Button
-          color="orange"
-          leftSection={<IconDeviceFloppy size={16} />}
+          variant="primary"
           onClick={save}
           disabled={!ratiosValid}
           data-testid="dyno-save"
         >
+          <IconDeviceFloppy size={16} />
           Speichern
         </Button>
-      </Group>
-    </Stack>
+      </div>
+    </div>
   );
 }
