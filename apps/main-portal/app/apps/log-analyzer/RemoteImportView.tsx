@@ -2,20 +2,11 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  Alert,
-  Button,
-  Card,
-  Group,
-  List,
-  ListItem,
-  Stack,
-  Text,
-  TextInput,
-  ThemeIcon,
-  Title,
-} from "@mantine/core";
 import { BetaBadge } from "@/app/components/ui/Badge";
+import { Button } from "@/app/components/ui/Button";
+import { Field, TextInput } from "@/app/components/ui/Field";
+import { Panel } from "@/app/components/ui/Panel";
+import { Alert, IconChip, PageHeader } from "@/app/components/ui/primitives";
 import { IconAlertCircle, IconCloudDownload, IconLink, IconWorldDownload } from "@tabler/icons-react";
 import { parseShareLink } from "./lib/mgflasher";
 import { setActiveLogId } from "./lib/log-store";
@@ -83,72 +74,71 @@ export function RemoteImportView() {
   }
 
   return (
-    <Stack gap="lg" maw={680} mx="auto">
-      <Group gap="md">
-        <ThemeIcon variant="light" color="blue" radius="md" size={44}>
-          <IconWorldDownload size={24} stroke={1.5} />
-        </ThemeIcon>
-        <div>
-          <Group gap="sm" align="center">
-            <Title order={2}>Remote-Import</Title>
-            <BetaBadge />
-          </Group>
-          <Text c="dimmed" size="sm">
-            Ein Log direkt über einen Share-Link laden — bisher nur MGflasher-Links.
-          </Text>
-        </div>
-      </Group>
+    <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
+      <div className="flex items-center gap-4">
+        <IconChip size={44}>
+          <IconWorldDownload size={22} stroke={1.6} />
+        </IconChip>
+        <PageHeader
+          title="Remote-Import"
+          badge={<BetaBadge />}
+          description="Ein Log direkt über einen Share-Link laden — bisher nur MGflasher-Links."
+        />
+      </div>
 
-      <Card withBorder radius="md" p="lg">
-        <Stack gap="md">
-          <TextInput
-            label="MGflasher Share-Link"
-            placeholder="https://logs.mgflasher.com/log/…"
-            leftSection={<IconLink size={16} />}
-            value={url}
-            onChange={(e) => {
-              setUrl(e.currentTarget.value);
-              setError(null);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && canSubmit) void handleImport();
-            }}
-            error={formatError}
-            data-testid="remote-url"
-          />
+      <Panel>
+        <div className="flex flex-col gap-4">
+          <Field label="MGflasher Share-Link" error={formatError}>
+            {({ id, describedBy }) => (
+              <div className="relative">
+                <IconLink
+                  size={16}
+                  className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-dim"
+                />
+                <TextInput
+                  id={id}
+                  aria-describedby={describedBy}
+                  className="pl-10"
+                  placeholder="https://logs.mgflasher.com/log/…"
+                  value={url}
+                  onChange={(e) => {
+                    setUrl(e.currentTarget.value);
+                    setError(null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && canSubmit) void handleImport();
+                  }}
+                  data-testid="remote-url"
+                />
+              </div>
+            )}
+          </Field>
 
           {error && (
-            <Alert color="red" variant="light" icon={<IconAlertCircle size={16} />}>
+            <Alert tone="risk" role="alert" icon={<IconAlertCircle size={16} />}>
               {error}
             </Alert>
           )}
 
-          <Group justify="flex-end">
-            <Button
-              color="blue"
-              leftSection={<IconCloudDownload size={16} />}
-              loading={busy}
-              disabled={!canSubmit}
-              onClick={handleImport}
-            >
-              Prüfen &amp; Importieren
+          <div className="flex justify-end">
+            <Button variant="primary" disabled={!canSubmit} onClick={handleImport}>
+              <IconCloudDownload size={16} />
+              {busy ? "Wird importiert…" : "Prüfen & Importieren"}
             </Button>
-          </Group>
-        </Stack>
-      </Card>
+          </div>
+        </div>
+      </Panel>
 
-      <Card withBorder radius="md" p="lg" bg="var(--mantine-color-body)">
-        <Text size="sm" fw={600} mb="xs">
-          Hinweise
-        </Text>
-        <List size="sm" spacing={6} c="dimmed">
-          <ListItem>
-            Es werden ausschließlich Links von <b>logs.mgflasher.com</b> akzeptiert.
-          </ListItem>
-          <ListItem>Der Abruf erfolgt serverseitig; Zugriff nur für freigeschaltete Nutzer.</ListItem>
-          <ListItem>Nach dem Import öffnet sich das Log direkt im Analyzer.</ListItem>
-        </List>
-      </Card>
-    </Stack>
+      <Panel title="Hinweise">
+        <ul className="flex flex-col gap-1.5 text-sm text-dim">
+          <li>
+            Es werden ausschließlich Links von{" "}
+            <strong className="text-ink">logs.mgflasher.com</strong> akzeptiert.
+          </li>
+          <li>Der Abruf erfolgt serverseitig; Zugriff nur für freigeschaltete Nutzer.</li>
+          <li>Nach dem Import öffnet sich das Log direkt im Analyzer.</li>
+        </ul>
+      </Panel>
+    </div>
   );
 }
