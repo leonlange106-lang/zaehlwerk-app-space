@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Badge } from "@/app/components/ui/Badge";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import { Badge, BetaBadge } from "@/app/components/ui/Badge";
 import { Button, ButtonLink } from "@/app/components/ui/Button";
 import { Field, PasswordInput } from "@/app/components/ui/Field";
 import { Panel } from "@/app/components/ui/Panel";
@@ -10,6 +10,7 @@ import {
   Code,
   PageHeader,
   Progress,
+  SegmentedControl,
   Spinner,
 } from "@/app/components/ui/primitives";
 import {
@@ -26,7 +27,7 @@ import {
   IconTerminal2,
 } from "@tabler/icons-react";
 import classes from "./SettingsView.module.css";
-import type { LocalCommitInfo, UpdateCheckResult } from "@zaehlwerk/updater";
+import type { LocalCommitInfo, ReleaseChannel, UpdateCheckResult } from "@zaehlwerk/updater";
 import type { SessionUser } from "@/app/lib/auth-helpers";
 import type { AppUser } from "@/app/lib/user-actions";
 import type { ApiTokenSummary } from "@/app/lib/api-token-actions";
@@ -35,6 +36,7 @@ import type { SnapshotFile } from "@/app/lib/backup-engine";
 import type { DatabaseStats } from "@/app/lib/db-maintenance";
 import type { BackupPolicy, LogRetentionPolicy } from "@/app/lib/settings";
 import { normalizeUpdateState, UPDATE_STEPS, type UpdateState } from "@/app/lib/update-status";
+import { setUpdateChannelAction } from "@/app/lib/update-channel-actions";
 import { SystemBackupCard } from "./SystemBackupCard";
 import { UserManagementCard } from "./UserManagementCard";
 import { SecurityCard } from "./SecurityCard";
@@ -63,6 +65,7 @@ const dateFormatter = new Intl.DateTimeFormat("de-DE", {
 
 export function SettingsView({
   versionInfo,
+  updateChannel,
   currentUser,
   users,
   twoFactorEnabled,
@@ -71,6 +74,7 @@ export function SettingsView({
   governance,
 }: {
   versionInfo: LocalCommitInfo | null;
+  updateChannel: ReleaseChannel;
   currentUser: SessionUser | null;
   users: AppUser[];
   twoFactorEnabled: boolean;
@@ -104,16 +108,30 @@ export function SettingsView({
           <AuditLogCard events={governance.auditEvents} />
         </>
       )}
-      <UpdateSettingsCard versionInfo={versionInfo} />
+      <UpdateSettingsCard versionInfo={versionInfo} channel={updateChannel} />
     </div>
   );
 }
+
+/**
+ * `/api/update/check` returns the updater's result plus the ref the instance's
+ * channel currently resolves to — which is what an admin actually needs to see
+ * before pressing the button.
+ */
+type CheckResponse = UpdateCheckResult & {
+  target: {
+    channel: ReleaseChannel;
+    ref: string | null;
+    label: string;
+    usingBranchFallback: boolean;
+  };
+};
 
 type CheckState =
   | { status: "idle" }
   | { status: "loading" }
   | { status: "error"; message: string }
-  | { status: "done"; result: UpdateCheckResult };
+  | { status: "done"; result: CheckResponse };
 
 /**
  * The progress stepper, driven entirely by the server-normalized {@link UpdateState}.
@@ -194,8 +212,19 @@ function UpdateLogView({ logs }: { logs: string }) {
   );
 }
 
-function UpdateSettingsCard({ versionInfo }: { versionInfo: LocalCommitInfo | null }) {
+function UpdateSettingsCard({
+  versionInfo,
+  channel,
+}: {
+  versionInfo: LocalCommitInfo | null;
+  channel: ReleaseChannel;
+}) {
   const [checkState, setCheckState] = useState<CheckState>({ status: "idle" });
+  // Optimistic: the select must move the moment it is used, or it reads as
+  // broken while the server action round-trips.
+  const [channelValue, setChannelValue] = useState<ReleaseChannel>(channel);
+  const [channelSaving, startChannelSave] = useTransition();
+  const [channelError, setChannelError] = useState<string | null>(null);
   const [token, setToken] = useState("");
   const [tokenRequired, setTokenRequired] = useState(false);
   const [logOpen, setLogOpen] = useState(false);
@@ -341,7 +370,7 @@ function UpdateSettingsCard({ versionInfo }: { versionInfo: LocalCommitInfo | nu
         setCheckState({ status: "error", message: data.error ?? "Prüfung fehlgeschlagen." });
         return;
       }
-      setCheckState({ status: "done", result: data as UpdateCheckResult });
+      setCheckState({ status: "done", result: data as CheckResponse });
     } catch {
       setCheckState({ status: "error", message: "Prüfung fehlgeschlagen (Netzwerkfehler)." });
     }
@@ -461,6 +490,51 @@ function UpdateSettingsCard({ versionInfo }: { versionInfo: LocalCommitInfo | nu
         </Alert>
       )}
 
+      <div className="well mb-5 flex flex-col gap-3 rounded-panel p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="legend-label">Release-Channel</p>
+          {channelValue === "beta" && <BetaBadge />}
+        </div>
+        <SegmentedControl
+          label="Release-Channel"
+          value={channelValue}
+          disabled={channelSaving}
+          onChange={(next) => {
+            setChannelValue(next);
+            setChannelError(null);
+            startChannelSave(async () => {
+              const result = await setUpdateChannelAction(next);
+              if (!result.success) {
+                // Put the control back where the server says it is, rather than
+                // leaving it showing a choice that was never stored.
+                setChannelValue(result.channel);
+                setChannelError(result.error ?? "Channel konnte nicht gespeichert werden.");
+              }
+            });
+          }}
+          options={[
+            { value: "stable" as ReleaseChannel, label: "Stable" },
+            { value: "beta" as ReleaseChannel, label: "Beta" },
+          ]}
+          data-testid="update-channel"
+        />
+        <p className="text-xs text-dim">
+          {channelValue === "beta"
+            ? "Installiert auch Vorabversionen. Die sind zum Testen gedacht und können Fehler enthalten — ein Backup vor dem Update ist hier keine Formalität."
+            : "Installiert nur freigegebene Versionen ohne Vorab-Kennzeichnung."}
+        </p>
+        <p className="text-xs text-dim">
+          Ein Wechsel zurück auf Stable rollt <strong className="text-ink">nicht</strong> zurück:
+          Schemaänderungen sind additiv und werden nicht rückgängig gemacht. Die Instanz bleibt auf
+          dem Beta-Stand, bis eine stabile Version ihn überholt.
+        </p>
+        {channelError && (
+          <Alert tone="risk" role="alert" icon={<IconAlertCircle size={16} />}>
+            {channelError}
+          </Alert>
+        )}
+      </div>
+
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="legend-label">Aktuelle Version</p>
@@ -485,6 +559,18 @@ function UpdateSettingsCard({ versionInfo }: { versionInfo: LocalCommitInfo | nu
         <Alert tone="risk" role="alert" icon={<IconAlertCircle size={16} />} className="mb-3">
           {checkState.message}
         </Alert>
+      )}
+
+      {checkState.status === "done" && (
+        <p className="mb-3 text-xs text-dim" data-testid="update-target">
+          Nächstes Update installiert: <strong className="text-ink">{checkState.result.target.label}</strong>
+          {checkState.result.target.usingBranchFallback && (
+            <>
+              {" — "}für den Channel „{checkState.result.target.channel}“ ist noch keine Version
+              veröffentlicht, deshalb folgt das Update dem Branch.
+            </>
+          )}
+        </p>
       )}
 
       {checkState.status === "done" && !updateAvailable && (

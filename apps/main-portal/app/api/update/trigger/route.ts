@@ -5,6 +5,7 @@ import path from "node:path";
 import { type NextRequest, NextResponse } from "next/server";
 import { denyUnlessAdmin, sessionUserForAudit } from "@/app/lib/api-guards";
 import { AUDIT_ACTIONS, recordAuditEvent } from "../../../lib/audit";
+import { resolveUpdateTarget } from "@/app/lib/update-target";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -80,10 +81,18 @@ export async function POST(request: NextRequest) {
   const scriptPath =
     process.env.UPDATE_SCRIPT_PATH ?? path.resolve(process.cwd(), "..", "..", "scripts", "update.sh");
 
+  // Which ref this instance's channel points at. Resolved HERE rather than in
+  // the script: the channel lives in the database, and the script has no client.
+  const target = await resolveUpdateTarget();
+
   // Best-effort audit trail — never block the update on the session lookup or log.
   try {
     const user = await sessionUserForAudit();
-    await recordAuditEvent(AUDIT_ACTIONS.systemUpdate, user?.email ?? "system", "Update ausgelöst");
+    await recordAuditEvent(
+      AUDIT_ACTIONS.systemUpdate,
+      user?.email ?? "system",
+      `Update ausgelöst · Channel ${target.channel} · Ziel ${target.label}`,
+    );
   } catch (error) {
     console.error("[update/trigger] audit", error);
   }
@@ -91,7 +100,8 @@ export async function POST(request: NextRequest) {
   const child = spawn("sh", [scriptPath], {
     detached: true,
     stdio: "ignore",
-    env: process.env,
+    // UPDATE_REF empty = follow the branch, exactly as before channels existed.
+    env: { ...process.env, UPDATE_REF: target.ref ?? "" },
   });
   child.unref();
 

@@ -1,3 +1,5 @@
+import type { ReleaseChannel } from "./channel";
+
 export interface RemoteCommitInfo {
   sha: string;
   shortSha: string;
@@ -12,6 +14,8 @@ export interface RemoteReleaseInfo {
   publishedAt: string;
   htmlUrl: string;
   targetCommitish: string;
+  /** GitHub's pre-release flag — what separates the beta channel from stable. */
+  preRelease: boolean;
 }
 
 interface GithubCommitResponse {
@@ -51,6 +55,8 @@ interface GithubReleaseResponse {
   html_url: string;
   published_at: string;
   target_commitish: string;
+  prerelease: boolean;
+  draft: boolean;
 }
 
 function githubHeaders(): HeadersInit {
@@ -148,11 +154,55 @@ export async function fetchLatestRelease(
   }
 
   const data = (await response.json()) as GithubReleaseResponse;
+  return toReleaseInfo(data);
+}
+
+function toReleaseInfo(data: GithubReleaseResponse): RemoteReleaseInfo {
   return {
     tagName: data.tag_name,
     name: data.name ?? data.tag_name,
     publishedAt: data.published_at,
     htmlUrl: data.html_url,
     targetCommitish: data.target_commitish,
+    preRelease: data.prerelease,
   };
+}
+
+/**
+ * The newest release for a channel, or null when the channel has none.
+ *
+ * `releases/latest` cannot answer this: GitHub excludes pre-releases from it
+ * entirely, so a beta would be invisible. This lists releases (newest first) and
+ * filters:
+ *
+ *  - stable: published, not a pre-release
+ *  - beta:   published, of EITHER maturity
+ *
+ * Beta deliberately includes stable releases. A stable that lands after the last
+ * beta is newer, and a beta tester should move onto it rather than sit on an
+ * older pre-release forever. Drafts are never offered on either channel — they
+ * are unpublished by definition.
+ */
+export async function fetchLatestReleaseForChannel(
+  owner: string,
+  repo: string,
+  channel: ReleaseChannel,
+): Promise<RemoteReleaseInfo | null> {
+  const response = await fetch(
+    `https://api.github.com/repos/${owner}/${repo}/releases?per_page=30`,
+    { headers: githubHeaders(), cache: "no-store" },
+  );
+
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    throw new Error(`GitHub releases request failed: ${response.status} ${response.statusText}`);
+  }
+
+  const data = (await response.json()) as GithubReleaseResponse[];
+  const usable = data.filter((r) => !r.draft && (channel === "beta" || !r.prerelease));
+  // GitHub returns releases newest-first by creation, but published_at is the
+  // date that actually matters and can differ — sort on it rather than trust it.
+  usable.sort((a, b) => Date.parse(b.published_at) - Date.parse(a.published_at));
+  const newest = usable[0];
+  return newest ? toReleaseInfo(newest) : null;
 }

@@ -7,15 +7,16 @@ import { listIngestionKeys } from "@/app/lib/ingestion-key-actions";
 import { listAuditEvents } from "@/app/lib/audit";
 import { listSnapshots } from "@/app/lib/backup-engine";
 import { getDatabaseStats } from "@/app/lib/db-maintenance";
-import { getBackupPolicy, getLogRetentionPolicy } from "@/app/lib/settings";
+import { getBackupPolicy, getLogRetentionPolicy, getUpdateChannel } from "@/app/lib/settings";
 import { SettingsView } from "./SettingsView";
 
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
-  const [versionInfo, currentUser] = await Promise.all([
+  const [versionInfo, currentUser, updateChannel] = await Promise.all([
     getCurrentVersionInfo(),
     getSessionUser(),
+    getUpdateChannel(),
   ]);
 
   const isAdmin = currentUser?.role === "ADMIN";
@@ -49,6 +50,7 @@ export default async function SettingsPage() {
   return (
     <SettingsView
       versionInfo={versionInfo}
+      updateChannel={updateChannel}
       currentUser={currentUser}
       users={users}
       twoFactorEnabled={twoFactorEnabled}
