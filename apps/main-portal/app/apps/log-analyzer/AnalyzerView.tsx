@@ -83,11 +83,13 @@ export function AnalyzerView() {
   // The vehicle/hardware profile lives in localStorage (client-only). Read it on
   // mount so the evaluation is judged against the user's actual setup.
   useEffect(() => {
+    const loaded = loadVehicleSpec();
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setSpec(loadVehicleSpec());
+    setSpec(loaded);
     // The dyno profile is only needed for the optional power section of an
-    // exported report, but it lives in the same client-only storage.
-    setDynoProfile(loadDynoProfile());
+    // exported report, but it lives in the same client-only storage — and it is
+    // derived from the vehicle when the user has not saved one of their own.
+    setDynoProfile(loadDynoProfile(loaded).profile);
   }, []);
 
   // Open a stored log record: re-parse its CSV and set it active.

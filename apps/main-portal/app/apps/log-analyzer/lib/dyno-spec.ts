@@ -72,6 +72,14 @@ export interface DynoProfile {
 export interface DynoPreset {
   id: string;
   label: string;
+  /**
+   * The catalogue model (`vehicle-spec.ts` → `VehicleSpec.model`) this preset
+   * describes, or null when the platform is not in the catalogue.
+   *
+   * Declared HERE rather than in a parallel lookup table: adding a preset then
+   * forces you to say which car it is, and there is no second list to forget.
+   */
+  vehicleModelId: string | null;
   profile: Omit<DynoProfile, "presetId">;
 }
 
@@ -84,6 +92,7 @@ export const DYNO_PRESETS: DynoPreset[] = [
   {
     id: "bmw-f20-125i-b48",
     label: "BMW F20 125i (B48B20O0)",
+    vehicleModelId: "f20-125i",
     profile: {
       massKg: 1500,
       drivetrainLossPct: 15,
@@ -103,6 +112,7 @@ export const DYNO_PRESETS: DynoPreset[] = [
   {
     id: "bmw-f20-m140i-b58",
     label: "BMW F20 M140i (B58B30M0)",
+    vehicleModelId: "f20-m140i",
     profile: {
       massKg: 1600,
       drivetrainLossPct: 15,
@@ -122,6 +132,7 @@ export const DYNO_PRESETS: DynoPreset[] = [
   {
     id: "bmw-f30-340i-b58",
     label: "BMW F30 340i (B58B30M0)",
+    vehicleModelId: "f30-340i",
     profile: {
       massKg: 1680,
       drivetrainLossPct: 15,
@@ -141,6 +152,7 @@ export const DYNO_PRESETS: DynoPreset[] = [
   {
     id: "vw-golf7-r-20tsi",
     label: "VW Golf 7 R (2.0 TSI, 4Motion)",
+    vehicleModelId: null,
     profile: {
       // AWD costs noticeably more drivetrain loss than a RWD automatic.
       massKg: 1580,
@@ -215,6 +227,52 @@ export function applyVehicleEngine(profile: DynoProfile, engineCode: EngineCode)
   const litres = engineDisplacementL(engineCode);
   if (litres === null || litres === profile.displacementL) return profile;
   return { ...profile, displacementL: litres };
+}
+
+/** The preset describing a catalogue model, or null when none does. */
+export function dynoPresetForVehicleModel(modelId: string | null): DynoPreset | null {
+  if (!modelId) return null;
+  return DYNO_PRESETS.find((p) => p.vehicleModelId === modelId) ?? null;
+}
+
+/**
+ * The profile a car should START from, derived from the vehicle profile.
+ *
+ * Used only when the user has never saved a dyno profile — an existing one is
+ * their own work and is never overwritten. Two outcomes, and the difference
+ * matters enough that `origin` reports it:
+ *
+ *  - "preset": the catalogue model has a reference platform, so mass, tyres,
+ *    gearing and drag describe roughly the right car.
+ *  - "generic": it does not. Displacement still comes from the engine code, but
+ *    everything else is a placeholder. The UI has to say so — presenting one
+ *    car's kerb weight and gear set as another's is how a virtual dyno produces
+ *    a confident number about nothing.
+ */
+export function dynoProfileForVehicle(spec: { model: string | null; engineCode: EngineCode }): {
+  profile: DynoProfile;
+  origin: "preset" | "generic";
+} {
+  const preset = dynoPresetForVehicleModel(spec.model);
+  if (preset) {
+    return {
+      profile: {
+        presetId: preset.id,
+        ...preset.profile,
+        tire: { ...preset.profile.tire },
+        gearRatios: [...preset.profile.gearRatios],
+      },
+      origin: "preset",
+    };
+  }
+  const base: DynoProfile = {
+    ...DEFAULT_DYNO_PROFILE,
+    // No platform match, so this is not that platform's profile any more.
+    presetId: null,
+    tire: { ...DEFAULT_DYNO_PROFILE.tire },
+    gearRatios: [...DEFAULT_DYNO_PROFILE.gearRatios],
+  };
+  return { profile: applyVehicleEngine(base, spec.engineCode), origin: "generic" };
 }
 
 /** One-line summary of a profile, for badges/headers. */

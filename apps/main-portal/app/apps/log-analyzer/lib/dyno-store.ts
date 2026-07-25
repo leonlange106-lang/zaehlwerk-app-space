@@ -1,8 +1,10 @@
 import {
   DEFAULT_DYNO_PROFILE,
+  dynoProfileForVehicle,
   type DynoProfile,
   type TireSpec,
 } from "./dyno-spec";
+import type { VehicleSpec } from "./vehicle-spec";
 
 // Browser-local persistence for the virtual dyno's vehicle-dynamics profile —
 // same contract as spec-store.ts: localStorage only, nothing leaves the device,
@@ -65,15 +67,37 @@ export function coerceDynoProfile(raw: unknown): DynoProfile {
   };
 }
 
-/** Load the saved dyno profile, or the default when none/unavailable/corrupt. */
-export function loadDynoProfile(): DynoProfile {
-  if (!hasWindow()) return coerceDynoProfile(null);
+export interface LoadedDynoProfile {
+  profile: DynoProfile;
+  /**
+   * Where the returned profile came from:
+   *  - "saved": the user's own, loaded from storage
+   *  - "preset": derived from their vehicle profile's platform
+   *  - "generic": no platform match — placeholder numbers, say so in the UI
+   */
+  origin: "saved" | "preset" | "generic";
+}
+
+/**
+ * Load the dyno profile for a vehicle.
+ *
+ * A saved profile always wins and is returned untouched — it is the user's own
+ * work. Only when nothing is stored is the starting point derived from the
+ * vehicle profile, which is what makes the dyno open on THEIR car instead of
+ * whichever platform happens to be first in the preset list.
+ */
+export function loadDynoProfile(spec: VehicleSpec): LoadedDynoProfile {
+  const derive = (): LoadedDynoProfile => {
+    const { profile, origin } = dynoProfileForVehicle(spec);
+    return { profile, origin };
+  };
+  if (!hasWindow()) return derive();
   try {
     const raw = localStorage.getItem(PROFILE_KEY);
-    if (!raw) return coerceDynoProfile(null);
-    return coerceDynoProfile(JSON.parse(raw));
+    if (!raw) return derive();
+    return { profile: coerceDynoProfile(JSON.parse(raw)), origin: "saved" };
   } catch {
-    return coerceDynoProfile(null);
+    return derive();
   }
 }
 

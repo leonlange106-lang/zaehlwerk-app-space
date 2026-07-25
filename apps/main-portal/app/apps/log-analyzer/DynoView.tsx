@@ -107,13 +107,21 @@ export function DynoView() {
   const [method, setMethod] = useState<MethodPreference>("auto");
   const [correction, setCorrection] = useState<CorrectionStandard>("none");
   const [output, setOutput] = useState<DynoOutput>("crank");
+  // Whether the profile below is the user's own, derived from their platform, or
+  // placeholder numbers — the summary line has to be honest about which.
+  const [profileOrigin, setProfileOrigin] = useState<"saved" | "preset" | "generic">("generic");
 
   // The vehicle-dynamics profile and the hardware spec both live in
-  // localStorage (client-only), so they are read after mount.
+  // localStorage (client-only), so they are read after mount. Spec first: with
+  // no saved profile the dyno starts from the user's own car rather than from
+  // whichever platform happens to be the module default.
   useEffect(() => {
+    const loadedSpec = loadVehicleSpec();
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setProfile(loadDynoProfile());
-    setSpec(loadVehicleSpec());
+    setSpec(loadedSpec);
+    const loaded = loadDynoProfile(loadedSpec);
+    setProfile(loaded.profile);
+    setProfileOrigin(loaded.origin);
   }, []);
 
   useEffect(() => {
@@ -324,6 +332,22 @@ export function DynoView() {
           Profil: {summarizeDynoProfile(effectiveProfile)} · Motor {spec.engineCode} aus dem
           Fahrzeugprofil
         </p>
+        {/* Says where the numbers came from. A power estimate built on another
+            car's mass and gear set looks exactly as confident as a correct one,
+            so the difference has to be on screen — not only in the drawer. */}
+        {profileOrigin === "generic" && (
+          <p className="mt-1 text-xs text-watch">
+            Für dieses Modell gibt es noch kein Referenz-Profil – Masse, Reifen, Übersetzung
+            und Luftwiderstand sind Platzhalter. Unter „Fahrzeug-Parameter“ anpassen, sonst
+            beschreibt die Schätzung nicht dein Auto.
+          </p>
+        )}
+        {profileOrigin === "preset" && (
+          <p className="mt-1 text-xs text-dim">
+            Aus deinem Fahrzeug-Profil abgeleitet. Änderungen unter „Fahrzeug-Parameter“
+            überschreiben das dauerhaft.
+          </p>
+        )}
       </Panel>
 
       {active && estimate && (
@@ -483,7 +507,12 @@ export function DynoView() {
             profile={effectiveProfile}
             engineCode={spec.engineCode}
             onClose={() => setDrawerOpen(false)}
-            onSave={setProfile}
+            onSave={(next) => {
+              setProfile(next);
+              // Once saved it is the user's own profile, so the "placeholder
+              // values" warning above must stop claiming otherwise.
+              setProfileOrigin("saved");
+            }}
           />
         </Suspense>
       )}
