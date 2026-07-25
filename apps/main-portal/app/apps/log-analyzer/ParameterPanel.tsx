@@ -1,21 +1,11 @@
 "use client";
 
 import { useMemo } from "react";
-import {
-  Anchor,
-  Card,
-  Checkbox,
-  ColorSwatch,
-  Group,
-  Popover,
-  SegmentedControl,
-  Stack,
-  Text,
-  Title,
-  Tooltip,
-} from "@mantine/core";
+import * as Popover from "@radix-ui/react-popover";
+import { Panel } from "@/app/components/ui/Panel";
+import { Tooltip } from "@/app/components/ui/Tooltip";
+import { cn } from "@/app/lib/cn";
 import type { AxisSide, LogSeries } from "./lib/types";
-import classes from "./LogAnalyzer.module.css";
 
 // The channel toggle panel: EVERY parsed parameter is listed and selectable —
 // grouped logically (Boost Control, Ignition & Knock, Fueling, …) with unknown
@@ -23,9 +13,9 @@ import classes from "./LogAnalyzer.module.css";
 // also exposes a per-channel Y-axis side (L/R) picker and a line-colour swatch.
 
 // A compact palette users can recolour a channel with. Every entry is picked to
-// stay legible as a 1.6px stroke on the #080c14 canvas — nothing darker than
-// roughly 45% luminance, and no two neighbours that collapse into one another
-// for the common red-green deficiencies.
+// stay legible as a 1.6px stroke on the dark deck — nothing darker than roughly
+// 45% luminance, and no two neighbours that collapse into one another for the
+// common red-green deficiencies.
 const SWATCHES = [
   "#f97316", "#ef4444", "#06b6d4", "#10b981", "#f472b6", "#a78bfa",
   "#fb923c", "#f87171", "#38bdf8", "#34d399", "#e879f9", "#818cf8",
@@ -44,20 +34,54 @@ interface Props {
 }
 
 /**
- * The panel in its own card — the desktop sidebar presentation.
+ * The panel in its own plate — the desktop sidebar presentation.
  *
  * On phones the same controls are rendered *bare* inside a bottom sheet (which
- * brings its own surface and title), so the card chrome would be a second frame
+ * brings its own surface and title), so the plate chrome would be a second frame
  * around a frame. `ParameterPanelBody` is that shared inner content.
  */
 export function ParameterPanel(props: Props) {
   return (
-    <Card p="md">
-      <Title order={5} mb={4}>
-        Parameter
-      </Title>
+    <Panel title="Parameter" className="[&]:p-4">
       <ParameterPanelBody {...props} />
-    </Card>
+    </Panel>
+  );
+}
+
+/** Two-state axis picker. Small enough that a segmented pill would dwarf it. */
+function AxisToggle({
+  value,
+  onChange,
+  label,
+}: {
+  value: AxisSide;
+  onChange: (side: AxisSide) => void;
+  label: string;
+}) {
+  return (
+    <div
+      role="radiogroup"
+      aria-label={label}
+      className="well flex overflow-hidden rounded-full p-0.5"
+    >
+      {(["left", "right"] as const).map((side) => (
+        <label
+          key={side}
+          className={cn(
+            "cursor-pointer rounded-full px-2 py-0.5 text-[11px] font-semibold transition-colors",
+            value === side ? "accent-gradient text-white" : "text-dim hover:text-ink",
+          )}
+        >
+          <input
+            type="radio"
+            className="sr-only"
+            checked={value === side}
+            onChange={() => onChange(side)}
+          />
+          {side === "left" ? "Y-L" : "Y-R"}
+        </label>
+      ))}
+    </div>
   );
 }
 
@@ -83,115 +107,100 @@ export function ParameterPanelBody({
 
   return (
     <>
-      <Text size="xs" c="dimmed" mb="sm">
-        Alle {series.length} erkannten Kanäle. Ausgewählte lassen sich links/rechts der
-        Y-Achse zuordnen und einfärben.
-      </Text>
-      <Stack gap="lg">
+      <p className="mb-4 text-xs text-dim">
+        Alle {series.length} erkannten Kanäle. Ausgewählte lassen sich links/rechts der Y-Achse
+        zuordnen und einfärben.
+      </p>
+      <div className="flex flex-col gap-5">
         {groups.map(([groupName, groupSeries]) => {
           const keys = groupSeries.map((s) => s.key);
           const allOn = keys.every((k) => selected.has(k));
           return (
             <div key={groupName}>
-              <Group justify="space-between" mb={6}>
-                <Text size="xs" fw={700} tt="uppercase" c="dimmed">
-                  {groupName}
-                </Text>
-                <Anchor
-                  component="button"
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <p className="legend-label">{groupName}</p>
+                <button
                   type="button"
-                  size="xs"
-                  c="orange"
                   onClick={() => onToggleGroup(keys, !allOn)}
+                  className="text-xs text-accent underline-offset-2 hover:underline"
                 >
                   {allOn ? "keine" : "alle"}
-                </Anchor>
-              </Group>
-              <Stack gap={8}>
+                </button>
+              </div>
+              <div className="flex flex-col gap-2">
                 {groupSeries.map((s) => {
                   const isOn = selected.has(s.key);
                   const color = colorById[s.key] ?? s.color;
                   const side = axisById[s.key] ?? "left";
                   return (
                     <div key={s.key}>
-                      <Group gap={6} wrap="nowrap" justify="space-between">
-                        <Checkbox
-                          size="sm"
-                          color="orange"
+                      <label className="flex min-h-8 cursor-pointer items-center gap-2.5">
+                        <input
+                          type="checkbox"
                           checked={isOn}
                           onChange={() => onToggle(s.key)}
-                          label={
-                            <Group gap={7} wrap="nowrap">
-                              <span
-                                className={classes.legendDot}
-                                style={{ backgroundColor: color }}
-                              />
-                              <Text size="sm">
-                                {s.label}
-                                {s.unit ? (
-                                  <Text span c="dimmed" size="xs">
-                                    {" "}
-                                    ({s.unit})
-                                  </Text>
-                                ) : null}
-                              </Text>
-                            </Group>
-                          }
+                          className="size-4 flex-none accent-[var(--zw-accent)]"
                         />
-                      </Group>
+                        <span
+                          aria-hidden
+                          className="size-2.5 flex-none rounded-full"
+                          style={{ backgroundColor: color }}
+                        />
+                        <span className="min-w-0 text-sm">
+                          {s.label}
+                          {s.unit ? <span className="text-xs text-dim"> ({s.unit})</span> : null}
+                        </span>
+                      </label>
 
                       {isOn && (
-                        <Group gap="xs" wrap="nowrap" pl={30} mt={4}>
-                          <SegmentedControl
-                            size="xs"
+                        <div className="mt-1.5 flex items-center gap-2 pl-7">
+                          <AxisToggle
                             value={side}
-                            onChange={(v) => onAxis(s.key, v as AxisSide)}
-                            data={[
-                              { value: "left", label: "Y-L" },
-                              { value: "right", label: "Y-R" },
-                            ]}
-                            aria-label={`Y-Achse für ${s.label}`}
+                            onChange={(next) => onAxis(s.key, next)}
+                            label={`Y-Achse für ${s.label}`}
                           />
-                          <Popover position="bottom-start" withArrow shadow="md">
-                            <Popover.Target>
-                              <Tooltip label="Linienfarbe wählen" withArrow>
-                                <ColorSwatch
-                                  color={color}
-                                  size={20}
-                                  radius="xs"
-                                  style={{ cursor: "pointer" }}
-                                  role="button"
+                          <Popover.Root>
+                            <Popover.Trigger asChild>
+                              <Tooltip label="Linienfarbe wählen">
+                                <button
+                                  type="button"
                                   aria-label={`Farbe für ${s.label}`}
+                                  className="size-5 flex-none rounded-[5px] border border-line-strong"
+                                  style={{ backgroundColor: color }}
                                 />
                               </Tooltip>
-                            </Popover.Target>
-                            <Popover.Dropdown p="xs">
-                              <Group gap={6} maw={148}>
-                                {SWATCHES.map((c) => (
-                                  <ColorSwatch
-                                    key={c}
-                                    color={c}
-                                    size={20}
-                                    radius="xs"
-                                    style={{ cursor: "pointer" }}
-                                    role="button"
-                                    aria-label={c}
-                                    onClick={() => onColor(s.key, c)}
-                                  />
-                                ))}
-                              </Group>
-                            </Popover.Dropdown>
-                          </Popover>
-                        </Group>
+                            </Popover.Trigger>
+                            <Popover.Portal>
+                              <Popover.Content
+                                align="start"
+                                sideOffset={6}
+                                className="z-50 rounded-panel border border-line bg-elevated p-2 shadow-panel-lg"
+                              >
+                                <div className="grid w-40 grid-cols-6 gap-1.5">
+                                  {SWATCHES.map((c) => (
+                                    <button
+                                      key={c}
+                                      type="button"
+                                      aria-label={c}
+                                      onClick={() => onColor(s.key, c)}
+                                      className="size-5 rounded-[5px] border border-line-strong transition-transform hover:scale-110"
+                                      style={{ backgroundColor: c }}
+                                    />
+                                  ))}
+                                </div>
+                              </Popover.Content>
+                            </Popover.Portal>
+                          </Popover.Root>
+                        </div>
                       )}
                     </div>
                   );
                 })}
-              </Stack>
+              </div>
             </div>
           );
         })}
-      </Stack>
+      </div>
     </>
   );
 }

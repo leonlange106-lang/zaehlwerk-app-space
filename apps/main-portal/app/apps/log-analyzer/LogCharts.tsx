@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo } from "react";
-import { Card, Group, Stack, Text } from "@mantine/core";
 import {
   CartesianGrid,
   Label,
@@ -48,7 +47,7 @@ const WARNING = "var(--zw-watch)";
 const SHIFT_GREY = "var(--zw-neutral)";
 /** Axis/grid furniture — deliberately quiet so the traces stay the loudest thing. */
 const GRID = "var(--zw-border)";
-const AXIS_TEXT = "var(--mantine-color-dimmed)";
+const AXIS_TEXT = "var(--zw-text-dim)";
 
 function formatX(value: number, unit: "s" | "#"): string {
   if (unit === "#") return String(Math.round(value));
@@ -82,11 +81,11 @@ export function LogCharts({
 
   if (groups.length === 0) {
     return (
-      <Card withBorder radius="md" p="xl">
-        <Text c="dimmed" ta="center" size="sm">
+      <div className="panel p-8">
+        <p className="text-center text-sm text-dim">
           Keine Parameter ausgewählt. Aktiviere links Messwerte, um Graphen anzuzeigen.
-        </Text>
-      </Card>
+        </p>
+      </div>
     );
   }
 
@@ -95,30 +94,30 @@ export function LogCharts({
   const areaColor = pullVerified ? OK : WARNING;
 
   return (
-    <Stack gap="md">
+    <div className="flex flex-col gap-4">
       {groups.map(([groupName, series], groupIndex) => {
         const usesRight = series.some((s) => sideFor(s) === "right");
         // Labels for overlays are only drawn once (top chart) to avoid clutter.
         const showOverlayLabels = groupIndex === 0;
         return (
-          <Card withBorder radius="md" p="sm" key={groupName}>
-            <Group justify="space-between" mb={6} px={6}>
-              <Text fw={600} size="sm">
+          <div className="panel p-3" key={groupName}>
+            <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2 px-1.5">
+              <p className="text-sm font-semibold">
                 {groupName}
-              </Text>
-              <Group gap="sm">
+              </p>
+              <div className="flex flex-wrap items-center gap-3">
                 {series.map((s) => (
-                  <Group gap={5} key={s.key} wrap="nowrap">
+                  <span className="flex flex-none items-center gap-1.5" key={s.key}>
                     <span className={classes.legendDot} style={{ backgroundColor: colorFor(s) }} />
-                    <Text size="xs" c="dimmed">
+                    <span className="text-xs text-dim">
                       {s.label}
                       {s.unit ? ` (${s.unit})` : ""}
                       {sideFor(s) === "right" ? " ›" : ""}
-                    </Text>
-                  </Group>
+                    </span>
+                  </span>
                 ))}
-              </Group>
-            </Group>
+              </div>
+            </div>
             <div className={classes.chartClip}>
               <div className={classes.chartBox}>
                 <ResponsiveContainer width="100%" height="100%">
@@ -238,9 +237,9 @@ export function LogCharts({
                         borderRadius: 4,
                         background: "var(--zw-elevated)",
                         border: "1px solid var(--zw-border)",
-                        color: "var(--mantine-color-text)",
+                        color: "var(--zw-text)",
                       }}
-                      labelStyle={{ color: "var(--mantine-color-dimmed)" }}
+                      labelStyle={{ color: "var(--zw-text-dim)" }}
                       cursor={{ stroke: "var(--zw-border-strong)", strokeWidth: 1 }}
                     />
                     {series.map((s) => (
@@ -264,9 +263,9 @@ export function LogCharts({
                 </ResponsiveContainer>
               </div>
             </div>
-          </Card>
+          </div>
         );
       })}
-    </Stack>
+    </div>
   );
 }

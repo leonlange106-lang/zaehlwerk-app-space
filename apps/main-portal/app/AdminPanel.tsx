@@ -1,18 +1,10 @@
 "use client";
 
 import { Suspense, lazy, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import {
-  Alert,
-  Button,
-  Card,
-  Group,
-  Progress,
-  SimpleGrid,
-  Text,
-  ThemeIcon,
-  Title,
-} from "@mantine/core";
 import { MetricChartSkeleton, type MetricPoint } from "./AdminChartFrame";
+import { Button } from "./components/ui/Button";
+import { Panel } from "./components/ui/Panel";
+import { Alert } from "./components/ui/primitives";
 import {
   IconCpu,
   IconDatabase,
@@ -119,47 +111,40 @@ export function AdminPanel() {
   }, []);
 
   return (
-    <Card withBorder radius="md" p="lg" maw={1100} mx="auto" w="100%">
-      <Group justify="space-between" mb="md" wrap="wrap">
-        <Group gap="xs">
-          <ThemeIcon variant="light" color="slate" radius="md" size={32}>
-            <IconServerBolt size={18} stroke={1.6} />
-          </ThemeIcon>
-          <div>
-            <Title order={4}>Admin · System</Title>
-            {metrics && (
-              <Text size="xs" c="dimmed">
-                {metrics.host.hostname} · {metrics.host.platform}/{metrics.host.arch} ·{" "}
-                Node {metrics.host.nodeVersion} · Host-Uptime {fmtUptime(metrics.host.uptimeS)}
-              </Text>
-            )}
-          </div>
-        </Group>
+    <Panel
+      className="mx-auto w-full max-w-6xl"
+      title="Admin · System"
+      icon={<IconServerBolt size={17} stroke={1.7} />}
+      description={
+        metrics
+          ? `${metrics.host.hostname} · ${metrics.host.platform}/${metrics.host.arch} · Node ${metrics.host.nodeVersion} · Host-Uptime ${fmtUptime(metrics.host.uptimeS)}`
+          : undefined
+      }
+      action={
         <Button
-          size="xs"
-          color="red"
-          variant="light"
-          leftSection={<IconTrash size={14} />}
-          loading={clearing}
+          variant="danger"
+          size="sm"
+          disabled={clearing}
           onClick={() => void clearCache()}
           data-testid="clear-cache"
         >
-          Cache leeren
+          <IconTrash size={14} />
+          {clearing ? "Wird geleert…" : "Cache leeren"}
         </Button>
-      </Group>
-
+      }
+    >
       {error && (
-        <Alert color="red" variant="light" mb="md">
+        <Alert tone="risk" role="alert" className="mb-4">
           {error}
         </Alert>
       )}
       {clearResult && (
-        <Alert color="teal" variant="light" mb="md" onClose={() => setClearResult(null)} withCloseButton>
+        <Alert tone="ok" className="mb-4">
           {clearResult}
         </Alert>
       )}
 
-      <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="md" mb="lg">
+      <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat
           icon={<IconCpu size={16} />}
           label="CPU"
@@ -182,7 +167,7 @@ export function AdminPanel() {
           value={metrics?.disk ? `${metrics.disk.usedPct}%` : "—"}
           sub={metrics?.disk ? `${metrics.disk.usedGb} / ${metrics.disk.totalGb} GB` : "n/v"}
           pct={metrics?.disk?.usedPct ?? 0}
-          color="#20c997"
+          color="var(--zw-ok)"
         />
         <Stat
           icon={<IconDeviceDesktop size={16} />}
@@ -190,19 +175,24 @@ export function AdminPanel() {
           value={metrics ? `${metrics.process.rssMb} MB` : "—"}
           sub={metrics ? `Uptime ${fmtUptime(metrics.process.uptimeS)}` : ""}
           pct={null}
-          color="#868e96"
+          color="var(--zw-neutral)"
         />
-      </SimpleGrid>
+      </div>
 
-      <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
+      <div className="grid gap-4 md:grid-cols-2">
         <Suspense fallback={<MetricChartSkeleton title="CPU-Auslastung (%)" />}>
           <MetricChart title="CPU-Auslastung (%)" data={history} dataKey="cpu" color={CPU_COLOR} />
         </Suspense>
         <Suspense fallback={<MetricChartSkeleton title="Speicher-Auslastung (%)" />}>
-          <MetricChart title="Speicher-Auslastung (%)" data={history} dataKey="mem" color={MEM_COLOR} />
+          <MetricChart
+            title="Speicher-Auslastung (%)"
+            data={history}
+            dataKey="mem"
+            color={MEM_COLOR}
+          />
         </Suspense>
-      </SimpleGrid>
-    </Card>
+      </div>
+    </Panel>
   );
 }
 
@@ -221,25 +211,36 @@ function Stat({
   pct: number | null;
   color: string;
 }) {
+  // The bar tightens as the resource fills: neutral, then watch, then risk. It
+  // repeats the percentage that is already written above it, so colour alone
+  // never carries the news.
+  const barToken =
+    pct === null
+      ? null
+      : pct >= 90
+        ? "var(--zw-risk)"
+        : pct >= 75
+          ? "var(--zw-watch)"
+          : "var(--zw-ok)";
+
   return (
-    <Card withBorder radius="md" p="sm">
-      <Group gap={6} mb={4}>
-        <ThemeIcon variant="transparent" size={18} p={0} style={{ color }}>
+    <div className="well p-3">
+      <div className="mb-1 flex items-center gap-1.5">
+        <span className="flex-none" style={{ color }} aria-hidden>
           {icon}
-        </ThemeIcon>
-        <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
-          {label}
-        </Text>
-      </Group>
-      <Text fw={700} size="lg" lh={1.1}>
-        {value}
-      </Text>
-      <Text size="xs" c="dimmed" mt={2}>
-        {sub || " "}
-      </Text>
-      {pct !== null && (
-        <Progress value={pct} color={pct >= 90 ? "red" : pct >= 75 ? "orange" : "teal"} size="xs" mt={6} radius="sm" />
+        </span>
+        <p className="legend-label">{label}</p>
+      </div>
+      <p className="readout text-readout-sm">{value}</p>
+      <p className="mt-0.5 text-xs text-dim">{sub || " "}</p>
+      {barToken !== null && (
+        <span className="mt-2 block h-1 overflow-hidden rounded-full bg-line">
+          <span
+            className="block h-full rounded-full transition-[width]"
+            style={{ width: `${Math.min(100, Math.max(0, pct ?? 0))}%`, background: barToken }}
+          />
+        </span>
       )}
-    </Card>
+    </div>
   );
 }
