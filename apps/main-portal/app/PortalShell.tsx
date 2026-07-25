@@ -1,59 +1,42 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { useMantineColorScheme } from "@mantine/core";
 import {
-  IconArrowsDiff,
   IconBell,
-  IconChartBar,
-  IconChartHistogram,
-  IconClockHour4,
-  IconEngine,
-  IconGauge,
-  IconGitCommit,
-  IconLayoutDashboard,
-  IconLayoutGrid,
   IconLogout,
-  IconMenu2,
   IconMoon,
   IconSearch,
   IconSettings,
-  IconStack2,
   IconSun,
-  IconWorldDownload,
 } from "@tabler/icons-react";
 import { USER_ROLE_LABELS } from "@zaehlwerk/database/client";
 import type { UserRole } from "@zaehlwerk/database/client";
-import { APPS, activeAppFor } from "./lib/apps";
+import { activeAppFor } from "./lib/apps";
+import { AppMenu } from "./components/shell/AppMenu";
 import { cn } from "./lib/cn";
 
-// The app shell: a translucent header bar, a glass section rail and the deck.
+// The app shell: a translucent header bar over the deck. That is the whole thing.
 //
-// Laid out by hand rather than with a framework AppShell, because the shell is
-// only three fixed boxes and owning them outright is what lets the mobile drawer,
-// its scrim and the sticky KPI rail agree on stacking order instead of
-// negotiating with a component library's z-index scale.
+// There is deliberately no pinned section rail any more, and no second menu. The
+// shell used to carry both a grid icon that switched apps and a burger that (on
+// phones only) listed the current app's sections, so "how do I get somewhere"
+// depended on where that somewhere was and on how wide the window happened to be.
+// Navigation is now exactly one control — see components/shell/AppMenu — which
+// drills from the app list down to an individual meter and behaves identically at
+// every width. The deck gets the reclaimed space.
 //
 // The active app is signalled by the accent gradient rather than by a label you
-// have to read: the brand chip, the selected rail row and the avatar all carry
-// it, and it re-points per app (cyan→blue for Zählwerk, amber→orange for the Log
-// Analyzer) via [data-app] in globals.css.
+// have to read: the brand chip and the avatar carry it, and it re-points per app
+// (cyan→blue for Zählwerk, amber→orange for the Log Analyzer) via [data-app] in
+// globals.css.
 
 // Auth screens render standalone (no nav/header chrome).
 const BARE_PATHS = ["/login", "/setup"];
-
-// Stacking, declared once. The scrim sits BELOW the drawer and the header so the
-// drawer's links and the burger stay tappable while it is open; a scrim above
-// them swallows every touch and dismisses on any tap.
-const Z = { header: "z-50", drawer: "z-50", scrim: "z-40" } as const;
-
-// Width of the pinned section rail from `sm` up. The deck pads itself by this
-// plus its own gutter, so the two cannot drift apart.
-const RAIL_W = "15.5rem";
 
 // Detect "embedded" mode: the app is shown inside another frame — chiefly Home
 // Assistant Ingress, which renders the add-on in an iframe under the HA panel
@@ -91,37 +74,11 @@ function detectEmbedded(): boolean {
   }
 }
 
-type NavItem = { label: string; href: string; icon: typeof IconStack2; exact?: boolean };
-
-// Per-app section rail. Keyed by app id; only apps with their own sub-navigation
-// appear here, and the rail is shown only inside such an app.
-const APP_NAV: Record<string, NavItem[]> = {
-  zaehlwerk: [
-    { label: "Dashboard", href: "/apps/zaehlwerk", icon: IconLayoutDashboard, exact: true },
-    { label: "Zähler", href: "/apps/zaehlwerk/zaehler", icon: IconStack2 },
-    { label: "Berichte", href: "/apps/zaehlwerk/berichte", icon: IconChartBar },
-    { label: "App-Einstellungen", href: "/apps/zaehlwerk/einstellungen", icon: IconSettings },
-  ],
-  "log-analyzer": [
-    { label: "Analyzer", href: "/apps/log-analyzer", icon: IconChartHistogram, exact: true },
-    { label: "Log-Vergleich", href: "/apps/log-analyzer/compare", icon: IconArrowsDiff },
-    { label: "Virtueller Prüfstand", href: "/apps/log-analyzer/dyno", icon: IconGauge },
-    { label: "Remote-Import", href: "/apps/log-analyzer/remote", icon: IconWorldDownload },
-    { label: "Fahrzeug-Profil", href: "/apps/log-analyzer/specs", icon: IconEngine },
-    { label: "Log-Übersicht", href: "/apps/log-analyzer/history", icon: IconClockHour4 },
-  ],
-};
-
 function initialsFor(name: string | null | undefined, email: string | null | undefined): string {
   const source = (name ?? email ?? "").trim();
   if (!source) return "?";
   const parts = source.split(/[\s@.]+/).filter(Boolean);
   return (parts[0]?.[0] ?? "").concat(parts[1]?.[0] ?? "").toUpperCase() || source[0]!.toUpperCase();
-}
-
-function isActiveHref(pathname: string, href: string, exact?: boolean): boolean {
-  if (exact) return pathname === href;
-  return pathname === href || pathname.startsWith(`${href}/`);
 }
 
 /** Round control in the header bar. 44px thumb area on phones, compact above. */
@@ -138,103 +95,6 @@ const menuItem =
   "min-h-11 sm:min-h-9 transition-colors data-[highlighted]:bg-canvas " +
   "data-[disabled]:cursor-default data-[disabled]:opacity-45";
 
-function AppIcon({ src }: { src: string }) {
-  // eslint-disable-next-line @next/next/no-img-element
-  return <img src={src} alt="" width={18} height={18} className="flex-none" />;
-}
-
-function AppSwitcher({ allowedAppIds }: { allowedAppIds: string[] }) {
-  const apps = APPS.filter((app) => allowedAppIds.includes(app.id));
-  return (
-    <DropdownMenu.Root>
-      <DropdownMenu.Trigger asChild>
-        <button type="button" className={controlBox} aria-label="App wechseln">
-          <IconLayoutGrid size={19} stroke={1.6} />
-        </button>
-      </DropdownMenu.Trigger>
-      <DropdownMenu.Portal>
-        <DropdownMenu.Content align="start" sideOffset={6} className={cn(menuPanel, "w-64")}>
-          <DropdownMenu.Label className="legend-label px-3 py-1.5">Apps</DropdownMenu.Label>
-          {apps.length === 0 ? (
-            <DropdownMenu.Item disabled className={menuItem}>
-              Keine Apps freigegeben
-            </DropdownMenu.Item>
-          ) : (
-            apps.map((app) =>
-              app.available ? (
-                <DropdownMenu.Item key={app.id} asChild>
-                  <Link href={app.href} className={menuItem}>
-                    <AppIcon src={app.icon} />
-                    {app.name}
-                  </Link>
-                </DropdownMenu.Item>
-              ) : (
-                <DropdownMenu.Item key={app.id} disabled className={menuItem}>
-                  <AppIcon src={app.icon} />
-                  {app.name}
-                  <span className="legend-label ml-auto">Bald</span>
-                </DropdownMenu.Item>
-              ),
-            )
-          )}
-          <DropdownMenu.Separator className="my-1 h-px bg-line" />
-          <DropdownMenu.Item asChild>
-            <Link href="/" className={menuItem}>
-              <IconLayoutGrid size={16} className="flex-none" />
-              App Space (Start)
-            </Link>
-          </DropdownMenu.Item>
-          <DropdownMenu.Item asChild>
-            <Link href="/settings" className={menuItem}>
-              <IconSettings size={16} className="flex-none" />
-              Plattform-Einstellungen
-            </Link>
-          </DropdownMenu.Item>
-          <DropdownMenu.Item asChild>
-            <Link href="/changelog" className={menuItem}>
-              <IconGitCommit size={16} className="flex-none" />
-              Changelog
-            </Link>
-          </DropdownMenu.Item>
-        </DropdownMenu.Content>
-      </DropdownMenu.Portal>
-    </DropdownMenu.Root>
-  );
-}
-
-/**
- * One row in the section rail. The active row is marked by a solid accent spine
- * plus a raised fill and a heavier weight — readable at a glance, and never by
- * colour alone.
- */
-function NavRow({
-  href,
-  icon: Icon,
-  label,
-  active,
-}: {
-  href: string;
-  icon: typeof IconStack2;
-  label: string;
-  active: boolean;
-}) {
-  return (
-    <Link
-      href={href}
-      data-active={active || undefined}
-      className={cn(
-        "flex min-h-11 items-center gap-3 rounded-control px-3 text-[13.5px] transition-all sm:min-h-10",
-        active
-          ? "accent-gradient font-semibold text-white shadow-panel"
-          : "text-dim hover:bg-elevated hover:text-ink",
-      )}
-    >
-      <Icon size={17} stroke={1.6} className="flex-none" />
-      {label}
-    </Link>
-  );
-}
-
 export function PortalShell({
   children,
   version,
@@ -246,31 +106,17 @@ export function PortalShell({
 }) {
   const pathname = usePathname();
   const [query, setQuery] = useState("");
-  const [mobileOpen, setMobileOpen] = useState(false);
   const { colorScheme, toggleColorScheme } = useMantineColorScheme();
   const { data: session } = useSession();
   const embedded = useEmbedded();
-
-  const closeMobile = useCallback(() => setMobileOpen(false), []);
-
-  // Navigating on a phone should dismiss the drawer, so the target page is
-  // actually visible instead of hidden behind the open overlay. Adjusted during
-  // render rather than in an effect: React re-runs this pass immediately with the
-  // corrected state, so the drawer is never painted open on the new route (an
-  // effect would show one frame of it, and trips the cascading-render rule).
-  const [drawerPath, setDrawerPath] = useState(pathname);
-  if (drawerPath !== pathname) {
-    setDrawerPath(pathname);
-    setMobileOpen(false);
-  }
 
   const activeApp = activeAppFor(pathname);
   const activeAppId = activeApp?.id;
 
   // Mirror the app context onto <html>: Radix portals menus and dialogs to
   // document.body, outside the shell, where they would otherwise fall back to the
-  // root accent and show, say, a cyan marker on a sheet opened inside the
-  // (orange) Log Analyzer.
+  // root accent and show, say, a cyan row in a menu opened inside the (orange)
+  // Log Analyzer.
   useEffect(() => {
     const root = document.documentElement;
     if (activeAppId) root.dataset.app = activeAppId;
@@ -283,36 +129,15 @@ export function PortalShell({
   }
 
   const user = session?.user;
-  const navItems = activeApp ? APP_NAV[activeApp.id] ?? [] : [];
-  const showNavbar = navItems.length > 0;
 
   return (
     <div className="min-h-screen bg-canvas" data-app={activeApp?.id}>
-      <header
-        className={cn(
-          "fixed inset-x-0 top-0 flex h-15 items-center gap-1.5 border-b border-line px-2 sm:px-3",
-          "bg-surface/80 backdrop-blur-xl",
-          Z.header,
-        )}
-      >
-
-        {showNavbar && (
-          <button
-            type="button"
-            onClick={() => setMobileOpen((open) => !open)}
-            className={cn(controlBox, "sm:hidden")}
-            aria-label="Navigation umschalten"
-            aria-expanded={mobileOpen}
-          >
-            <IconMenu2 size={20} stroke={1.8} />
-          </button>
-        )}
-
-        <AppSwitcher allowedAppIds={allowedAppIds} />
+      <header className="fixed inset-x-0 top-0 z-50 flex h-15 items-center gap-1.5 border-b border-line bg-surface/80 px-2 backdrop-blur-xl sm:px-3">
+        <AppMenu allowedAppIds={allowedAppIds} />
 
         {/* When embedded (e.g. Home Assistant Ingress) the host panel already
-            shows a title, so we drop the duplicate brand mark but keep the
-            switcher and nav so navigation stays fully intact. */}
+            shows a title, so we drop the duplicate brand mark but keep the menu
+            so navigation stays fully intact. */}
         {!embedded && (
           <Link
             href="/"
@@ -376,10 +201,13 @@ export function PortalShell({
                   <p className="truncate text-[13px] font-semibold">
                     {user?.name ?? user?.email ?? "Angemeldet"}
                   </p>
-                  {user?.email && <p className="truncate text-[11px] text-neutral">{user.email}</p>}
+                  {user?.email && <p className="truncate text-[11px] text-dim">{user.email}</p>}
                   {user?.role && (
                     <p className="legend-label mt-1">{USER_ROLE_LABELS[user.role as UserRole]}</p>
                   )}
+                  <p className="mt-2 truncate text-[10px] text-dim">
+                    Version {version?.shortSha ?? "dev"} · {version?.branch ?? "lokal"}
+                  </p>
                 </div>
                 <DropdownMenu.Separator className="my-1 h-px bg-line" />
                 <DropdownMenu.Item asChild>
@@ -401,80 +229,7 @@ export function PortalShell({
         </div>
       </header>
 
-      {showNavbar && (
-        <>
-          <nav
-            data-testid="app-navbar"
-            data-open={mobileOpen || undefined}
-            aria-label="Bereichsnavigation"
-            style={{ ["--rail-w" as string]: RAIL_W }}
-            className={cn(
-              "fixed bottom-0 left-0 top-15 flex w-[min(82vw,300px)] flex-col justify-between gap-3",
-              "-translate-x-full border-r border-line bg-surface/80 p-3 backdrop-blur-xl transition-transform duration-200",
-              "shadow-[8px_0_32px_rgba(0,0,0,0.5)] data-[open]:translate-x-0",
-              "sm:w-(--rail-w) sm:translate-x-0 sm:shadow-none",
-              Z.drawer,
-            )}
-          >
-            <ul className="flex min-h-0 flex-col gap-1 overflow-y-auto">
-              <li>
-                <NavRow href="/" icon={IconLayoutGrid} label="Alle Apps" active={false} />
-              </li>
-              {navItems.map((item) => (
-                <li key={item.href}>
-                  <NavRow
-                    href={item.href}
-                    icon={item.icon}
-                    label={item.label}
-                    active={isActiveHref(pathname, item.href, item.exact)}
-                  />
-                </li>
-              ))}
-            </ul>
-
-            <Link
-              href="/changelog"
-              title="Changelog öffnen"
-              className={cn(
-                "well flex flex-none items-center gap-2.5 px-3 py-2.5 text-dim transition-colors",
-                "hover:border-line-strong hover:text-ink",
-                isActiveHref(pathname, "/changelog") && "border-line-strong text-ink",
-              )}
-            >
-              <IconGitCommit size={15} stroke={1.6} className="flex-none" />
-              <span className="min-w-0">
-                <span className="readout block truncate text-[11px]">
-                  Version {version?.shortSha ?? "dev"}
-                </span>
-                <span className="block truncate text-[10px] leading-tight">
-                  {version?.branch ?? "lokal"} · Changelog
-                </span>
-              </span>
-            </Link>
-          </nav>
-
-          {/* Tap-to-dismiss scrim behind the open mobile drawer. Without it the
-              drawer feels "stuck": you see it, but taps land on the page behind. */}
-          {mobileOpen && (
-            <div
-              className={cn("fixed inset-0 bg-black/55 sm:hidden", Z.scrim)}
-              onClick={closeMobile}
-              role="presentation"
-              aria-hidden
-            />
-          )}
-        </>
-      )}
-
-      <main
-        style={showNavbar ? ({ ["--rail-w" as string]: RAIL_W } as React.CSSProperties) : undefined}
-        className={cn(
-          "min-h-screen px-3 pb-10 pt-[calc(3.75rem+1rem)] sm:px-5 lg:px-8",
-          // Clears the pinned rail from `sm` up; below that the rail is a drawer
-          // and the deck uses the full width.
-          showNavbar && "sm:pl-[calc(var(--rail-w)+1rem)] lg:pl-[calc(var(--rail-w)+1.5rem)]",
-        )}
-      >
+      <main className="min-h-screen px-3 pb-10 pt-[calc(3.75rem+1rem)] sm:px-6 lg:px-8">
         {children}
       </main>
     </div>

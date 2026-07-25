@@ -22,8 +22,8 @@ test.describe("App access control (restricted user)", () => {
     await expect(page.getByText("Noch keine App freigegeben")).toBeVisible();
   });
 
-  test("app-switcher reports no released apps", async ({ page }) => {
-    await page.getByRole("button", { name: "App wechseln" }).click();
+  test("navigation menu reports no released apps", async ({ page }) => {
+    await page.getByRole("button", { name: "Navigation öffnen" }).click();
     const menu = page.getByRole("menu");
     await expect(menu.getByText("Keine Apps freigegeben")).toBeVisible();
     // Platform settings stays reachable regardless of app assignments.

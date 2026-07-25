@@ -176,16 +176,20 @@ test.describe("Log Analyzer: remote import", () => {
 });
 
 test.describe("Log Analyzer: sub-navigation", () => {
-  test("sidebar exposes Analyzer, Remote-Import and Log-Übersicht", async ({ page }) => {
+  test("menu exposes Analyzer, Remote-Import and Log-Übersicht", async ({ page }) => {
+    const openSection = async (name: string) => {
+      await page.getByRole("button", { name: "Navigation öffnen" }).click();
+      const menu = page.getByRole("menu");
+      await menu.getByRole("menuitem", { name: "MGflasher Log Analyzer" }).click();
+      await menu.getByRole("menuitem", { name, exact: true }).click();
+    };
+
     await page.goto("/apps/log-analyzer");
-    // Open the mobile drawer to reach the nav links.
-    await page.getByRole("button", { name: "Navigation umschalten" }).click();
-    await page.getByRole("link", { name: "Remote-Import" }).click();
+    await openSection("Remote-Import");
     await page.waitForURL(/\/apps\/log-analyzer\/remote$/);
     await expect(page.getByRole("heading", { name: "Remote-Import" })).toBeVisible();
 
-    await page.getByRole("button", { name: "Navigation umschalten" }).click();
-    await page.getByRole("link", { name: "Log-Übersicht" }).click();
+    await openSection("Log-Übersicht");
     await page.waitForURL(/\/apps\/log-analyzer\/history$/);
     await expect(page.getByRole("heading", { name: "Log-Übersicht" })).toBeVisible();
   });

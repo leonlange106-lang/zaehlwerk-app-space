@@ -83,66 +83,47 @@ test.describe("Mobile: no horizontal viewport scroll", () => {
   });
 });
 
-test.describe("Mobile: navigation drawer", () => {
-  test("burger opens and closes the sidebar; scrim tap closes without navigating", async ({ page }) => {
-    await page.goto("/apps/zaehlwerk");
-    const burger = page.getByRole("button", { name: "Navigation umschalten" });
-    await expect(burger).toBeVisible();
-    await expect(burger).toHaveAttribute("aria-expanded", "false");
-
-    // Nav link sits off-screen (translated left) while closed. Scoped to the
-    // rail: page content may legitimately link to Berichte too.
-    const berichte = page.getByTestId("app-navbar").getByRole("link", { name: "Berichte" });
-    const closedBox = await berichte.boundingBox();
-    expect(closedBox, "nav link renders").not.toBeNull();
-    expect(closedBox!.x, "drawer closed → nav off-screen left").toBeLessThan(0);
-
-    await burger.click();
-    await expect(burger).toHaveAttribute("aria-expanded", "true");
-    // aria-expanded flips when state changes, but the drawer slides in over
-    // ~200ms — sampling boundingBox() right away catches it mid-transition. Poll
-    // for the settled position instead of asserting on the first frame.
-    await expect
-      .poll(async () => (await berichte.boundingBox())!.x, {
-        message: "drawer open → nav on-screen",
-      })
-      .toBeGreaterThanOrEqual(0);
-
-    // The mobile drawer must NOT be full-width — a tappable scrim strip has to
-    // remain beside it, otherwise tap-outside-to-close is impossible.
-    const navBox = await page.getByTestId("app-navbar").boundingBox();
-    const vw = page.viewportSize()!.width;
-    expect(navBox!.x + navBox!.width, "drawer leaves a scrim strip").toBeLessThan(vw - 20);
-
-    // Tapping the scrim (beside the drawer) must close it, not fall through.
-    const urlBefore = page.url();
-    const x = Math.round((navBox!.x + navBox!.width + vw) / 2);
-    await page.mouse.click(x, 320);
-    await expect(burger).toHaveAttribute("aria-expanded", "false");
-    expect(page.url(), "scrim tap does not navigate").toBe(urlBefore);
-  });
-
-  test("nav link inside the open drawer navigates", async ({ page }) => {
-    await page.goto("/apps/zaehlwerk");
-    await page.getByRole("button", { name: "Navigation umschalten" }).click();
-    await page.getByTestId("app-navbar").getByRole("link", { name: "Berichte" }).click();
-    await page.waitForURL(/\/apps\/zaehlwerk\/berichte$/);
-  });
-});
-
-test.describe("Mobile: app switcher", () => {
-  test("grid opens the switcher and can jump between apps (popover on top, tappable)", async ({ page }) => {
-    await page.goto("/");
-    const switcher = page.getByRole("button", { name: "App wechseln" });
-    await expectTapTarget(switcher, "app-switcher");
-    await switcher.click();
+test.describe("Mobile: navigation menu", () => {
+  test("one menu drills app → section → meter and jumps across apps", async ({ page }) => {
+    // Start inside the Log Analyzer: the point of the unified menu is that you can
+    // reach a Zählwerk meter from here without going via the Zählwerk dashboard.
+    await page.goto("/apps/log-analyzer");
+    await page.getByRole("button", { name: "Navigation öffnen" }).click();
 
     const menu = page.getByRole("menu");
     await expect(menu).toBeVisible();
-    await expect(menu.getByText("Plattform-Einstellungen")).toBeVisible();
 
     await menu.getByRole("menuitem", { name: "Zählwerk", exact: true }).click();
-    await page.waitForURL(/\/apps\/zaehlwerk$/);
+    await expect(menu.getByRole("menuitem", { name: "Berichte" })).toBeVisible();
+
+    await menu.getByRole("menuitem", { name: "Zähler", exact: true }).click();
+    // Meters are fetched on first open of this level, so wait for one to land.
+    const meter = menu.getByRole("menuitem", { name: new RegExp(E2E_METER_NAME) });
+    await expect(meter).toBeVisible();
+
+    await meter.click();
+    await page.waitForURL(/\/apps\/zaehlwerk\/zaehler\/[0-9a-f-]+$/);
+    await expect(page.getByRole("heading", { name: E2E_METER_NAME })).toBeVisible();
+  });
+
+  test("back steps out one level and closing resets to the root", async ({ page }) => {
+    await page.goto("/apps/zaehlwerk");
+    const trigger = page.getByRole("button", { name: "Navigation öffnen" });
+    await trigger.click();
+
+    const menu = page.getByRole("menu");
+    await menu.getByRole("menuitem", { name: "Zählwerk", exact: true }).click();
+    await expect(menu.getByRole("menuitem", { name: "Berichte" })).toBeVisible();
+
+    // The back row is labelled with the level you are in.
+    await menu.getByRole("menuitem", { name: "Zählwerk", exact: true }).click();
+    await expect(menu.getByRole("menuitem", { name: "Plattform-Einstellungen" })).toBeVisible();
+
+    // Reopening always starts at the root, never where you left off.
+    await page.keyboard.press("Escape");
+    await expect(menu).toBeHidden();
+    await trigger.click();
+    await expect(page.getByRole("menu").getByRole("menuitem", { name: "Plattform-Einstellungen" })).toBeVisible();
   });
 });
 
@@ -189,20 +170,21 @@ test.describe("Mobile: modals & forms", () => {
 test.describe("Mobile: touch targets ≥ 44px", () => {
   test("header controls meet the minimum", async ({ page }) => {
     await page.goto("/apps/zaehlwerk");
-    await expectTapTarget(page.getByRole("button", { name: "Navigation umschalten" }), "burger");
-    await expectTapTarget(page.getByRole("button", { name: "App wechseln" }), "app-switcher");
+    await expectTapTarget(page.getByRole("button", { name: "Navigation öffnen" }), "app-menu");
     await expectTapTarget(page.getByRole("button", { name: "Theme wechseln" }), "theme-toggle");
     await expectTapTarget(page.getByRole("button", { name: "Benachrichtigungen" }), "notifications");
     await expectTapTarget(page.getByRole("button", { name: "Benutzermenü" }), "user-menu");
   });
 
-  test("drawer nav links and launcher tiles meet the minimum", async ({ page }) => {
+  test("menu rows and launcher tiles meet the minimum", async ({ page }) => {
     await page.goto("/apps/zaehlwerk");
-    await page.getByRole("button", { name: "Navigation umschalten" }).click();
+    await page.getByRole("button", { name: "Navigation öffnen" }).click();
+    await page.getByRole("menu").getByRole("menuitem", { name: "Zählwerk", exact: true }).click();
     await expectTapTarget(
-      page.getByTestId("app-navbar").getByRole("link", { name: "Berichte" }),
-      "nav: Berichte",
+      page.getByRole("menu").getByRole("menuitem", { name: "Berichte" }),
+      "menu: Berichte",
     );
+    await page.keyboard.press("Escape");
 
     await page.goto("/");
     const tile = page.getByRole("main").getByRole("link", { name: /Zählwerk/ });
