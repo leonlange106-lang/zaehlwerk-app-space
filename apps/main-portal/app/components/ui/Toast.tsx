@@ -12,7 +12,7 @@ import {
 import { IconAlertTriangle, IconCheck, IconInfoCircle, IconX } from "@tabler/icons-react";
 import { cn } from "@/app/lib/cn";
 
-// Transient notifications, replacing @mantine/notifications.
+// Transient notifications.
 //
 // One consumer today (the Log Analyzer's realtime ingest events), so this is
 // deliberately small: a queue, an auto-dismiss timer, and a live region.

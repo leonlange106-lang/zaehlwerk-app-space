@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
-// Colour-scheme control, replacing MantineProvider's.
+// Colour-scheme control.
 //
 // Three modes, not two. "auto" is the default and it FOLLOWS THE SYSTEM LIVE —
 // flipping the OS to light at dusk flips the app, without a reload — while an
@@ -32,8 +32,8 @@ export const themeScript = `(function(){try{
 var m=localStorage.getItem(${JSON.stringify(STORAGE_KEY)});
 if(m!=='light'&&m!=='dark'){m='auto';}
 var s=m==='auto'?(window.matchMedia(${JSON.stringify(LIGHT_QUERY)}).matches?'light':'dark'):m;
-var d=document.documentElement.dataset;d.theme=s;d.themeMode=m;d.mantineColorScheme=s;
-}catch(e){var d2=document.documentElement.dataset;d2.theme='dark';d2.themeMode='auto';d2.mantineColorScheme='dark';}})();`;
+var d=document.documentElement.dataset;d.theme=s;d.themeMode=m;
+}catch(e){var d2=document.documentElement.dataset;d2.theme='dark';d2.themeMode='auto';}})();`;
 
 interface ThemeContextValue {
   /** What the user picked: may be "auto". */
@@ -56,11 +56,6 @@ function apply(mode: ThemeMode): ColorScheme {
   const root = document.documentElement;
   root.dataset.theme = scheme;
   root.dataset.themeMode = mode;
-  // Mirror onto Mantine's attribute for as long as unmigrated screens render its
-  // components: this provider is the single source of truth, and without the
-  // mirror those screens would keep whichever scheme they started in. Drop this
-  // line together with the Mantine dependency.
-  root.dataset.mantineColorScheme = scheme;
   return scheme;
 }
 

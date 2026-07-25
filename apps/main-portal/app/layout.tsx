@@ -1,11 +1,6 @@
 import type { Metadata, Viewport } from "next";
-import { mantineHtmlProps, MantineProvider } from "@mantine/core";
-import { Notifications } from "@mantine/notifications";
 import { SessionProvider } from "next-auth/react";
-import "@mantine/core/styles.css";
-import "@mantine/notifications/styles.css";
 import "./globals.css";
-import { theme } from "../theme";
 import { PortalShell } from "./PortalShell";
 import { ThemeProvider, themeScript } from "./components/shell/ThemeProvider";
 import { ToastProvider } from "./components/ui/Toast";
@@ -47,7 +42,7 @@ export default async function RootLayout({
   const allowedAppIds = await allowedAppIdsFor(session?.user);
 
   return (
-    <html lang="de" {...mantineHtmlProps}>
+    <html lang="de" suppressHydrationWarning>
       <head>
         {/* Resolves the colour scheme onto <html> BEFORE the first paint, so a
             light-mode user never sees a dark frame. Has to be a raw script: it
@@ -58,19 +53,14 @@ export default async function RootLayout({
         <ThemeProvider>
           <ToastProvider>
             <TooltipProvider>
-              <MantineProvider theme={theme} defaultColorScheme="dark">
-                <Notifications position="top-right" />
-                <SessionProvider session={session}>
-                  <PortalShell
-                    version={
-                      version ? { shortSha: version.shortSha, branch: version.branch } : null
-                    }
-                    allowedAppIds={allowedAppIds}
-                  >
-                    {children}
-                  </PortalShell>
-                </SessionProvider>
-              </MantineProvider>
+              <SessionProvider session={session}>
+                <PortalShell
+                  version={version ? { shortSha: version.shortSha, branch: version.branch } : null}
+                  allowedAppIds={allowedAppIds}
+                >
+                  {children}
+                </PortalShell>
+              </SessionProvider>
             </TooltipProvider>
           </ToastProvider>
         </ThemeProvider>

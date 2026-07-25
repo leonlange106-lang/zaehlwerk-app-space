@@ -17,22 +17,12 @@
  * call site — they are the design language, so they live in one place.
  */
 
-@layer theme, base, components, utilities;
-@import "tailwindcss/theme.css" layer(theme);
-@import "tailwindcss/utilities.css" layer(utilities);
+@import "tailwindcss";
 
-/* Tailwind's preflight is deliberately NOT imported while Mantine is still in
-   the tree — its reset would strip Mantine's component styles out from under
-   every screen that hasn't been migrated. Switch to a plain
-   `@import "tailwindcss"` in the commit that removes the last Mantine dep.
- *
- * Skipping it does mean migrated components get no reset at all, and bare
- * elements fall back to the user agent: bulleted <li>, blue underlined <a>,
- * bordered <button>. Mantine was quietly supplying that before its components
- * were removed. So the @layer base block below is the minimum reset those
- * components need — and it is safe precisely because it is layered: Mantine's
- * stylesheet is unlayered, and unlayered rules beat every layered one, so
- * nothing here can reach a screen that still renders Mantine. */
+/* Preflight (part of the import above) resets the user agent, but it stops short
+   of a few things this design relies on everywhere: list markers, link colour,
+   heading margins and the two form quirks below. They live here rather than at
+   the call sites so no component has to remember them. */
 @layer base {
   *,
   *::before,
@@ -96,13 +86,10 @@
 
 /* The colour scheme is driven by an attribute on <html>, not by the media query,
    because the header toggle has to win over the OS preference. The attribute is
-   set before first paint by `themeScript` in components/shell/ThemeProvider.
- *
- * BOTH attributes are honoured for as long as Mantine is still mounted: it sets
- * `data-mantine-color-scheme` from its own provider, and dropping that selector
- * before the last Mantine screen is migrated would leave those screens stuck in
- * one scheme. Delete the Mantine half together with the dependency. */
-@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *, [data-mantine-color-scheme="dark"], [data-mantine-color-scheme="dark"] *));
+   set before first paint by `themeScript` in components/shell/ThemeProvider —
+   "auto" resolves the OS preference there, so the media query is never consulted
+   from CSS and there is exactly one place that decides the scheme. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
 :root {
   /* Deck → panel → raised panel, plus a recessed well for inputs and plot beds. */
@@ -155,8 +142,7 @@
   --zw-series-secondary: #0e7490;
 }
 
-[data-theme="dark"],
-[data-mantine-color-scheme="dark"] {
+[data-theme="dark"] {
   /* Deep navy, not black: the glass panels and gradient accents need something
      to sit *on*, and pure black flattens both. */
   --zw-canvas: #080b16;
@@ -196,9 +182,7 @@
 }
 
 [data-theme="dark"][data-app="zaehlwerk"],
-[data-theme="dark"] [data-app="zaehlwerk"],
-[data-mantine-color-scheme="dark"][data-app="zaehlwerk"],
-[data-mantine-color-scheme="dark"] [data-app="zaehlwerk"] {
+[data-theme="dark"] [data-app="zaehlwerk"] {
   --zw-accent: #22d3ee;
   --zw-accent-2: #4f7cff;
 }
@@ -210,9 +194,7 @@
 }
 
 [data-theme="dark"][data-app="log-analyzer"],
-[data-theme="dark"] [data-app="log-analyzer"],
-[data-mantine-color-scheme="dark"][data-app="log-analyzer"],
-[data-mantine-color-scheme="dark"] [data-app="log-analyzer"] {
+[data-theme="dark"] [data-app="log-analyzer"] {
   --zw-accent: #fb923c;
   --zw-accent-2: #fbbf24;
 }
@@ -289,6 +271,11 @@ body {
   background-color: var(--zw-surface);
   box-shadow: var(--zw-shadow), inset 0 1px 0 0 var(--zw-glass-edge);
   backdrop-filter: blur(12px);
+  /* A flex/grid child defaults to `min-width: auto`, which means it refuses to
+     shrink below its content's minimum — a panel holding a chart or a wide table
+     then widens its whole column and the phone scrolls sideways. A panel is a
+     surface INSIDE a column; it never gets to define that column's width. */
+  min-width: 0;
 }
 
 /* A recessed well cut into a panel — inputs, plot beds, log output. */
@@ -330,54 +317,10 @@ body {
   line-height: 1.05;
 }
 
-/* Numbers are the payload of this dashboard — line them up everywhere, including
-   inside the Mantine components that have not been migrated yet. */
-:where(.mantine-Text-root, .mantine-Table-td, .mantine-Title-root),
+/* Numbers are the payload of this dashboard — line them up in every table
+   without each one having to ask. */
 :where(table td, table th) {
   font-variant-numeric: tabular-nums;
-}
-
-/* ------------------------------------------------------------------ *
- * Mantine surface mapping — retired progressively as screens migrate
- * ------------------------------------------------------------------ */
-
-:where(.mantine-Paper-root, .mantine-Card-root) {
-  background-color: var(--zw-surface);
-  background-image: linear-gradient(160deg, var(--zw-glass-top), var(--zw-glass-bottom));
-  border-color: var(--zw-border);
-  border-radius: var(--zw-radius-panel);
-  box-shadow: var(--zw-shadow), inset 0 1px 0 0 var(--zw-glass-edge);
-}
-
-:where(
-    .mantine-Modal-content,
-    .mantine-Modal-header,
-    .mantine-Drawer-content,
-    .mantine-Drawer-header,
-    .mantine-Menu-dropdown,
-    .mantine-Popover-dropdown,
-    .mantine-HoverCard-dropdown
-  ) {
-  background-color: var(--zw-elevated);
-}
-
-:where(.mantine-Input-input) {
-  background-color: var(--zw-inset);
-  border-color: var(--zw-border);
-  border-radius: var(--zw-radius-control);
-}
-
-:where(.mantine-Input-input:focus, .mantine-Input-input:focus-within) {
-  border-color: var(--zw-accent);
-}
-
-:where(.mantine-SegmentedControl-root) {
-  background-color: var(--zw-inset);
-  border: 1px solid var(--zw-border);
-}
-
-:where(.mantine-Table-td, .mantine-Table-th) {
-  border-color: var(--zw-border);
 }
 
 /* Keyboard focus is a visible ring in the app accent. */
@@ -409,41 +352,17 @@ body {
 }
 
 /*
- * Mobile touch-target baseline. On phones every interactive control gets a
- * comfortable ~44px thumb area (WCAG 2.5.5 / iOS HIG), while desktop keeps the
- * compact density. Scoped to the sm breakpoint so nothing changes ≥ tablet.
+ * Mobile touch-target baseline. The ~44px thumb area (WCAG 2.5.5 / iOS HIG) is
+ * built into the components themselves (`min-h-11 sm:min-h-10` on Button, Field,
+ * FilePicker, menu items), so there is no blanket override here — only table
+ * cells, which are not components and would otherwise stay desktop-dense.
  */
 /* 48em is the `sm` breakpoint the whole product uses. */
 @media (max-width: 48em) {
-  .mantine-Button-root,
-  .mantine-Input-input {
-    min-height: 44px;
-  }
-
-  .mantine-ActionIcon-root {
-    min-width: 44px;
-    min-height: 44px;
-  }
-
-  .mantine-NavLink-root {
-    min-height: 44px;
-  }
-
-  .mantine-Menu-item {
-    min-height: 44px;
-  }
-
-  .mantine-Table-td,
-  .mantine-Table-th {
+  table td,
+  table th {
     padding-top: 10px;
     padding-bottom: 10px;
-  }
-
-  .mantine-SegmentedControl-label {
-    min-height: 40px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
   }
 }
 

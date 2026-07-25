@@ -71,9 +71,10 @@ const FRAME_ANCESTORS =
   process.env.FRAME_ANCESTORS?.trim() || (process.env.HA_INGRESS === "true" ? "'self'" : "'none'");
 const FRAMING_ALLOWED = FRAME_ANCESTORS !== "'none'";
 
-// Content-Security-Policy: Next's runtime and Mantine inject inline styles, and
-// Next's dev/hydration needs inline scripts, so 'unsafe-inline' is required for
-// style-src (and script-src in dev). Everything else is locked to same-origin.
+// Content-Security-Policy: Next's runtime injects inline styles and the
+// pre-hydration theme script is inline by necessity, so 'unsafe-inline' is
+// required for style-src (and script-src in dev, for hydration). Everything else
+// is locked to same-origin.
 const CSP = [
   "default-src 'self'",
   "base-uri 'self'",

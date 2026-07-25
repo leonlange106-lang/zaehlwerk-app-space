@@ -43,8 +43,8 @@ const LOG_ROW_HEIGHT = 132;
 // and keeps the natural page flow (no inner scroll area) for the common case —
 // same trade-off as the reading history table. It matters here because the
 // watch-folder importer can accumulate logs indefinitely, and every row carries
-// two live Mantine inputs, so an unwindowed list of a few hundred is thousands
-// of DOM nodes and a visibly sluggish page.
+// two live inputs, so an unwindowed list of a few hundred is thousands of DOM
+// nodes and a visibly sluggish page.
 const VIRTUALIZE_THRESHOLD = 40;
 /** Height of a day heading (uppercase caption + the stack gap around it). */
 const GROUP_HEADER_HEIGHT = 38;
