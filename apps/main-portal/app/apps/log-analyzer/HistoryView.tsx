@@ -2,22 +2,15 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { notifications } from "@mantine/notifications";
-import {
-  ActionIcon,
-  Badge,
-  Button,
-  Card,
-  Group,
-  Skeleton,
-  Stack,
-  TagsInput,
-  Text,
-  TextInput,
-  ThemeIcon,
-  Title,
-  Tooltip,
-} from "@mantine/core";
+import { Badge } from "@/app/components/ui/Badge";
+import { Button } from "@/app/components/ui/Button";
+import { Field, TextInput } from "@/app/components/ui/Field";
+import { Panel } from "@/app/components/ui/Panel";
+import { Skeleton } from "@/app/components/ui/Skeleton";
+import { TagsInput } from "@/app/components/ui/TagsInput";
+import { Tooltip } from "@/app/components/ui/Tooltip";
+import { useToast } from "@/app/components/ui/Toast";
+import { IconChip, PageHeader } from "@/app/components/ui/primitives";
 import {
   IconChartHistogram,
   IconClockHour4,
@@ -65,11 +58,11 @@ const STATUS_META: Record<PullStatus, { label: string; tone: StatusTone }> = {
   invalid: { label: "INVALID", tone: "risk" },
 };
 
-const SOURCE_META: Record<string, { label: string; color: string }> = {
-  upload: { label: "Upload", color: "orange" },
-  remote: { label: "Remote", color: "cyan" },
-  ingest: { label: "Auto · API", color: "slate" },
-  watch: { label: "Auto · Ordner", color: "slate" },
+const SOURCE_META: Record<string, { label: string }> = {
+  upload: { label: "Upload" },
+  remote: { label: "Remote" },
+  ingest: { label: "Auto · API" },
+  watch: { label: "Auto · Ordner" },
 };
 
 const HEALTH_META: Record<PullHealth, { label: string; tone: StatusTone }> = {
@@ -139,6 +132,7 @@ function flattenGroups(groups: DayGroup[]): FlatRow[] {
 
 export function HistoryView() {
   const router = useRouter();
+  const toast = useToast();
   const [items, setItems] = useState<LogSummaryDTO[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -172,8 +166,8 @@ export function HistoryView() {
         return;
       }
       const name = data.name ?? "Log";
-      notifications.show({
-        color: data.duplicate ? "gray" : data.ingestStatus === "VERIFIED" ? "teal" : "orange",
+      toast.show({
+        tone: data.duplicate ? "info" : data.ingestStatus === "VERIFIED" ? "ok" : "watch",
         title: data.duplicate ? "Log bereits vorhanden" : "Neuer Log automatisch verarbeitet",
         message: `${name}${data.duplicate ? "" : ` (Status: ${data.ingestStatus ?? "?"})`}`,
       });
@@ -187,6 +181,9 @@ export function HistoryView() {
       source.removeEventListener("ingested", onIngested as EventListener);
       source.close();
     };
+    // `toast` is stable (memoised in its provider); listing it would tear the
+    // EventSource down and reconnect on every provider render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const open = useCallback(
@@ -226,58 +223,52 @@ export function HistoryView() {
   const groups = useMemo(() => (items ? groupByDay(items) : []), [items]);
 
   return (
-    <Stack gap="lg">
+    <div className="flex flex-col gap-6">
       {/* The header renders immediately, loaded or not: swapping the WHOLE view
           from a spinner to the list pushed the page title in from the top. */}
-      <Group gap="md">
-        <ThemeIcon variant="light" color="orange" radius="md" size={44}>
-          <IconClockHour4 size={24} stroke={1.5} />
-        </ThemeIcon>
-        <div>
-          <Title order={2}>Log-Übersicht</Title>
-          <Text c="dimmed" size="sm">
-            Alle gespeicherten Logs mit Pull-Status und Tags (real gefahrene Oktanzahl u.&nbsp;a.).
-          </Text>
-        </div>
-      </Group>
+      <div className="flex items-center gap-4">
+        <IconChip size={44}>
+          <IconClockHour4 size={22} stroke={1.6} />
+        </IconChip>
+        <PageHeader
+          title="Log-Übersicht"
+          description="Alle gespeicherten Logs mit Pull-Status und Tags (real gefahrene Oktanzahl u. a.)."
+        />
+      </div>
 
-      {error && (
-        <Text c="red" size="sm">
-          {error}
-        </Text>
-      )}
+      {error && <p className="text-sm text-risk">{error}</p>}
 
       {items === null ? (
         // Placeholder rows the height of a real one, so the list grows into the
         // space it already occupies instead of appearing below a spinner.
-        <Stack gap="sm" data-testid="log-list-skeleton">
+        <div className="flex flex-col gap-3" data-testid="log-list-skeleton">
           {[0, 1, 2].map((i) => (
-            <Skeleton key={i} height={LOG_ROW_HEIGHT} radius="md" />
+            <Skeleton key={i} height={LOG_ROW_HEIGHT} className="rounded-panel" />
           ))}
-        </Stack>
+        </div>
       ) : items.length === 0 ? (
-        <Card withBorder radius="md" p="xl">
-          <Text c="dimmed" ta="center" size="sm">
+        <Panel className="[&]:p-8">
+          <p className="text-center text-sm text-dim">
             Noch keine Logs gespeichert. Lade im Analyzer eine oder mehrere CSV-Dateien hoch.
-          </Text>
-        </Card>
+          </p>
+        </Panel>
       ) : items.length > VIRTUALIZE_THRESHOLD ? (
         <VirtualizedLogList rows={flattenGroups(groups)} handlers={handlers} />
       ) : (
-        <Stack gap="lg">
+        <div className="flex flex-col gap-6">
           {groups.map((group) => (
-            <Stack key={group.key} gap="sm">
-              <Text size="xs" fw={700} tt="uppercase" c="dimmed">
+            <div key={group.key} className="flex flex-col gap-3">
+              <p className="legend-label">
                 {group.label} · {group.logs.length} Log{group.logs.length === 1 ? "" : "s"}
-              </Text>
+              </p>
               {group.logs.map((log) => (
                 <LogRow key={log.id} log={log} handlers={handlers} />
               ))}
-            </Stack>
+            </div>
           ))}
-        </Stack>
+        </div>
       )}
-    </Stack>
+    </div>
   );
 }
 
@@ -290,9 +281,9 @@ type RowHandlers = {
   onSaveTags: (id: string, tags: string[]) => void;
 };
 
-// Memoized: editing the tags on one row re-renders the whole list, and every row
-// holds two Mantine inputs. Without this a long list re-mounts all of them for a
-// single keystroke's worth of state.
+// Memoized: editing one row re-renders the whole list, and every row holds three
+// live inputs. Without this a long list re-mounts all of them for a single
+// keystroke's worth of state.
 const LogRow = memo(function LogRow({
   log,
   handlers,
@@ -306,13 +297,11 @@ const LogRow = memo(function LogRow({
   const [octane, setOctane] = useState(log.octane ?? "");
 
   return (
-    <Card withBorder radius="md" p="md" data-testid="log-row">
-      <Group justify="space-between" align="flex-start" wrap="nowrap">
-        <div style={{ minWidth: 0, flex: 1 }}>
-          <Group gap="xs" wrap="wrap">
-            <Text fw={600} style={{ wordBreak: "break-all" }}>
-              {log.label ?? log.name}
-            </Text>
+    <div className="panel p-4" data-testid="log-row">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="break-all font-semibold">{log.label ?? log.name}</p>
             <StatusBadge
               tone={health.tone}
               label={health.label}
@@ -326,14 +315,14 @@ const LogRow = memo(function LogRow({
               size="sm"
               data-testid="log-status"
             />
-            <Badge variant="outline" color={SOURCE_META[log.source]?.color ?? "orange"} size="sm">
-              {SOURCE_META[log.source]?.label ?? "Upload"}
-            </Badge>
-          </Group>
-          <Text size="xs" c="dimmed" mt={2}>
+            <Badge>{SOURCE_META[log.source]?.label ?? "Upload"}</Badge>
+          </div>
+          <p className="mt-1 text-xs text-dim">
             {[
               log.label ? log.name : null,
-              log.recordedAt ? `gefahren ${timeFormatter.format(new Date(log.recordedAt))} Uhr` : null,
+              log.recordedAt
+                ? `gefahren ${timeFormatter.format(new Date(log.recordedAt))} Uhr`
+                : null,
               log.vehicle,
               log.vin,
               `${log.rowCount} Zeilen`,
@@ -341,71 +330,87 @@ const LogRow = memo(function LogRow({
             ]
               .filter(Boolean)
               .join(" · ")}
-          </Text>
+          </p>
 
-          <Group gap="sm" mt="sm" align="flex-end" wrap="wrap">
-            <TextInput
+          <div className="mt-4 flex flex-wrap items-end gap-3">
+            <Field
               label="Bezeichnung"
               description="Benannte Logs erscheinen im Navigationsmenü"
-              size="xs"
-              w={230}
-              leftSection={<IconTag size={14} />}
-              placeholder="z. B. Stage 2 Referenzlauf"
-              value={label}
-              onChange={(e) => setLabel(e.currentTarget.value)}
-              onBlur={() => {
-                if ((log.label ?? "") !== label) handlers.onSaveLabel(log.id, label);
-              }}
-              data-testid="log-label"
-            />
-            <TextInput
-              label="Oktan / Kraftstoff"
-              size="xs"
-              w={150}
-              leftSection={<IconGasStation size={14} />}
-              placeholder="z. B. 100 RON"
-              value={octane}
-              onChange={(e) => setOctane(e.currentTarget.value)}
-              onBlur={() => {
-                if ((log.octane ?? "") !== octane) handlers.onSaveOctane(log.id, octane);
-              }}
-              data-testid="log-octane"
-            />
-            <TagsInput
-              label="Tags"
-              size="xs"
-              w={260}
-              placeholder="Tag hinzufügen…"
-              value={log.tags}
-              onChange={(tags) => handlers.onSaveTags(log.id, tags)}
-              data-testid="log-tags"
-            />
-          </Group>
+              className="w-60"
+            >
+              {({ id, describedBy }) => (
+                <div className="relative">
+                  <IconTag
+                    size={14}
+                    className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-dim"
+                  />
+                  <TextInput
+                    id={id}
+                    aria-describedby={describedBy}
+                    className="h-9 pl-8 text-[13px]"
+                    placeholder="z. B. Stage 2 Referenzlauf"
+                    value={label}
+                    onChange={(e) => setLabel(e.currentTarget.value)}
+                    onBlur={() => {
+                      if ((log.label ?? "") !== label) handlers.onSaveLabel(log.id, label);
+                    }}
+                    data-testid="log-label"
+                  />
+                </div>
+              )}
+            </Field>
+            <Field label="Oktan / Kraftstoff" className="w-40">
+              {({ id }) => (
+                <div className="relative">
+                  <IconGasStation
+                    size={14}
+                    className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-dim"
+                  />
+                  <TextInput
+                    id={id}
+                    className="h-9 pl-8 text-[13px]"
+                    placeholder="z. B. 100 RON"
+                    value={octane}
+                    onChange={(e) => setOctane(e.currentTarget.value)}
+                    onBlur={() => {
+                      if ((log.octane ?? "") !== octane) handlers.onSaveOctane(log.id, octane);
+                    }}
+                    data-testid="log-octane"
+                  />
+                </div>
+              )}
+            </Field>
+            <Field label="Tags" className="w-64">
+              {({ id }) => (
+                <TagsInput
+                  id={id}
+                  value={log.tags}
+                  onChange={(tags) => handlers.onSaveTags(log.id, tags)}
+                  data-testid="log-tags"
+                />
+              )}
+            </Field>
+          </div>
         </div>
 
-        <Group gap="xs" wrap="nowrap">
-          <Button
-            size="xs"
-            color="orange"
-            variant="light"
-            leftSection={<IconChartHistogram size={14} />}
-            onClick={() => handlers.onOpen(log.id)}
-          >
+        <div className="flex flex-none items-center gap-1.5">
+          <Button variant="primary" size="sm" onClick={() => handlers.onOpen(log.id)}>
+            <IconChartHistogram size={14} />
             Öffnen
           </Button>
-          <Tooltip label="Log löschen" withArrow>
-            <ActionIcon
-              color="red"
-              variant="subtle"
+          <Tooltip label="Log löschen">
+            <Button
+              variant="danger"
+              size="sm"
               onClick={() => handlers.onRemove(log.id)}
               aria-label="Log löschen"
             >
               <IconTrash size={16} />
-            </ActionIcon>
+            </Button>
           </Tooltip>
-        </Group>
-      </Group>
-    </Card>
+        </div>
+      </div>
+    </div>
   );
 });
 
@@ -454,9 +459,7 @@ function VirtualizedLogList({ rows, handlers }: { rows: FlatRow[]; handlers: Row
               }}
             >
               {row.kind === "header" ? (
-                <Text size="xs" fw={700} tt="uppercase" c="dimmed" pt="md">
-                  {row.label}
-                </Text>
+                <p className="legend-label pt-4">{row.label}</p>
               ) : (
                 <LogRow log={row.log} handlers={handlers} />
               )}
