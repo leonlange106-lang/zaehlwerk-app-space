@@ -8,6 +8,8 @@ import "./globals.css";
 import { theme } from "../theme";
 import { PortalShell } from "./PortalShell";
 import { ThemeProvider, themeScript } from "./components/shell/ThemeProvider";
+import { ToastProvider } from "./components/ui/Toast";
+import { TooltipProvider } from "./components/ui/Tooltip";
 import { getCurrentVersionInfo } from "./lib/version";
 import { allowedAppIdsFor } from "./lib/app-access";
 import { auth } from "@/auth";
@@ -54,17 +56,23 @@ export default async function RootLayout({
       </head>
       <body>
         <ThemeProvider>
-          <MantineProvider theme={theme} defaultColorScheme="dark">
-            <Notifications position="top-right" />
-            <SessionProvider session={session}>
-              <PortalShell
-                version={version ? { shortSha: version.shortSha, branch: version.branch } : null}
-                allowedAppIds={allowedAppIds}
-              >
-                {children}
-              </PortalShell>
-            </SessionProvider>
-          </MantineProvider>
+          <ToastProvider>
+            <TooltipProvider>
+              <MantineProvider theme={theme} defaultColorScheme="dark">
+                <Notifications position="top-right" />
+                <SessionProvider session={session}>
+                  <PortalShell
+                    version={
+                      version ? { shortSha: version.shortSha, branch: version.branch } : null
+                    }
+                    allowedAppIds={allowedAppIds}
+                  >
+                    {children}
+                  </PortalShell>
+                </SessionProvider>
+              </MantineProvider>
+            </TooltipProvider>
+          </ToastProvider>
         </ThemeProvider>
       </body>
     </html>

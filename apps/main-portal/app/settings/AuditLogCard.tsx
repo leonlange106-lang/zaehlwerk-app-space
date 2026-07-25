@@ -1,78 +1,73 @@
 "use client";
 
-import {
-  Badge,
-  Card,
-  Group,
-  ScrollArea,
-  Table,
-  TableTbody,
-  TableTd,
-  TableTh,
-  TableThead,
-  TableTr,
-  Text,
-  Title,
-} from "@mantine/core";
 import { IconHistory } from "@tabler/icons-react";
 import type { AuditEvent } from "@/app/lib/audit";
 import { formatDateTime } from "@/app/lib/format";
+import { Panel } from "@/app/components/ui/Panel";
+import { Code, Table, Td, Th } from "@/app/components/ui/primitives";
 
-// Colour-code the broad action families so the log scans quickly.
-function actionColor(action: string): string {
-  if (action.startsWith("user.")) return "orange";
-  if (action.startsWith("token.")) return "grape";
-  if (action.startsWith("backup.")) return "teal";
-  if (action.startsWith("db.")) return "blue";
-  if (action.startsWith("system.")) return "red";
-  if (action.startsWith("data.")) return "cyan";
-  return "gray";
+// Tint the broad action families so the log scans quickly. The action string is
+// always spelled out beside the colour — this is a log, and a colour on its own
+// tells you nothing about what happened.
+function actionToken(action: string): string {
+  if (action.startsWith("user.")) return "var(--zw-watch)";
+  if (action.startsWith("token.")) return "#a78bfa";
+  if (action.startsWith("backup.")) return "var(--zw-ok)";
+  if (action.startsWith("db.")) return "var(--zw-accent-2)";
+  if (action.startsWith("system.")) return "var(--zw-risk)";
+  if (action.startsWith("data.")) return "var(--zw-accent)";
+  return "var(--zw-neutral)";
 }
 
 export function AuditLogCard({ events }: { events: AuditEvent[] }) {
   return (
-    <Card withBorder radius="md" p="lg">
-      <Group gap="xs" mb="sm">
-        <IconHistory size={18} stroke={1.6} />
-        <Title order={4}>Audit-Log · System-Ereignisse</Title>
-      </Group>
-      <Text size="sm" c="dimmed" mb="md">
-        Protokoll kritischer Aktionen (System-Updates, Benutzer- und Token-Änderungen, Massen-Importe,
-        Sicherungen, DB-Wartung) für die Nachvollziehbarkeit.
-      </Text>
-
+    <Panel
+      title="Audit-Log · System-Ereignisse"
+      description="Protokoll kritischer Aktionen (System-Updates, Benutzer- und Token-Änderungen, Massen-Importe, Sicherungen, DB-Wartung) für die Nachvollziehbarkeit."
+      icon={<IconHistory size={17} stroke={1.7} />}
+    >
       {events.length === 0 ? (
-        <Text size="sm" c="dimmed">
-          Noch keine Ereignisse protokolliert.
-        </Text>
+        <p className="text-sm text-dim">Noch keine Ereignisse protokolliert.</p>
       ) : (
-        <ScrollArea.Autosize mah={360} type="auto">
-          <Table verticalSpacing="xs" fz="sm" stickyHeader>
-            <TableThead>
-              <TableTr>
-                <TableTh>Zeitpunkt</TableTh>
-                <TableTh>Aktion</TableTh>
-                <TableTh>Akteur</TableTh>
-                <TableTh>Details</TableTh>
-              </TableTr>
-            </TableThead>
-            <TableTbody>
+        // Capped and scrollable: the log only grows, and an unbounded table would
+        // push everything below it off the page.
+        <div className="max-h-90 overflow-auto">
+          <Table>
+            <thead className="sticky top-0 z-10 bg-surface">
+              <tr>
+                <Th>Zeitpunkt</Th>
+                <Th>Aktion</Th>
+                <Th>Akteur</Th>
+                <Th>Details</Th>
+              </tr>
+            </thead>
+            <tbody>
               {events.map((event) => (
-                <TableTr key={event.id}>
-                  <TableTd style={{ whiteSpace: "nowrap" }}>{formatDateTime(event.createdAt)}</TableTd>
-                  <TableTd>
-                    <Badge size="sm" variant="light" color={actionColor(event.action)}>
-                      {event.action}
-                    </Badge>
-                  </TableTd>
-                  <TableTd style={{ wordBreak: "break-word" }}>{event.actor}</TableTd>
-                  <TableTd style={{ wordBreak: "break-word" }}>{event.detail ?? "—"}</TableTd>
-                </TableTr>
+                <tr key={event.id}>
+                  <Td className="whitespace-nowrap text-dim">{formatDateTime(event.createdAt)}</Td>
+                  <Td>
+                    <span
+                      className="inline-flex items-center gap-1.5 whitespace-nowrap"
+                      style={{ color: actionToken(event.action) }}
+                    >
+                      <span
+                        aria-hidden
+                        className="size-1.5 flex-none rounded-full"
+                        style={{ background: "currentColor" }}
+                      />
+                      <Code className="border-0 bg-transparent p-0 text-[12px] text-[color:inherit]">
+                        {event.action}
+                      </Code>
+                    </span>
+                  </Td>
+                  <Td className="break-words">{event.actor}</Td>
+                  <Td className="break-words text-dim">{event.detail ?? "—"}</Td>
+                </tr>
               ))}
-            </TableTbody>
+            </tbody>
           </Table>
-        </ScrollArea.Autosize>
+        </div>
       )}
-    </Card>
+    </Panel>
   );
 }
