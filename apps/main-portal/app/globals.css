@@ -1,69 +1,242 @@
 /*
- * Industrial Neobrutalism — global token layer.
+ * Aurora Panel — the App Space design language.
  *
- * theme.ts owns the colour *scales*; this file owns the *surfaces*. Mantine
- * derives Paper/Card/Modal backgrounds from `--mantine-color-body`, which would
- * flatten cards onto the canvas — the whole point of this design language is
- * that a card is a distinct plate sitting on a darker deck, separated by a thin
- * high-contrast outline rather than a shadow. So the three elevation steps are
- * declared here as `--zw-*` tokens and mapped onto the components that need
- * them. CSS-only (no cssVariablesResolver) because MantineProvider is handed its
- * theme from a Server Component, which cannot pass a function across the
- * boundary.
+ * Dark-mode native, but not black: a deep navy deck lit from above, with content
+ * sitting on translucent glass panels that carry a soft gradient wash, a hairline
+ * edge and a wide, low shadow. Accents are gradients rather than flat fills, and
+ * each metric family gets its own tint so a wall of numbers reads as a dashboard
+ * rather than a spreadsheet.
+ *
+ * Structure of this file, and the one rule that matters:
+ *   TOKENS ARE DEFINED ONCE, HERE. `@theme inline` only *references* them, so a
+ *   Tailwind utility (`bg-surface`) and a CSS Module (`var(--zw-surface)`) always
+ *   resolve to the same value, and the light/dark switch happens in one place.
+ *
+ * Composite looks (the glass panel, the tinted tile, the gradient accent) are
+ * `@utility` rules further down rather than long class strings repeated at every
+ * call site — they are the design language, so they live in one place.
  */
 
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+/* Tailwind's preflight is deliberately NOT imported while Mantine is still in
+   the tree — its reset would strip Mantine's component styles out from under
+   every screen that hasn't been migrated. Switch to a plain
+   `@import "tailwindcss"` in the commit that removes the last Mantine dep.
+ *
+ * Skipping it does mean migrated components get no reset at all, and bare
+ * elements fall back to the user agent: bulleted <li>, blue underlined <a>,
+ * bordered <button>. Mantine was quietly supplying that before its components
+ * were removed. So the @layer base block below is the minimum reset those
+ * components need — and it is safe precisely because it is layered: Mantine's
+ * stylesheet is unlayered, and unlayered rules beat every layered one, so
+ * nothing here can reach a screen that still renders Mantine. */
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  ul,
+  ol {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  button {
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+  }
+
+  input,
+  select,
+  textarea {
+    font: inherit;
+    color: inherit;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  p,
+  figure {
+    margin: 0;
+  }
+
+  img,
+  svg,
+  video,
+  canvas {
+    display: block;
+  }
+
+  /* Safari renders type="search" with an inner cancel button and a rounded inset
+     appearance that ignores our border and background entirely. */
+  input[type="search"] {
+    -webkit-appearance: none;
+    appearance: none;
+  }
+}
+
+/* The colour scheme is driven by an attribute on <html>, not by the media query,
+   because the header toggle has to win over the OS preference. Mantine sets the
+   attribute today; keep this variant in sync if that ever changes. */
+@custom-variant dark (&:where([data-mantine-color-scheme="dark"], [data-mantine-color-scheme="dark"] *));
+
 :root {
-  /* Elevation ladder: deck → plate → raised plate. */
-  --zw-canvas: #eef2f6;
+  /* Deck → panel → raised panel, plus a recessed well for inputs and plot beds. */
+  --zw-canvas: #eef1f7;
   --zw-surface: #ffffff;
   --zw-elevated: #ffffff;
+  --zw-inset: #f1f4f9;
 
-  --zw-border: rgba(15, 23, 42, 0.14);
-  --zw-border-strong: #cbd5e1;
+  /* Glass: the translucent wash and the lit edge laid over a panel. On light the
+     wash is a whisper — the panel is already brighter than the deck. */
+  --zw-glass-top: rgba(255, 255, 255, 0.9);
+  --zw-glass-bottom: rgba(255, 255, 255, 0.55);
+  --zw-glass-edge: rgba(255, 255, 255, 0.9);
 
-  /* Strict status semantics. Always rendered alongside an icon — see
-     app/components/ui/StatusBadge.tsx, which is the only sanctioned way to
-     surface these so colour is never the sole carrier of meaning. */
+  --zw-border: rgba(15, 23, 42, 0.1);
+  --zw-border-strong: rgba(15, 23, 42, 0.18);
+
+  --zw-text: #0f172a;
+  --zw-text-dim: #64748b;
+
+  /* Verdict semantics. Never the sole carrier of meaning — every one of these is
+     rendered with an icon partner, see components/ui/StatusBadge.tsx. */
   --zw-ok: #059669;
   --zw-watch: #d97706;
-  --zw-risk: #dc2626;
+  --zw-risk: #e11d48;
   --zw-neutral: #64748b;
 
-  /* Per-app accents. `--zw-accent` is re-pointed per app context by the shell
-     (see [data-app] below) so accent-tinted chrome follows the active app. */
-  --zw-accent-zaehlwerk: #0891b2;
-  --zw-accent-log: #ea580c;
-  --zw-accent: var(--zw-accent-zaehlwerk);
+  /* Per-app accent, as a gradient pair. The shell re-points it per app context
+     (see [data-app] below) so accent-lit chrome follows the active tool. */
+  --zw-accent: #0891b2;
+  --zw-accent-2: #2563eb;
 
-  /* Height of the fixed AppShell header — the offset every sticky rail needs. */
-  --zw-header-height: 56px;
+  --zw-shadow: 0 8px 28px rgba(15, 23, 42, 0.1);
+  --zw-shadow-lg: 0 18px 48px rgba(15, 23, 42, 0.16);
+
+  /* Height of the fixed shell header — the offset every sticky rail needs. */
+  --zw-header-height: 60px;
+  /* The page's horizontal gutter on a phone. Anything that bleeds to the viewport
+     edge and pads itself back (the KPI rail) has to match it. */
+  --zw-gutter: 12px;
+
+  --zw-radius-panel: 16px;
+  --zw-radius-control: 10px;
 }
 
 [data-mantine-color-scheme="dark"] {
-  --zw-canvas: #080c14; /* deep night slate (OLED-friendly) */
-  --zw-surface: #111827; /* industrial slate */
-  --zw-elevated: #1f293d; /* raised inputs, drawers, menus */
+  /* Deep navy, not black: the glass panels and gradient accents need something
+     to sit *on*, and pure black flattens both. */
+  --zw-canvas: #080b16;
+  --zw-surface: #0e1424;
+  --zw-elevated: #151d31;
+  --zw-inset: #0a0f1c;
 
-  --zw-border: rgba(255, 255, 255, 0.12);
-  --zw-border-strong: #374151;
+  --zw-glass-top: rgba(255, 255, 255, 0.07);
+  --zw-glass-bottom: rgba(255, 255, 255, 0.018);
+  --zw-glass-edge: rgba(255, 255, 255, 0.08);
 
-  --zw-ok: #10b981;
-  --zw-watch: #f59e0b;
-  --zw-risk: #ef4444;
-  --zw-neutral: #64748b;
+  --zw-border: rgba(255, 255, 255, 0.08);
+  --zw-border-strong: rgba(255, 255, 255, 0.16);
 
-  --zw-accent-zaehlwerk: #06b6d4;
-  --zw-accent-log: #f97316;
+  --zw-text: #e6ebf5;
+  --zw-text-dim: #8b97ad;
+
+  --zw-ok: #22d3a5;
+  --zw-watch: #fbbf24;
+  --zw-risk: #fb5c6c;
+  --zw-neutral: #7c89a0;
+
+  --zw-accent: #22d3ee;
+  --zw-accent-2: #4f7cff;
+
+  --zw-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+  --zw-shadow-lg: 0 24px 60px rgba(0, 0, 0, 0.6);
 }
 
-/* The active app tints shared chrome (focus rings, rail underlines, accent
-   dots) without every component needing to know which app it is rendered in. */
-[data-app="log-analyzer"] {
-  --zw-accent: var(--zw-accent-log);
-}
-
+/* Zählwerk reads as energy: electric cyan into blue. */
 [data-app="zaehlwerk"] {
-  --zw-accent: var(--zw-accent-zaehlwerk);
+  --zw-accent: #0891b2;
+  --zw-accent-2: #2563eb;
+}
+
+[data-mantine-color-scheme="dark"][data-app="zaehlwerk"],
+[data-mantine-color-scheme="dark"] [data-app="zaehlwerk"] {
+  --zw-accent: #22d3ee;
+  --zw-accent-2: #4f7cff;
+}
+
+/* The Log Analyzer reads as combustion: amber into orange. */
+[data-app="log-analyzer"] {
+  --zw-accent: #ea580c;
+  --zw-accent-2: #d97706;
+}
+
+[data-mantine-color-scheme="dark"][data-app="log-analyzer"],
+[data-mantine-color-scheme="dark"] [data-app="log-analyzer"] {
+  --zw-accent: #fb923c;
+  --zw-accent-2: #fbbf24;
+}
+
+/*
+ * Tailwind bridge. `inline` keeps the utilities emitting `var(--zw-*)` rather
+ * than copying the value, which is what lets one class be correct in both colour
+ * schemes and follow the per-app accent without a `dark:` variant in sight.
+ */
+@theme inline {
+  --color-canvas: var(--zw-canvas);
+  --color-surface: var(--zw-surface);
+  --color-elevated: var(--zw-elevated);
+  --color-inset: var(--zw-inset);
+
+  --color-line: var(--zw-border);
+  --color-line-strong: var(--zw-border-strong);
+
+  --color-ink: var(--zw-text);
+  --color-dim: var(--zw-text-dim);
+
+  --color-ok: var(--zw-ok);
+  --color-watch: var(--zw-watch);
+  --color-risk: var(--zw-risk);
+  --color-neutral: var(--zw-neutral);
+  --color-accent: var(--zw-accent);
+  --color-accent-2: var(--zw-accent-2);
+
+  --radius-panel: var(--zw-radius-panel);
+  --radius-control: var(--zw-radius-control);
+
+  --shadow-panel: var(--zw-shadow);
+  --shadow-panel-lg: var(--zw-shadow-lg);
+
+  /* Native stack only — the CSP forbids external font hosts. */
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  /* Readout scale: the sizes a value actually gets shown at, from a table cell to
+     a hero KPI — not a generic 1.25 ramp. */
+  --text-readout-sm: 1rem;
+  --text-readout: 1.5rem;
+  --text-readout-lg: 2rem;
+  --text-readout-xl: 2.75rem;
 }
 
 html,
@@ -74,30 +247,88 @@ body {
 body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  color: var(--zw-text);
   background-color: var(--zw-canvas);
-  /* Utility-first density: slightly tighter than Mantine's default rhythm. */
-  letter-spacing: -0.006em;
+  letter-spacing: -0.011em;
   /* A stray wide child must never make the whole page pan sideways on a phone.
      `clip` (not `hidden`) keeps position:sticky working inside the document. */
   overflow-x: clip;
 }
 
-/* Numbers are the payload of this dashboard — line them up. */
-:where(.mantine-Text-root, .mantine-Table-td, .mantine-Title-root) {
+/* ------------------------------------------------------------------ *
+ * Composite looks — the design language, defined once
+ * ------------------------------------------------------------------ */
+
+/* The panel: translucent glass over the deck, washed top-lit, hairline edge,
+   wide soft shadow. This is the default container for everything. */
+@utility panel {
+  position: relative;
+  border-radius: var(--zw-radius-panel);
+  border: 1px solid var(--zw-border);
+  background-image: linear-gradient(160deg, var(--zw-glass-top), var(--zw-glass-bottom));
+  background-color: var(--zw-surface);
+  box-shadow: var(--zw-shadow), inset 0 1px 0 0 var(--zw-glass-edge);
+  backdrop-filter: blur(12px);
+}
+
+/* A recessed well cut into a panel — inputs, plot beds, log output. */
+@utility well {
+  border-radius: var(--zw-radius-control);
+  border: 1px solid var(--zw-border);
+  background-color: var(--zw-inset);
+}
+
+/* The app accent as a gradient, for pills, spines and lit chrome. */
+@utility accent-gradient {
+  background-image: linear-gradient(135deg, var(--zw-accent), var(--zw-accent-2));
+}
+
+/* Text lit by the accent gradient. */
+@utility accent-text {
+  background-image: linear-gradient(135deg, var(--zw-accent), var(--zw-accent-2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Small caps caption above a value. Quiet, wide, never shouting. */
+@utility legend-label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--zw-text-dim);
+  line-height: 1.2;
+}
+
+/* A measured value. Tabular so digits don't dance as readings update. */
+@utility readout {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+  letter-spacing: -0.025em;
+  font-weight: 700;
+  line-height: 1.05;
+}
+
+/* Numbers are the payload of this dashboard — line them up everywhere, including
+   inside the Mantine components that have not been migrated yet. */
+:where(.mantine-Text-root, .mantine-Table-td, .mantine-Title-root),
+:where(table td, table th) {
   font-variant-numeric: tabular-nums;
 }
 
 /* ------------------------------------------------------------------ *
- * Surface mapping
+ * Mantine surface mapping — retired progressively as screens migrate
  * ------------------------------------------------------------------ */
 
-/* Plates on the deck. */
 :where(.mantine-Paper-root, .mantine-Card-root) {
   background-color: var(--zw-surface);
+  background-image: linear-gradient(160deg, var(--zw-glass-top), var(--zw-glass-bottom));
   border-color: var(--zw-border);
+  border-radius: var(--zw-radius-panel);
+  box-shadow: var(--zw-shadow), inset 0 1px 0 0 var(--zw-glass-edge);
 }
 
-/* Raised plates: anything floating above the page owns the lighter step. */
 :where(
     .mantine-Modal-content,
     .mantine-Modal-header,
@@ -110,11 +341,10 @@ body {
   background-color: var(--zw-elevated);
 }
 
-/* Inputs read as recessed controls cut into the plate: elevated fill, thin
-   outline, and an accent ring on focus instead of a glow. */
 :where(.mantine-Input-input) {
-  background-color: var(--zw-elevated);
+  background-color: var(--zw-inset);
   border-color: var(--zw-border);
+  border-radius: var(--zw-radius-control);
 }
 
 :where(.mantine-Input-input:focus, .mantine-Input-input:focus-within) {
@@ -122,35 +352,36 @@ body {
 }
 
 :where(.mantine-SegmentedControl-root) {
-  background-color: var(--zw-elevated);
+  background-color: var(--zw-inset);
   border: 1px solid var(--zw-border);
 }
 
-/* Tables get hairline rules rather than Mantine's heavier default divider. */
 :where(.mantine-Table-td, .mantine-Table-th) {
   border-color: var(--zw-border);
 }
 
-/* Keyboard focus is a hard, visible ring — no soft halo. */
+/* Keyboard focus is a visible ring in the app accent. */
 :where(a, button, [role="button"], input, select, textarea):focus-visible {
   outline: 2px solid var(--zw-accent);
   outline-offset: 2px;
 }
 
-/* Industrial scrollbars: thin, on-palette, never a light strip on dark. */
+/* Slim, on-palette scrollbars — never a light strip on a dark deck. */
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--zw-border-strong) transparent;
 }
 
 *::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
 }
 
 *::-webkit-scrollbar-thumb {
   background-color: var(--zw-border-strong);
-  border-radius: 0;
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
 }
 
 *::-webkit-scrollbar-track {
@@ -173,30 +404,20 @@ body {
     min-height: 44px;
   }
 
-  /* Burger (mobile nav toggle) ships at ~28px — enlarge its hit area to 44px. */
-  .mantine-Burger-root {
-    min-width: 44px;
-    min-height: 44px;
-  }
-
   .mantine-NavLink-root {
     min-height: 44px;
   }
 
-  /* Dropdown/menu items (e.g. the app-switcher) get a full thumb row. */
   .mantine-Menu-item {
     min-height: 44px;
   }
 
-  /* Roomier rows so per-row action icons/badges are easy to hit. */
   .mantine-Table-td,
   .mantine-Table-th {
     padding-top: 10px;
     padding-bottom: 10px;
   }
 
-  /* Segmented pills are a primary mobile control here (they replace vertical
-     card stacks), so their labels need a real thumb row too. */
   .mantine-SegmentedControl-label {
     min-height: 40px;
     display: flex;
@@ -205,7 +426,7 @@ body {
   }
 }
 
-/* Respect the user's motion preference — the design leans on transforms. */
+/* The design leans on transforms and fades — respect the user's preference. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

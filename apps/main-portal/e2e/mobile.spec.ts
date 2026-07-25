@@ -7,6 +7,22 @@ async function expectRendered(page: Page) {
   await expect(page.getByText(ERROR_BOUNDARY_TEXT)).toHaveCount(0);
 }
 
+/**
+ * Wait until the page is laid out enough to measure.
+ *
+ * Deliberately NOT `waitForLoadState("networkidle")`: the Log Analyzer history
+ * page holds an SSE connection open for realtime ingest events, so the network
+ * never goes idle and the wait can only ever time out. It raced the connection
+ * being established, which is why it failed on a different browser each run.
+ * `load` plus the main landmark is deterministic, and layout width — the thing
+ * these tests assert on — is settled by then: anything arriving later has to
+ * reserve its geometry up front anyway (the CLS rule in CLAUDE.md).
+ */
+async function waitForLayout(page: Page) {
+  await page.waitForLoadState("load");
+  await expect(page.getByRole("main")).toBeVisible();
+}
+
 const MIN_TAP = 44;
 const TAP_EPS = 0.5; // sub-pixel tolerance for boundingBox rounding
 
@@ -53,8 +69,7 @@ test.describe("Mobile: no horizontal viewport scroll", () => {
   for (const route of CORE_ROUTES) {
     test(`renders without error + no horizontal scroll on ${route}`, async ({ page }) => {
       await page.goto(route);
-      // Let layout settle (fonts, async content).
-      await page.waitForLoadState("networkidle");
+      await waitForLayout(page);
       await expectRendered(page);
       await expectNoHorizontalScroll(page);
     });
@@ -62,7 +77,7 @@ test.describe("Mobile: no horizontal viewport scroll", () => {
 
   test("no horizontal scroll on meter detail (wide history table is contained)", async ({ page }) => {
     await gotoMeterDetail(page);
-    await page.waitForLoadState("networkidle");
+    await waitForLayout(page);
     await expectRendered(page);
     await expectNoHorizontalScroll(page);
   });
@@ -75,20 +90,27 @@ test.describe("Mobile: navigation drawer", () => {
     await expect(burger).toBeVisible();
     await expect(burger).toHaveAttribute("aria-expanded", "false");
 
-    // Nav link sits off-screen (translated left) while closed.
-    const berichte = page.getByRole("link", { name: "Berichte" });
+    // Nav link sits off-screen (translated left) while closed. Scoped to the
+    // rail: page content may legitimately link to Berichte too.
+    const berichte = page.getByTestId("app-navbar").getByRole("link", { name: "Berichte" });
     const closedBox = await berichte.boundingBox();
     expect(closedBox, "nav link renders").not.toBeNull();
     expect(closedBox!.x, "drawer closed → nav off-screen left").toBeLessThan(0);
 
     await burger.click();
     await expect(burger).toHaveAttribute("aria-expanded", "true");
-    const openBox = await berichte.boundingBox();
-    expect(openBox!.x, "drawer open → nav on-screen").toBeGreaterThanOrEqual(0);
+    // aria-expanded flips when state changes, but the drawer slides in over
+    // ~200ms — sampling boundingBox() right away catches it mid-transition. Poll
+    // for the settled position instead of asserting on the first frame.
+    await expect
+      .poll(async () => (await berichte.boundingBox())!.x, {
+        message: "drawer open → nav on-screen",
+      })
+      .toBeGreaterThanOrEqual(0);
 
     // The mobile drawer must NOT be full-width — a tappable scrim strip has to
     // remain beside it, otherwise tap-outside-to-close is impossible.
-    const navBox = await page.locator(".mantine-AppShell-navbar").boundingBox();
+    const navBox = await page.getByTestId("app-navbar").boundingBox();
     const vw = page.viewportSize()!.width;
     expect(navBox!.x + navBox!.width, "drawer leaves a scrim strip").toBeLessThan(vw - 20);
 
@@ -103,7 +125,7 @@ test.describe("Mobile: navigation drawer", () => {
   test("nav link inside the open drawer navigates", async ({ page }) => {
     await page.goto("/apps/zaehlwerk");
     await page.getByRole("button", { name: "Navigation umschalten" }).click();
-    await page.getByRole("link", { name: "Berichte" }).click();
+    await page.getByTestId("app-navbar").getByRole("link", { name: "Berichte" }).click();
     await page.waitForURL(/\/apps\/zaehlwerk\/berichte$/);
   });
 });
@@ -177,7 +199,10 @@ test.describe("Mobile: touch targets ≥ 44px", () => {
   test("drawer nav links and launcher tiles meet the minimum", async ({ page }) => {
     await page.goto("/apps/zaehlwerk");
     await page.getByRole("button", { name: "Navigation umschalten" }).click();
-    await expectTapTarget(page.getByRole("link", { name: "Berichte" }), "nav: Berichte");
+    await expectTapTarget(
+      page.getByTestId("app-navbar").getByRole("link", { name: "Berichte" }),
+      "nav: Berichte",
+    );
 
     await page.goto("/");
     const tile = page.getByRole("main").getByRole("link", { name: /Zählwerk/ });
