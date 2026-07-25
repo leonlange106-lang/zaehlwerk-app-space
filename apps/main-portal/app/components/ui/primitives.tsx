@@ -309,18 +309,28 @@ export function SegmentedControl<T extends string>({
   options,
   label,
   className,
+  disabled,
+  "data-testid": testId,
 }: {
   value: T;
   onChange: (value: T) => void;
   options: { value: T; label: ReactNode }[];
   label: string;
   className?: string;
+  /** Disables every option — the group still renders, so nothing reflows. */
+  disabled?: boolean;
+  "data-testid"?: string;
 }) {
   return (
     <div
       role="radiogroup"
       aria-label={label}
-      className={cn("well flex w-full gap-1 rounded-full p-1", className)}
+      data-testid={testId}
+      className={cn(
+        "well flex w-full gap-1 rounded-full p-1",
+        disabled && "opacity-50",
+        className,
+      )}
     >
       {options.map((option) => {
         const active = option.value === value;
@@ -328,8 +338,9 @@ export function SegmentedControl<T extends string>({
           <label
             key={option.value}
             className={cn(
-              "flex min-h-10 flex-1 cursor-pointer items-center justify-center rounded-full px-3",
+              "flex min-h-10 flex-1 items-center justify-center rounded-full px-3",
               "text-[13px] font-medium transition-colors",
+              disabled ? "cursor-default" : "cursor-pointer",
               active ? "accent-gradient text-white shadow-panel" : "text-dim hover:text-ink",
             )}
           >
@@ -337,6 +348,7 @@ export function SegmentedControl<T extends string>({
               type="radio"
               className="sr-only"
               checked={active}
+              disabled={disabled}
               onChange={() => onChange(option.value)}
               value={option.value}
             />

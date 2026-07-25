@@ -1,22 +1,18 @@
 "use client";
 
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
+import { Badge } from "@/app/components/ui/Badge";
+import { Button } from "@/app/components/ui/Button";
+import { Select, SelectShell } from "@/app/components/ui/Field";
+import { Panel } from "@/app/components/ui/Panel";
+import { Skeleton } from "@/app/components/ui/Skeleton";
 import {
   Alert,
-  Badge,
-  Button,
-  Card,
-  FileButton,
-  Group,
+  FilePicker,
+  IconChip,
+  PageHeader,
   SegmentedControl,
-  Select,
-  SimpleGrid,
-  Skeleton,
-  Stack,
-  Text,
-  ThemeIcon,
-  Title,
-} from "@mantine/core";
+} from "@/app/components/ui/primitives";
 import {
   IconAlertCircle,
   IconArrowsDiff,
@@ -44,7 +40,7 @@ const OverlayChart = lazy(() =>
 );
 import { LegendItem, SERIES_COLORS } from "./ChartLegend";
 import { MetricTile } from "@/app/components/ui/MetricTile";
-import { XS_INPUT_HEIGHT } from "./ui-metrics";
+import { CONTROL_SKELETON_CLASS } from "./ui-metrics";
 
 // Dual-log comparison workspace. Two logs — Baseline (A) and Comparison (B) —
 // are loaded (from history or a fresh upload), reduced to key-metric diff cards
@@ -82,13 +78,20 @@ function fmtAnchor(offset: number): string {
   return `${(Math.round(offset * 10) / 10).toLocaleString("de-DE")} s`;
 }
 
-function fmtDelta(m: MetricDelta): { text: string; color: string } {
-  if (m.delta === null) return { text: "—", color: "gray" };
+function fmtDelta(m: MetricDelta): { text: string; token: string } {
+  if (m.delta === null) return { text: "—", token: "var(--zw-neutral)" };
   const rounded = Math.abs(m.delta) >= 100 ? Math.round(m.delta) : Math.round(m.delta * 10) / 10;
   const sign = rounded > 0 ? "+" : "";
-  // Neutral colouring: we surface direction, not a value judgement.
-  const color = rounded === 0 ? "gray" : rounded > 0 ? "blue" : "orange";
-  return { text: `${sign}${rounded.toLocaleString("de-DE")}${m.unit ? ` ${m.unit}` : ""}`, color };
+  // Neutral colouring: this surfaces DIRECTION, not a value judgement — more
+  // boost is not automatically better — so it deliberately avoids the ok/risk
+  // tokens, and the sign in the text carries the direction regardless.
+  const token =
+    rounded === 0
+      ? "var(--zw-neutral)"
+      : rounded > 0
+        ? "var(--zw-series-secondary)"
+        : "var(--zw-series-primary)";
+  return { text: `${sign}${rounded.toLocaleString("de-DE")}${m.unit ? ` ${m.unit}` : ""}`, token };
 }
 
 export function ComparisonView() {
@@ -178,29 +181,26 @@ export function ComparisonView() {
   const historyData = history.map((h) => ({ value: h.id, label: h.name }));
 
   return (
-    <Stack gap="lg">
-      <Group gap="md">
-        <ThemeIcon variant="light" color="orange" radius="md" size={44}>
-          <IconArrowsDiff size={24} stroke={1.5} />
-        </ThemeIcon>
-        <div>
-          <Title order={2}>Log-Vergleich</Title>
-          <Text c="dimmed" size="sm">
-            Zwei Datenlogs (Baseline vs. Comparison) gegenüberstellen und überlagern.
-          </Text>
-        </div>
-      </Group>
+    <div className="flex flex-col gap-6">
+      <div className="flex items-center gap-4">
+        <IconChip size={44}>
+          <IconArrowsDiff size={22} stroke={1.6} />
+        </IconChip>
+        <PageHeader
+          title="Log-Vergleich"
+          description="Zwei Datenlogs (Baseline vs. Comparison) gegenüberstellen und überlagern."
+        />
+      </div>
 
       {error && (
-        <Alert color="red" variant="light" icon={<IconAlertCircle size={16} />} withCloseButton onClose={() => setError(null)}>
+        <Alert tone="risk" role="alert" icon={<IconAlertCircle size={16} />}>
           {error}
         </Alert>
       )}
 
-      <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="lg">
+      <div className="grid gap-5 sm:grid-cols-2">
         <LogPicker
           title="Log A · Baseline"
-          color="orange"
           side="a"
           current={a}
           historyData={historyData}
@@ -208,12 +208,15 @@ export function ComparisonView() {
           onPickHistory={pickHistory}
           onFile={handleFile}
           onSample={() =>
-            ingest("a", "Baseline (Beispiel).csv", makeSampleCsv({ vin: "WBSCMPA0SYNTH001", peakBoost: 18 }))
+            ingest(
+              "a",
+              "Baseline (Beispiel).csv",
+              makeSampleCsv({ vin: "WBSCMPA0SYNTH001", peakBoost: 18 }),
+            )
           }
         />
         <LogPicker
           title="Log B · Comparison"
-          color="blue"
           side="b"
           current={b}
           historyData={historyData}
@@ -224,21 +227,26 @@ export function ComparisonView() {
             ingest(
               "b",
               "Comparison (Beispiel).csv",
-              makeSampleCsv({ vin: "WBSCMPB0SYNTH002", peakBoost: 22, knockDeg: -4, peakIat: 55 }),
+              makeSampleCsv({
+                vin: "WBSCMPB0SYNTH002",
+                peakBoost: 22,
+                knockDeg: -4,
+                peakIat: 55,
+              }),
             )
           }
         />
-      </SimpleGrid>
+      </div>
 
       {comparison && a && b && (
         <>
-          <Card withBorder radius="md" p="lg" data-testid="diff-cards">
-            <Title order={5}>Key-Metrics · Delta (B − A)</Title>
-            <Text size="xs" c="dimmed" mb="md">
-              Über das erkannte WOT-Fenster je Log · A ab {fmtAnchor(comparison.alignment.a.offset)},
-              B ab {fmtAnchor(comparison.alignment.b.offset)}
-            </Text>
-            <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="xs">
+          <Panel
+            title="Key-Metrics · Delta (B − A)"
+            description={`Über das erkannte WOT-Fenster je Log · A ab ${fmtAnchor(
+              comparison.alignment.a.offset,
+            )}, B ab ${fmtAnchor(comparison.alignment.b.offset)}`}
+          >
+            <div data-testid="diff-cards" className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
               {comparison.metrics.map((m) => {
                 const d = fmtDelta(m);
                 return (
@@ -247,60 +255,63 @@ export function ComparisonView() {
                     label={m.label}
                     value={fmtNum(m.b, m.unit)}
                     hint={
-                      <Group gap={6} wrap="nowrap">
-                        <Badge size="xs" variant="light" color={d.color}>
+                      <span className="flex items-center gap-1.5">
+                        <span
+                          className="inline-flex flex-none items-center rounded-full border px-1.5 py-px text-[10px] font-semibold"
+                          style={{
+                            color: d.token,
+                            borderColor: `color-mix(in srgb, ${d.token} 40%, transparent)`,
+                          }}
+                        >
                           {d.text}
-                        </Badge>
-                        <Text size="xs" c="dimmed" truncate>
-                          A: {fmtNum(m.a, m.unit)}
-                        </Text>
-                      </Group>
+                        </span>
+                        <span className="truncate text-dim">A: {fmtNum(m.a, m.unit)}</span>
+                      </span>
                     }
                   />
                 );
               })}
-            </SimpleGrid>
-          </Card>
+            </div>
+          </Panel>
 
-          <Card withBorder radius="md" p="lg">
-            <Title order={5} mb="sm">
-              Overlay
-            </Title>
+          <Panel title="Overlay">
             <SegmentedControl
-              size="xs"
-              fullWidth
-              mb="sm"
+              className="mb-3"
+              label="Overlay-Kanal"
               value={channel}
               onChange={(v) => setChannel(v as OverlayChannel)}
-              data={CHANNEL_OPTIONS}
+              options={CHANNEL_OPTIONS.map((o) => ({
+                value: o.value as OverlayChannel,
+                label: o.label,
+              }))}
               data-testid="overlay-channel"
             />
-            <Group gap="sm" mb="md" grow>
+            <div className="mb-4 grid gap-3 sm:grid-cols-2">
               <SegmentedControl
-                size="xs"
+                label="Overlay-Achse"
                 value={axis}
                 onChange={(v) => setAxis(v as OverlayAxis)}
-                data={AXIS_OPTIONS}
+                options={AXIS_OPTIONS.map((o) => ({ value: o.value as OverlayAxis, label: o.label }))}
                 data-testid="overlay-axis"
               />
               <SegmentedControl
-                size="xs"
+                label="Ausrichtung"
                 value={align}
                 onChange={(v) => setAlign(v as AlignMode)}
-                data={ALIGN_OPTIONS}
+                options={ALIGN_OPTIONS.map((o) => ({ value: o.value as AlignMode, label: o.label }))}
                 // Alignment shifts the TIME axis; on the RPM axis every sample is
                 // already placed by engine speed, so the toggle has no effect.
                 disabled={axis === "rpm"}
                 data-testid="overlay-align"
               />
-            </Group>
+            </div>
             {overlay?.approximateAlignment && (
-              <Alert color="yellow" variant="light" mb="sm" icon={<IconAlertCircle size={16} />}>
+              <Alert tone="watch" className="mb-3" icon={<IconAlertCircle size={16} />}>
                 Kein Pedal-Kanal in mindestens einem Log – der WOT-Nullpunkt wurde aus dem
                 Drehzahlverlauf geschätzt.
               </Alert>
             )}
-            <Group gap="lg" mb="sm">
+            <div className="mb-3 flex flex-wrap gap-5">
               <LegendItem color={SERIES_COLORS.primary} style="solid" label={`${a.name} (A)`} />
               <LegendItem color={SERIES_COLORS.secondary} style="dashed" label={`${b.name} (B)`} />
               {overlay?.hasRef && (
@@ -310,22 +321,21 @@ export function ComparisonView() {
                   label={`gepunktet: ${overlay.refLabel}`}
                 />
               )}
-            </Group>
+            </div>
             {overlay && (
               <Suspense fallback={<OverlayChartSkeleton />}>
                 <OverlayChart overlay={overlay} nameA={a.name} nameB={b.name} />
               </Suspense>
             )}
-          </Card>
+          </Panel>
         </>
       )}
-    </Stack>
+    </div>
   );
 }
 
 function LogPicker({
   title,
-  color,
   side,
   current,
   historyData,
@@ -335,7 +345,6 @@ function LogPicker({
   onSample,
 }: {
   title: string;
-  color: string;
   side: "a" | "b";
   current: Side | null;
   historyData: { value: string; label: string }[];
@@ -345,56 +354,62 @@ function LogPicker({
   onSample: () => void;
 }) {
   return (
-    <Card withBorder radius="md" p="md">
-      <Group justify="space-between" mb="sm" wrap="nowrap">
-        <Text fw={600} size="sm">
-          {title}
-        </Text>
+    <Panel className="[&]:p-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <p className="text-sm font-semibold">{title}</p>
         {current && (
-          <Badge variant="light" color={color} data-testid={`picked-${side}`}>
+          <Badge data-testid={`picked-${side}`}>
             {current.log.rowCount.toLocaleString("de-DE")} Zeilen
           </Badge>
         )}
-      </Group>
-      <Stack gap="sm">
+      </div>
+      <div className="flex flex-col gap-3">
         {/* One clamped line either way: a long file name must not reflow the
             controls underneath it. */}
-        <Text size="sm" fw={current ? 500 : 400} c={current ? undefined : "dimmed"} lineClamp={1}>
+        <p className={`truncate text-sm ${current ? "font-medium" : "text-dim"}`}>
           {current ? current.name : "Noch kein Log gewählt."}
-        </Text>
+        </p>
         {/* The history row is ALWAYS present and always the same height:
             skeleton while the list loads, then the control — disabled with an
             explanatory placeholder when nothing is stored yet. Rendering it
             conditionally used to grow both cards mid-load and swallow clicks. */}
         {historyLoading ? (
-          <Skeleton height={XS_INPUT_HEIGHT} radius="sm" data-testid={`history-skeleton-${side}`} />
+          <Skeleton className={CONTROL_SKELETON_CLASS} data-testid={`history-skeleton-${side}`} />
         ) : (
-          <Select
-            placeholder={
-              historyData.length > 0 ? "Aus Historie wählen…" : "Keine gespeicherten Logs"
-            }
-            data={historyData}
-            disabled={historyData.length === 0}
-            onChange={(id) => onPickHistory(side, id)}
-            searchable
-            clearable
-            size="xs"
-            data-testid={`history-${side}`}
-          />
+          <SelectShell>
+            <Select
+              aria-label={`${title} aus Historie wählen`}
+              defaultValue=""
+              disabled={historyData.length === 0}
+              onChange={(event) => onPickHistory(side, event.currentTarget.value || null)}
+              data-testid={`history-${side}`}
+            >
+              <option value="">
+                {historyData.length > 0 ? "Aus Historie wählen…" : "Keine gespeicherten Logs"}
+              </option>
+              {historyData.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </Select>
+          </SelectShell>
         )}
-        <Group gap="xs">
-          <FileButton onChange={(f) => onFile(side, f)} accept=".csv,.log,.txt,text/csv,text/plain">
-            {(props) => (
-              <Button {...props} size="xs" variant="light" color={color} leftSection={<IconFileText size={14} />}>
-                Datei
-              </Button>
-            )}
-          </FileButton>
-          <Button size="xs" variant="subtle" color="slate" leftSection={<IconSparkles size={14} />} onClick={onSample}>
+        <div className="flex flex-wrap gap-2">
+          <FilePicker
+            accept=".csv,.log,.txt,text/csv,text/plain"
+            className="min-h-9 px-3 text-[13px] sm:min-h-9"
+            onChange={(event) => onFile(side, event.currentTarget.files?.[0] ?? null)}
+          >
+            <IconFileText size={14} />
+            Datei
+          </FilePicker>
+          <Button variant="ghost" size="sm" onClick={onSample}>
+            <IconSparkles size={14} />
             Beispiel
           </Button>
-        </Group>
-      </Stack>
-    </Card>
+        </div>
+      </div>
+    </Panel>
   );
 }
