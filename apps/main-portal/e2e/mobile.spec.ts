@@ -100,6 +100,13 @@ test.describe("Mobile: navigation menu", () => {
     const menu = page.getByRole("menu");
     await expect(menu).toBeVisible();
 
+    // Opens on the app you are IN, so its own sections are one tap away.
+    await expect(menu.getByRole("menuitem", { name: "Virtueller Prüfstand" })).toBeVisible();
+
+    // The back row is labelled with the level you are in; it leads to the root.
+    await menu.getByRole("menuitem", { name: "Log Analyzer", exact: true }).click();
+    await expect(menu.getByRole("menuitem", { name: "Plattform-Einstellungen" })).toBeVisible();
+
     await menu.getByRole("menuitem", { name: "Zählwerk", exact: true }).click();
     await expect(menu.getByRole("menuitem", { name: "Berichte" })).toBeVisible();
 
@@ -113,24 +120,35 @@ test.describe("Mobile: navigation menu", () => {
     await expect(page.getByRole("heading", { name: E2E_METER_NAME })).toBeVisible();
   });
 
-  test("back steps out one level and closing resets to the root", async ({ page }) => {
+  test("the menu opens on the current app and back leads to the root", async ({ page }) => {
     await page.goto("/apps/zaehlwerk");
     const trigger = page.getByRole("button", { name: "Navigation öffnen" });
     await trigger.click();
 
     const menu = page.getByRole("menu");
-    await menu.getByRole("menuitem", { name: "Zählwerk", exact: true }).click();
+    // Inside Zählwerk: its sections, not the app list.
     await expect(menu.getByRole("menuitem", { name: "Berichte" })).toBeVisible();
+    await expect(menu.getByRole("menuitem", { name: "Plattform-Einstellungen" })).toHaveCount(0);
 
-    // The back row is labelled with the level you are in.
+    // Back is one level up, to the root.
     await menu.getByRole("menuitem", { name: "Zählwerk", exact: true }).click();
     await expect(menu.getByRole("menuitem", { name: "Plattform-Einstellungen" })).toBeVisible();
 
-    // Reopening always starts at the root, never where you left off.
+    // Reopening returns to the level of the CURRENT page — not the root, and not
+    // wherever the last session happened to leave off.
     await page.keyboard.press("Escape");
     await expect(menu).toBeHidden();
     await trigger.click();
-    await expect(page.getByRole("menu").getByRole("menuitem", { name: "Plattform-Einstellungen" })).toBeVisible();
+    await expect(page.getByRole("menu").getByRole("menuitem", { name: "Berichte" })).toBeVisible();
+  });
+
+  test("outside an app the menu opens at the root", async ({ page }) => {
+    // The launcher belongs to no app, so there is no app level to prefer.
+    await page.goto("/");
+    await page.getByRole("button", { name: "Navigation öffnen" }).click();
+    const menu = page.getByRole("menu");
+    await expect(menu.getByRole("menuitem", { name: "Plattform-Einstellungen" })).toBeVisible();
+    await expect(menu.getByRole("menuitem", { name: "App Space (Start)" })).toBeVisible();
   });
 });
 
@@ -186,7 +204,7 @@ test.describe("Mobile: touch targets ≥ 44px", () => {
   test("menu rows and launcher tiles meet the minimum", async ({ page }) => {
     await page.goto("/apps/zaehlwerk");
     await page.getByRole("button", { name: "Navigation öffnen" }).click();
-    await page.getByRole("menu").getByRole("menuitem", { name: "Zählwerk", exact: true }).click();
+    // Already on Zählwerk's level — the menu opens on the app you are in.
     await expectTapTarget(
       page.getByRole("menu").getByRole("menuitem", { name: "Berichte" }),
       "menu: Berichte",

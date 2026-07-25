@@ -24,6 +24,11 @@ set -u
 REPO_ROOT="${REPO_ROOT:-/repo}"
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
 UPDATE_BRANCH="${UPDATE_BRANCH:-main}"
+# Exact ref to deploy, set by /api/update/trigger from the instance's release
+# channel. Empty = follow UPDATE_BRANCH, which is what every run did before
+# channels existed and what the stable channel still does while this repo has
+# no stable release tags.
+UPDATE_REF="${UPDATE_REF:-}"
 LOG_FILE="${UPDATE_LOG_FILE:-/data/update.log}"
 STATUS_FILE="${UPDATE_STATUS_FILE:-/data/update-status.json}"
 # Pin the Compose project name so a run from the container's /repo cwd targets
@@ -67,9 +72,22 @@ write_status started true false "Update gestartet"
 cd "$REPO_ROOT" || fail "Arbeitsverzeichnis nicht gefunden"
 
 # 1) Pull -------------------------------------------------------------------
-echo "[update] git pull --ff-only origin $UPDATE_BRANCH"
 write_status pulling true false "Neuer Code wird geholt"
-git pull --ff-only origin "$UPDATE_BRANCH" || fail "git pull fehlgeschlagen – Details im Log"
+if [ -n "$UPDATE_REF" ]; then
+  # A released tag. Detached HEAD is correct here: the image is built from the
+  # checkout and nothing ever commits in /repo, so there is no branch to be on.
+  # --force on the fetch lets a moved tag (a re-cut release) still land.
+  echo "[update] git fetch --tags + checkout $UPDATE_REF"
+  git fetch --tags --force origin || fail "git fetch fehlgeschlagen – Details im Log"
+  git checkout --detach "$UPDATE_REF" || fail "checkout $UPDATE_REF fehlgeschlagen – Details im Log"
+else
+  # Branch mode. `git checkout` first because a previous run on a pinned ref left
+  # HEAD detached, and `git pull` refuses to run there. Deliberately NOT --force:
+  # local modifications should still stop the deploy rather than be discarded.
+  echo "[update] git checkout $UPDATE_BRANCH + pull --ff-only"
+  git checkout "$UPDATE_BRANCH" || fail "checkout $UPDATE_BRANCH fehlgeschlagen – Details im Log"
+  git pull --ff-only origin "$UPDATE_BRANCH" || fail "git pull fehlgeschlagen – Details im Log"
+fi
 
 GIT_SHA="$(git rev-parse HEAD)"
 export GIT_SHA

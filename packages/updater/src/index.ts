@@ -1,9 +1,11 @@
 import { getCurrentCommit } from "./git";
-import { fetchLatestCommit, fetchLatestRelease } from "./github";
+import { fetchLatestCommit, fetchLatestReleaseForChannel } from "./github";
+import { DEFAULT_RELEASE_CHANNEL, type ReleaseChannel } from "./channel";
 
 export * from "./git";
 export * from "./github";
 export * from "./changelog";
+export * from "./channel";
 
 export interface CheckForUpdatesOptions {
   /** GitHub repo owner, e.g. "leonlange106-lang". */
@@ -22,6 +24,8 @@ export interface CheckForUpdatesOptions {
   currentSha?: string;
   /** Local git checkout to read the current commit from — fallback when `currentSha` is absent. */
   cwd?: string;
+  /** Release channel to look for updates in. Defaults to "stable". */
+  channel?: ReleaseChannel;
 }
 
 export interface UpdateCheckResult {
@@ -36,12 +40,19 @@ export interface UpdateCheckResult {
   latestCommitDate: string;
   latestCommitUrl: string;
   updateAvailable: boolean;
-  /** Set when the repo has a GitHub Release published (this project doesn't, today). */
+  /** The channel this result describes. */
+  channel: ReleaseChannel;
+  /**
+   * Newest release IN THE SELECTED CHANNEL, or null when the channel has none
+   * published yet. `tagName` is the ref the deploy script checks out — a branch
+   * head is not a released state, so an update always targets a tag.
+   */
   latestRelease: {
     tagName: string;
     name: string;
     publishedAt: string;
     htmlUrl: string;
+    preRelease: boolean;
   } | null;
   checkedAt: string;
 }
@@ -60,10 +71,14 @@ export async function checkForUpdates(options: CheckForUpdatesOptions): Promise<
         })
       : getCurrentCommit(options.cwd ?? process.cwd());
 
+  const channel = options.channel ?? DEFAULT_RELEASE_CHANNEL;
+
   const [local, latestCommit, latestRelease] = await Promise.all([
     localPromise,
     fetchLatestCommit(options.owner, options.repo, branch),
-    fetchLatestRelease(options.owner, options.repo).catch(() => null),
+    // Never fatal: a repo with no releases is a valid state, and the commit
+    // comparison below still answers "is there anything new".
+    fetchLatestReleaseForChannel(options.owner, options.repo, channel).catch(() => null),
   ]);
 
   return {
@@ -78,12 +93,14 @@ export async function checkForUpdates(options: CheckForUpdatesOptions): Promise<
     latestCommitDate: latestCommit.authorDate,
     latestCommitUrl: latestCommit.htmlUrl,
     updateAvailable: local.sha !== latestCommit.sha,
+    channel,
     latestRelease: latestRelease
       ? {
           tagName: latestRelease.tagName,
           name: latestRelease.name,
           publishedAt: latestRelease.publishedAt,
           htmlUrl: latestRelease.htmlUrl,
+          preRelease: latestRelease.preRelease,
         }
       : null,
     checkedAt: new Date().toISOString(),

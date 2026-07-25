@@ -186,11 +186,17 @@ test.describe("Log Analyzer: remote import", () => {
 
 test.describe("Log Analyzer: sub-navigation", () => {
   test("menu exposes Analyzer, Remote-Import and Log-Übersicht", async ({ page }) => {
-    /** Open the menu and drill into the Log Analyzer's section list. */
+    /**
+     * Open the menu on the Log Analyzer's section list.
+     *
+     * No drilling: every page in this test is inside the Log Analyzer, and the
+     * menu opens on the app you are in. Clicking "Log Analyzer" here would hit
+     * the BACK row and land on the root instead.
+     */
     const openAppLevel = async () => {
       await page.getByRole("button", { name: "Navigation öffnen" }).click();
       const menu = page.getByRole("menu");
-      await menu.getByRole("menuitem", { name: "Log Analyzer" }).click();
+      await expect(menu.getByRole("menuitem", { name: "Virtueller Prüfstand" })).toBeVisible();
       return menu;
     };
 

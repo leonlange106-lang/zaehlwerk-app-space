@@ -1,4 +1,9 @@
 import { prisma } from "@zaehlwerk/database";
+import {
+  DEFAULT_RELEASE_CHANNEL,
+  toReleaseChannel,
+  type ReleaseChannel,
+} from "@zaehlwerk/updater";
 
 // Typed access to the Setting key/value store. Keep the keys and their parsing
 // here so callers deal in numbers/booleans, never raw strings. This module is
@@ -13,6 +18,7 @@ export const SETTING_KEYS = {
   logRetentionDays: "logs.retentionDays",
   logMaxCount: "logs.maxCount",
   maintenanceLastRunAt: "maintenance.lastRunAt",
+  updateChannel: "update.channel",
 } as const;
 
 export const DEFAULT_RETENTION_DAYS = 30;
@@ -24,6 +30,22 @@ export type BackupPolicy = {
   intervalHours: number;
   lastRunAt: string | null;
 };
+
+/**
+ * Which release channel this instance follows. Stored, not env-configured: it is
+ * a per-instance decision the admin makes in the UI, and it has to survive the
+ * container being recreated by an update.
+ */
+export async function getUpdateChannel(): Promise<ReleaseChannel> {
+  return toReleaseChannel(await readSetting(SETTING_KEYS.updateChannel));
+}
+
+export async function setUpdateChannel(channel: ReleaseChannel): Promise<void> {
+  await writeSetting(SETTING_KEYS.updateChannel, channel);
+}
+
+export { DEFAULT_RELEASE_CHANNEL };
+export type { ReleaseChannel };
 
 async function readSetting(key: string): Promise<string | null> {
   const row = await prisma.setting.findUnique({ where: { key } });
