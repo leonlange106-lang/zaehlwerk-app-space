@@ -21,52 +21,67 @@ Ergänzt `AUDIT.md` (Phase-1-Analyse) um das, was danach entschieden und gebaut 
 | Beta-Kennzeichnung: Remote-Import, Ingestion-API | ✅ sichtbar in Menü, Seite, Einstellungen |
 | Auto-Hell/Dunkel nach Systemeinstellung (3 Modi, folgt live) | ✅ |
 | Neue Marken (App Space, Zählwerk, Log Analyzer, Favicon, Apple-Icon, Wortmarke) | ✅ |
+| **Mantine vollständig entfernt** | ✅ 0 Treffer für `mantine` in `app/`, `src/`, Configs, `package.json` |
 
 ---
 
-## 2. Offen: Mantine vollständig entfernen
+## 2. Mantine-Ausbau — erledigt
 
-**45 Dateien** importieren noch `@mantine/*`. Das ist der Rest der Migration und
-die Voraussetzung dafür, Preflight einzuschalten und die Mantine-Zuordnung aus
-`globals.css` zu löschen.
+Alle 47 Dateien migriert, die fünf Pakete (`@mantine/core`, `@mantine/hooks`,
+`@mantine/notifications`, `postcss-preset-mantine`, `postcss-simple-vars`)
+entfernt, `theme.ts` gelöscht, `postcss.config.mjs` auf Tailwind allein reduziert.
 
-Nach Aufwand und Risiko gruppiert:
+**Was dabei nicht offensichtlich war und für spätere Arbeit gilt:**
 
-### 2.1 Klein (überwiegend Layout + Text)
-`LinkButton`, `error.tsx`, `global-error.tsx`, `ChangelogView`, `ChartSkeletons`,
-`ChannelChips`, `MetadataCard`, `ExportPanel`, `projection-ui`, `LocationsCard`,
-`ZaehlwerkSettingsView`, `SmartHomeCard`, `MeterImportCard`, `SetPasswordForm`,
-`TwoFactorForm`, `LoginForm`, `SetupForm`, `berichte/page`, `specs/page`.
+- **Preflight** ist jetzt an (`@import "tailwindcss"`). Der `@layer base`-Block in
+  `globals.css` ist deshalb kein Notreset mehr, sondern nur noch das, was
+  Preflight bewusst offenlässt: Listenmarker, Linkfarbe, Überschriften-Margins,
+  `input[type=search]` in Safari.
+- **Die 44px-Touch-Ziele** kamen früher aus einem globalen `@media`-Block, der
+  Mantine-Klassen ansprach. Der ist weg — die Größe steckt jetzt in den
+  Komponenten selbst (`min-h-11 sm:min-h-10` in Button, Field, FilePicker,
+  Menüeinträgen). Ein neues interaktives Element erbt sie also **nicht**
+  automatisch; es muss die Klassen mitbringen oder ein Kit-Primitiv benutzen.
+- **`data-testid` auf Kit-Komponenten muss deklariert sein.** TypeScript
+  beanstandet unbekannte Props mit Bindestrich auf einer Komponente nicht — sie
+  verschwinden still. `Badge`, `Skeleton`, `Panel`, `Alert`, `Progress`,
+  `SegmentedControl`, `ResponsiveDialog` und `TagsInput` deklarieren die Prop
+  explizit; drei E2E-Locator hingen bereits an einer, die nie im DOM ankam.
+- **`RangeSlider`** ist neu gebaut (zwei überlagerte `input[type=range]`, Griffe
+  können nicht kreuzen), statt eine weitere Radix-Abhängigkeit zu ziehen. Nur der
+  Analyzer nutzt ihn.
+- **Formularfelder in E2E über die Rolle lokalisieren**, nicht über das Label:
+  `getByLabel` matcht den Label-*Textinhalt* inklusive Pflichtfeld-Sternchen
+  (Accessible Name `E-Mail`, Label-Text `E-Mail*`), und der Sichtbarkeits-Toggle
+  eines Passwortfelds heißt selbst „Passwort anzeigen".
 
-### 2.2 Mittel (Formulare, Tabellen, Dialoge)
-`ZaehlerManager`, `HistoryView`, `RemoteImportView`, `EvaluationCard`,
-`ParameterPanel`, `VehicleSpecForm`, `MeterDataCard`, `ApiTokenCard`,
-`AuditLogCard`, `BackupPolicyCard`, `DatabaseMaintenanceCard`, `IngestionKeyCard`,
-`SecurityCard`, `SystemBackupCard`, `UserManagementCard`, `AdminPanel`,
-`ResponsiveDialog`.
+### 2.1 Drei Layout-Defekte, die dabei aufgefallen sind
 
-### 2.3 Groß (Zustandslogik + Virtualisierung + Charts)
-`SettingsView` (592 Z.), `ZaehlerDetail` (577), `DynoView` (538),
-`AnalyzerView` (534), `ReadingHistoryTable` (529, virtualisiert),
-`ComparisonView` (400), `DynoProfileDrawer` (337), `ExportModal` (225).
+Alle drei waren echte Bedienfehler auf dem Handy, keine Testartefakte — und alle
+drei hatte Mantine vorher zufällig verdeckt.
 
-### 2.4 Noch fehlende Primitiven
-- **Dialog/Drawer** auf Radix Dialog (`ResponsiveDialog` neu) — Modal ⇄ Bottom-Sheet
-- **Tooltip** auf Radix Tooltip
-- **Toast** als Ersatz für `@mantine/notifications` (nur `HistoryView` nutzt es)
-- **TagsInput** (nur `HistoryView`)
-- **NumberInput**, **PasswordInput** (Sichtbarkeits-Toggle)
+1. **`min-width: auto` auf Flex-/Grid-Kindern.** Ein Panel mit einem Chart darin
+   weigert sich, unter seine Inhaltsbreite zu schrumpfen, und zieht die ganze
+   Spalte auf. Mantines `Grid` hatte das mit festen `flex-basis`-Prozenten
+   überdeckt. `@utility panel` setzt jetzt `min-width: 0`.
+2. **`Panel`s Action-Slot war `flex-none`** — er konnte weder schrumpfen noch
+   umbrechen. Auf der Dyno-Seite steckt dort die dreiteilige Chart-Legende, deren
+   Mindestbreite damit zur Mindestbreite der Seite wurde. Die Kopfzeile bricht
+   jetzt um.
+3. **`sr-only`-Inputs entkommen ihrem Scroll-Container.** `sr-only` ist
+   `position: absolute`; ohne `position: relative` am eigenen Label wird der
+   Containing Block das umschließende Panel. Ein absolut positioniertes Element
+   wird nur von Vorfahren in seiner Containing-Block-Kette beschnitten — die
+   versteckten Radios der `SegmentedControl` landeten deshalb bei x≈610 und
+   zwangen die Seite in horizontales Scrollen. Symptom war ein links
+   abgeschnittener Dialog: bei Seitenüberlauf bemisst sich `position: fixed` am
+   aufgeweiteten Layout-Viewport, nicht am sichtbaren.
 
-### 2.5 Abschluss
-1. `@mantine/core`, `@mantine/hooks`, `@mantine/notifications`, `postcss-preset-mantine`
-   aus `package.json`
-2. `theme.ts` löschen
-3. In `globals.css`: Mantine-Zuordnung + `[data-mantine-color-scheme]`-Selektoren löschen,
-   `@import "tailwindcss"` **mit** Preflight, `@layer base`-Notreset entfernen
-4. `postcss.config.mjs` auf Tailwind allein reduzieren
-5. `$mantine-breakpoint-*` in den verbliebenen CSS-Modulen durch feste `em`-Werte ersetzen
-   (`postcss-simple-vars` fällt sonst mit weg)
-6. `ThemeProvider`: `dataset.mantineColorScheme`-Spiegelung entfernen
+**Warum das lange unentdeckt blieb:** `expectNoHorizontalScroll` verglich
+`scrollWidth` gegen `window.innerWidth` — und genau bei Überlauf weitet Chrome
+den Layout-Viewport auf, `innerWidth` wächst mit. Die Zusicherung war also wahr
+(610 ≤ 610), während die Seite tatsächlich seitwärts scrollte. Beide Helfer
+messen jetzt gegen `document.documentElement.clientWidth`.
 
 ---
 

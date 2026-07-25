@@ -474,27 +474,34 @@ derzeit **aus** sind (alle in 16.2.11 verfügbar, verifiziert):
 
 Identische Messmethode wie § 2.1 (Production-Build, `next start`, eingeloggt).
 
-| Route | vorher | nachher | Δ |
-|---|---:|---:|---:|
-| `/login` | 540,5 KB | **362,9 KB** | −177,6 |
-| `/` | 530,9 KB | **353,3 KB** | −177,6 |
-| `/apps/zaehlwerk` | 419,2 KB | **350,6 KB** | −68,6 |
-| `/apps/zaehlwerk/zaehler` | 430,4 KB | **360,8 KB** | −69,6 |
-| `/apps/zaehlwerk/berichte` | 421,0 KB | **352,4 KB** | −68,6 |
-| `/apps/log-analyzer` | 554,3 KB | **376,8 KB** | −177,5 |
-| `/apps/log-analyzer/history` | 545,0 KB | **367,4 KB** | −177,6 |
-| `/apps/log-analyzer/dyno` | 555,3 KB | **377,7 KB** | −177,6 |
-| `/settings` | 556,1 KB | **377,3 KB** | −178,8 |
-| `/changelog` | 537,1 KB | **359,5 KB** | −177,6 |
+| Route | vor dem Audit | nach Zod/Recharts | nach Mantine-Ausbau | Δ gesamt |
+|---|---:|---:|---:|---:|
+| `/login` | 540,5 KB | 362,9 KB | **229,4 KB** | −311,1 |
+| `/` | 530,9 KB | 353,3 KB | **229,0 KB** | −301,9 |
+| `/apps/zaehlwerk` | 419,2 KB | 350,6 KB | **223,9 KB** | −195,3 |
+| `/apps/zaehlwerk/zaehler` | 430,4 KB | 360,8 KB | **233,7 KB** | −196,7 |
+| `/apps/zaehlwerk/berichte` | 421,0 KB | 352,4 KB | **227,6 KB** | −193,4 |
+| `/apps/log-analyzer` | 554,3 KB | 376,8 KB | **252,2 KB** | −302,1 |
+| `/apps/log-analyzer/history` | 545,0 KB | 367,4 KB | **240,7 KB** | −304,3 |
+| `/apps/log-analyzer/dyno` | 555,3 KB | 377,7 KB | **248,5 KB** | −306,8 |
+| `/settings` | 556,1 KB | 377,3 KB | **253,1 KB** | −303,0 |
+| `/changelog` | 537,1 KB | 359,5 KB | **229,9 KB** | −307,2 |
+
+Alle drei Spalten mit derselben Methode gemessen (§ 7): Production-Build, `next start`,
+eingeloggt, `<script src>` aus dem HTML jeder Route, Chunks von der Platte gzippt.
+
+**Der Mantine-Ausbau bringt weitere 124–134 KB gz je Route** — mehr als der Zod- und der
+Recharts-Fix zusammen. Gegenüber dem Ausgangszustand liegen die Routen jetzt
+**55–58 % niedriger**.
 
 Recharts und Zod sind auf **keiner** Route mehr im initialen Graph (verifiziert durch
 Chunk-Inhaltsprüfung, nicht nur an der Größe). Abzüglich der `noModule`-Polyfills
-(38,7 KB, moderne Browser laden sie nicht) liegen die Routen jetzt bei **~312–339 KB gz**.
+(38,7 KB, moderne Browser laden sie nicht) liegen die Routen bei **~185–214 KB gz**.
 
-Dass auch die Log-Analyzer-Routen 177 KB verlieren, war nicht offensichtlich: Recharts hing
-über den Shared-Chunk des Root-Layouts im eager Graph *aller* Routen, nicht nur des
-Launchers — die `React.lazy`-Grenzen dort waren wirkungslos, solange `AdminPanel` es statisch
-importierte.
+Dass auch die Log-Analyzer-Routen 177 KB am Zod/Recharts-Schritt verloren, war nicht
+offensichtlich: Recharts hing über den Shared-Chunk des Root-Layouts im eager Graph
+*aller* Routen, nicht nur des Launchers — die `React.lazy`-Grenzen dort waren wirkungslos,
+solange `AdminPanel` es statisch importierte.
 
 ### 9.2 Autorisierung — verifiziert
 
