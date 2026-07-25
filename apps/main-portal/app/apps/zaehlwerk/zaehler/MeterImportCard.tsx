@@ -1,19 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import {
-  Alert,
-  Button,
-  Card,
-  FileButton,
-  Group,
-  Modal,
-  Select,
-  Stack,
-  Text,
-  TextInput,
-  Title,
-} from "@mantine/core";
+import { Button } from "@/app/components/ui/Button";
+import { Field, Select, SelectShell, TextInput } from "@/app/components/ui/Field";
+import { Panel } from "@/app/components/ui/Panel";
+import { ResponsiveDialog } from "@/app/components/ui/ResponsiveDialog";
+import { Alert, FilePicker } from "@/app/components/ui/primitives";
 import { IconAlertCircle, IconCheck, IconFileImport } from "@tabler/icons-react";
 import type { listLocations } from "@/app/lib/zaehler-actions";
 import { importMeter, type LocationChoice } from "@/app/lib/backup-actions";
@@ -81,59 +73,83 @@ export function MeterImportCard({ locations }: { locations: LocationList }) {
   ];
 
   return (
-    <Card withBorder radius="md" p="lg">
-      <Group gap="xs" mb="sm">
-        <IconFileImport size={18} stroke={1.6} />
-        <Title order={4}>Zähler importieren</Title>
-      </Group>
-      <Text size="sm" c="dimmed" mb="md">
-        Einzelnen Zähler aus einer JSON-Export-Datei importieren (inkl. Ablesungen und Tarife).
-      </Text>
-
-      <FileButton onChange={handlePick} accept="application/json,.json">
-        {(props) => (
-          <Button {...props} variant="light" color="slate" leftSection={<IconFileImport size={16} />}>
-            Zähler-Datei wählen
-          </Button>
-        )}
-      </FileButton>
+    <Panel
+      title="Zähler importieren"
+      icon={<IconFileImport size={17} stroke={1.7} />}
+      description="Einzelnen Zähler aus einer JSON-Export-Datei importieren (inkl. Ablesungen und Tarife)."
+    >
+      <FilePicker
+        accept="application/json,.json"
+        onChange={(event) => void handlePick(event.currentTarget.files?.[0] ?? null)}
+      >
+        <IconFileImport size={16} />
+        Zähler-Datei wählen
+      </FilePicker>
 
       {result && (
         <Alert
-          mt="md"
-          variant="light"
-          color={result.ok ? "green" : "red"}
+          className="mt-4"
+          tone={result.ok ? "ok" : "risk"}
+          role={result.ok ? "status" : "alert"}
           icon={result.ok ? <IconCheck size={16} /> : <IconAlertCircle size={16} />}
         >
           {result.message}
         </Alert>
       )}
 
-      <Modal opened={preview !== null} onClose={() => !busy && setPreview(null)} title="Zähler importieren" centered>
-        <Stack gap="sm">
-          <Text size="sm">
-            Zähler <b>{preview?.name}</b> mit {preview?.readings} Ablesungen. Es werden neue IDs
-            vergeben (Import als Kopie).
-          </Text>
-          <Select label="Standort zuordnen" data={options} value={locValue} onChange={(v) => setLocValue(v ?? "none")} />
-          {locValue === "new" && (
-            <TextInput
-              label="Name des neuen Standorts"
-              placeholder="z. B. Ferienhaus"
-              value={newName}
-              onChange={(event) => setNewName(event.currentTarget.value)}
-            />
-          )}
-          <Group justify="flex-end" mt="sm">
-            <Button variant="default" onClick={() => setPreview(null)} disabled={busy}>
+      <ResponsiveDialog
+        opened={preview !== null}
+        onClose={() => setPreview(null)}
+        closeDisabled={busy}
+        title="Zähler importieren"
+        size="sm"
+        footer={
+          <>
+            <Button type="button" onClick={() => setPreview(null)} disabled={busy}>
               Abbrechen
             </Button>
-            <Button color="slate" loading={busy} onClick={handleConfirm}>
-              Importieren
+            <Button type="button" variant="primary" disabled={busy} onClick={handleConfirm}>
+              {busy ? "Wird importiert…" : "Importieren"}
             </Button>
-          </Group>
-        </Stack>
-      </Modal>
-    </Card>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-4">
+          <p className="text-sm">
+            Zähler <strong>{preview?.name}</strong> mit {preview?.readings} Ablesungen. Es werden
+            neue IDs vergeben (Import als Kopie).
+          </p>
+          <Field label="Standort zuordnen">
+            {({ id }) => (
+              <SelectShell>
+                <Select
+                  id={id}
+                  value={locValue}
+                  onChange={(event) => setLocValue(event.currentTarget.value)}
+                >
+                  {options.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </Select>
+              </SelectShell>
+            )}
+          </Field>
+          {locValue === "new" && (
+            <Field label="Name des neuen Standorts">
+              {({ id }) => (
+                <TextInput
+                  id={id}
+                  placeholder="z. B. Ferienhaus"
+                  value={newName}
+                  onChange={(event) => setNewName(event.currentTarget.value)}
+                />
+              )}
+            </Field>
+          )}
+        </div>
+      </ResponsiveDialog>
+    </Panel>
   );
 }

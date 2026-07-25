@@ -312,9 +312,9 @@ test.describe("Log Analyzer: vehicle & hardware profile", () => {
     // Default OEM cat → 960 °C ceiling.
     await expect(page.getByText("960 °C")).toBeVisible();
 
-    // Switch to catless → looser ceiling (1010 °C).
-    await page.getByTestId("spec-cat").click();
-    await page.getByRole("option", { name: "Catless (kein Kat)" }).click();
+    // Switch to catless → looser ceiling (1010 °C). A native <select> now, so
+    // this is selectOption rather than open-the-listbox-and-click-an-option.
+    await page.getByTestId("spec-cat").selectOption({ label: "Catless (kein Kat)" });
     await expect(page.getByText("1010 °C")).toBeVisible();
 
     await page.getByTestId("spec-save").click();
