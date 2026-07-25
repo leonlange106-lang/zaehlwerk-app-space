@@ -85,32 +85,53 @@ messen jetzt gegen `document.documentElement.clientWidth`.
 
 ---
 
-## 3. Offen: Release-Channel (stable / beta)
+## 3. Release-Channel (stable / beta) — gebaut
 
-**Ziel:** In den System-Einstellungen zwischen `stable` und `beta` umschalten; das
-Self-Update zieht dann den jeweils passenden Stand.
+**Was da ist**
 
-**GitHub-Aufbau**
-- `main` = stable. Tags `vX.Y.Z`, GitHub-Release ohne Pre-Release-Flag.
-- `next` = beta. Tags `vX.Y.Z-beta.N`, GitHub-Release **mit** Pre-Release-Flag.
-- Ein Feature-Branch geht per PR nach `next`; ein Beta-Stand wird per PR
-  `next → main` promoted. Keine Cherry-Picks — sonst driften die Historien.
+- `Setting`-Key `update.channel` (`"stable" | "beta"`, Default `stable`), gelesen über
+  `getUpdateChannel()`. In der DB, nicht in einer Env-Var: es ist eine Entscheidung
+  pro Instanz und muss das Neuanlegen des Containers überleben.
+- Channel-Umschalter in den Plattform-Einstellungen (`SegmentedControl`,
+  `data-testid="update-channel"`), admin-only über `setUpdateChannelAction`
+  → `requireAdmin()` + Audit-Eintrag.
+- `fetchLatestReleaseForChannel()` im Updater. `releases/latest` von GitHub war
+  dafür unbrauchbar: **Pre-Releases sind darin gar nicht enthalten**, ein Beta-Stand
+  wäre also unsichtbar geblieben. Die neue Funktion listet Releases und filtert
+  selbst — `stable` = ohne Pre-Release-Flag, `beta` = jede veröffentlichte Version.
+  Entwürfe nie. Sortiert nach `published_at`, nicht nach GitHubs Reihenfolge.
+- `resolveUpdateTarget()` (`lib/update-target.ts`) löst den Channel zu einem
+  **Tag** auf. `/api/update/check` liefert ihn mit aus, `/api/update/trigger`
+  reicht ihn als `UPDATE_REF` an `scripts/update.sh`.
+- `scripts/update.sh` deployt bei gesetztem `UPDATE_REF` genau diesen Tag
+  (`git fetch --tags` + `git checkout --detach`). Ohne `UPDATE_REF` läuft der
+  bisherige Branch-Pfad — mit einem zusätzlichen `git checkout $UPDATE_BRANCH`
+  davor, weil ein vorheriger Tag-Deploy HEAD detached zurücklässt und `git pull`
+  dort verweigert.
 
-**App-seitig**
-- `Setting`-Key `update.channel` (`"stable" | "beta"`, Default `stable`)
-- `scripts/update.sh`: statt fest `UPDATE_BRANCH=main` den Channel lesen und den
-  neuesten passenden **Tag** auschecken (nicht den Branch-Head — ein Branch-Head
-  ist kein freigegebener Stand).
-- `/api/update/check` fragt die GitHub-Releases-API und meldet die neueste
-  Version des gewählten Channels; Pre-Releases nur bei `beta`.
-- UI in `SettingsView`: Channel-Auswahl mit deutlicher Warnung + `BetaBadge`.
-- **Downgrade-Fall bedenken:** Wechsel von `beta` zurück auf `stable` kann eine
-  ältere Version bedeuten. `prisma db push` ist additiv und macht Spalten nicht
-  rückgängig — der Wechsel darf also nicht automatisch zurückrollen, sondern
-  wartet auf die nächste stabile Version, die den Beta-Stand überholt. Das muss
-  die UI sagen.
+**Warum beta auch stabile Releases enthält.** Eine stabile Version, die nach dem
+letzten Beta erscheint, *ist* neuer. Ein Tester soll darauf wechseln und nicht
+unbegrenzt auf einem älteren Pre-Release sitzen bleiben.
 
----
+**Der Branch-Fallback, und warum er nötig ist.** Ein Channel zeigt bewusst auf
+einen Tag — ein Branch-Head ist kein freigegebener Stand. Aber dieses Repo hat
+**noch keinen stabilen Release-Tag**; jedes Release bisher ist ein Pre-Release.
+Ohne Fallback hätte eine Instanz auf `stable` schlicht nichts zu installieren und
+würde stumm keine Updates mehr bekommen — schlimmer als dem Branch zu folgen. Also:
+Hat ein Channel keine veröffentlichte Version, folgt das Update `UPDATE_BRANCH` wie
+vor der Channel-Einführung, und die Einstellungen sagen das auch hin
+(„Nächstes Update installiert: Branch main — für den Channel „stable" ist noch
+keine Version veröffentlicht"). Sobald ein stabiles `v3.0.0` getaggt ist,
+verschwindet der Fallback von selbst.
+
+**Downgrade bleibt bewusst aus.** Ein Wechsel zurück auf Stable rollt nicht
+zurück: `prisma db push` ist additiv und macht Spalten nicht rückgängig. Die
+Instanz bleibt auf dem Beta-Stand, bis eine stabile Version ihn überholt. Die UI
+sagt das direkt am Umschalter.
+
+**Was noch offen ist:** der GitHub-Aufbau mit `next` als Beta-Branch (§ 7). Solange
+alles über `main` läuft und Betas von dort getaggt werden, ist der Channel
+funktionsfähig, aber die Trennung ist eine Konvention und keine Struktur.
 
 ## 4. Offen: Home Assistant ohne iframe-Problem
 
@@ -239,13 +260,174 @@ mit Marker im Chart). Gewünscht: Min/Max je Kanal immer sichtbar.
 
 ---
 
-## 7. Reihenfolge-Vorschlag
+## 7. Backlog: Plattform & UI
+
+Gesammelte Ideen, **nichts davon umgesetzt**. Mit den Stellen im Code, an denen sie
+ansetzen, und mit dem, was beim Nachsehen aufgefallen ist.
+
+### 7.1 Update-Fortschritt mit echten Einzelschritten
+
+Heute zeigt der Stepper vier Stufen (`UPDATE_STEPS` in `lib/update-status.ts`),
+während `scripts/update.sh` gut zwanzig nummerierte Abschnitte durchläuft und in
+`/data/update.log` schreibt. Der Balken springt deshalb minutenlang nicht, obwohl
+sichtbar etwas passiert.
+
+- **Ansatz:** `write_status` im Skript kennt die Stufe bereits — es müsste
+  zusätzlich `step`/`stepCount` schreiben, und die Stufen müssten in
+  `update-status.ts` von 4 auf die echte Liste wachsen.
+- **Fallstrick:** Der Container wird mitten im Update neu erstellt, die SSE-Verbindung
+  reißt ab. Der Fortschritt muss deshalb aus `/data/update-status.json` rekonstruierbar
+  bleiben und darf nicht im Speicher des Servers leben — genau der Fehler, an dem
+  der alte Updater auf „building" hängen blieb.
+- **Nicht offensichtlich:** Ein Schritt-Zähler suggeriert gleichmäßigen Fortschritt.
+  Der Docker-Build ist aber 80 % der Wartezeit. Entweder die Schritte gewichten oder
+  gar keinen Prozentwert versprechen, sondern nur „Schritt 14 von 22: Image bauen".
+
+### 7.2 Benachrichtigungs-Drawer (Glocke oben rechts)
+
+**Die Glocke hat heute gar keinen Handler** — `PortalShell.tsx` rendert einen Button
+mit `aria-label="Benachrichtigungen"` und sonst nichts. Ein Bedienelement, das
+aussieht wie eines und keines ist.
+
+- **Erste Füllung:** verfügbares Update (`/api/update/check`), fehlgeschlagenes
+  automatisches Backup, überfällige Wartung — alles Zustände, die die Plattform
+  schon kennt.
+- **Später:** anstehende/überfällige Ablesungen. Dafür braucht ein Zähler ein
+  Ableseintervall, das er heute nicht hat — also Schemaänderung, damit erst nach
+  einem Self-Update wirksam.
+- **Fallstrick:** Der Toast-Mechanismus (`components/ui/Toast.tsx`) ist für
+  Flüchtiges gedacht und hält nichts fest. Benachrichtigungen brauchen einen
+  gelesen/ungelesen-Zustand, sonst sind sie nur Toasts mit Extraschritten.
+
+### 7.3 Suchfunktion
+
+**Das Suchfeld im Header ist heute Dekoration:** `PortalShell.tsx` hält `query` im
+State und benutzt es nirgends. Es sieht funktionsfähig aus und tut nichts — das ist
+schlechter, als es wegzulassen.
+
+- **Sinnvoller Umfang:** Zähler (Name, Standort), Logs (Bezeichnung, Dateiname,
+  Tags), Einstellungsabschnitte, Changelog-Einträge.
+- **Ansatz:** eine Route `api/search`, die pro Quelle begrenzt liefert, plus ein
+  Ergebnis-Popover. Volltext über SQLite FTS5 wäre möglich, ist aber für diese
+  Datenmengen Overkill — `contains` über die paar indizierten Spalten reicht.
+- **Fallstrick:** Suche muss die App-Freigaben respektieren. Ein Treffer aus einer
+  App, für die der Benutzer keine Freigabe hat, wäre ein Informationsleck —
+  dieselbe Lektion wie bei den Server Actions in `AUDIT.md` § 4.1.
+
+### 7.4 Einstellungen in Gruppen aufteilen
+
+Die Plattform-Einstellungen sind auf dem Handy **13 629 px** hoch (gemessen im
+Screenshot-Lauf). Das ist kein Bildschirm mehr, das ist eine Schriftrolle.
+
+- **Ansatz:** Unterseiten statt eines Stapels — System & Update, Benutzer & Rechte,
+  Sicherheit & Zugriff, Daten & Backup, Integrationen. Die Karten existieren bereits
+  als eigenständige Komponenten, es fehlt nur das Routing.
+- **Synergie:** Das Navigationsmenü kann diese Gruppen als eigene Ebene führen,
+  genau wie es Zähler und Logs schon tut.
+
+### 7.5 Fahrzeugprofile pro Fahrzeug statt global
+
+Beim Beheben des Prüfstand-Fehlers aufgefallen: `spec-store.ts` und `dyno-store.ts`
+halten **je genau ein** Profil im `localStorage`. Wer zwei Autos loggt, überschreibt
+sich selbst — und ein Bericht ist nicht reproduzierbar, weil das Profil, gegen das
+er bewertet wurde, inzwischen ein anderes sein kann.
+
+- **Ansatz:** beide Profile in die DB, gekoppelt an ein benanntes Fahrzeug; das
+  aktive Fahrzeug wird umgeschaltet statt überschrieben. Ein Log referenziert das
+  Fahrzeug, gegen das es bewertet wurde.
+- **Hängt zusammen mit** § 6.3 (eigene Fahrzeugmodelle) — dieselbe Schemaänderung.
+
+### 7.6 Mehr Referenz-Profile für den Prüfstand
+
+`DYNO_PRESETS` deckt **3 der 25 Katalogmodelle** ab. Für alles andere zeigt der
+Prüfstand jetzt eine Warnung („Masse, Reifen, Übersetzung und Luftwiderstand sind
+Platzhalter"), was ehrlich, aber kein Ersatz für Daten ist.
+
+- **Nicht offensichtlich:** Ein erfundenes Leergewicht ist schlimmer als gar keins —
+  die Schätzung sieht danach genauso selbstbewusst aus wie eine richtige. Profile
+  nur mit belegten Werten ergänzen.
+
+### 7.7 Marke überarbeiten und in den Header holen
+
+Das App-Space-Zeichen taucht heute nur auf der Startseite auf; die Kopfzeile zeigt
+stattdessen das Icon der *aktiven App*. Die Plattform hat damit im Alltag kein
+eigenes Gesicht.
+
+- **Gewünscht:** überarbeitetes Zeichen, das auch in der Kopfzeile steht — neben
+  oder statt dem App-Icon, ohne dass die Zuordnung „in welcher App bin ich gerade"
+  verloren geht. Das ist der eigentliche Entwurfskonflikt: die Kopfzeile trägt
+  heute genau eine Marke, künftig zwei Ebenen.
+- **Vorgehen, wenn es so weit ist:** mehrere Entwürfe in unterschiedlichen
+  Designsprachen zur Auswahl vorlegen, nicht einen einzelnen Vorschlag.
+- **Randbedingungen aus dem Bestand:** `components/BrandLogo.tsx` ist bewusst
+  **inline** und kein `<img src>`, damit `currentColor` greift und das Zeichen dem
+  Theme-Umschalter folgt — ein referenziertes SVG ist ein eigenes Dokument und kann
+  das nicht. Ein neues Zeichen muss diese Eigenschaft behalten. Dazu kommen
+  Favicon, Apple-Icon und das Manifest, die dieselbe Form tragen.
+
+---
+
+## 8. Animationen — geprüft, nicht umgesetzt
+
+Auftrag war eine Machbarkeitsprüfung. Kurz: **machbar, günstig, und die Grundlagen
+liegen bereits** — mit einem Fund, der vorher weg muss.
+
+### 8.1 Was schon da ist
+
+- `@media (prefers-reduced-motion: reduce)` in `globals.css` neutralisiert alle
+  Animationen und Übergänge global. Jede neue Animation ist damit automatisch
+  abgeschaltet, wenn das System es verlangt — die Barrierefreiheits-Pflicht ist
+  bereits erfüllt und muss nicht pro Stelle wiederholt werden.
+- Radix setzt auf Dialog, DropdownMenu, Popover und Tooltip `data-state="open"` /
+  `"closed"` und hält das Element während einer laufenden CSS-Animation im DOM.
+  Ein- **und Ausblenden** sind damit ohne eine Zeile JavaScript möglich.
+- Tailwind v4 bringt `transition-*`, `duration-*`, `ease-*` und `@keyframes` über
+  `@theme` mit. Für alles außer Layout-Animationen braucht es keine Bibliothek.
+
+### 8.2 Ein Fund: drei tote Klassen
+
+`components/ui/Toast.tsx` benutzt
+`motion-safe:animate-in motion-safe:slide-in-from-top-2 motion-safe:fade-in`.
+Diese Utilities stammen aus `tailwindcss-animate` — **das Paket ist nicht
+installiert**. Im gebauten CSS kommt `animate-in` null mal vor: der Toast erscheint
+heute hart, obwohl der Code etwas anderes suggeriert. Entweder die Klassen durch
+eigene Keyframes ersetzen oder das Plugin aufnehmen; so stehenlassen ist die
+schlechteste der drei Möglichkeiten.
+
+### 8.3 Was sich lohnt, und was nicht
+
+| Kandidat | Aufwand | Urteil |
+|---|---|---|
+| Dialog/Drawer ein- und ausblenden (Radix `data-state`) | klein | **Ja.** Ein Bottom-Sheet, das ohne Bewegung erscheint, wirkt wie ein Sprung. |
+| Menü-Ebenenwechsel (Drill-down horizontal schieben) | mittel | **Ja.** Die Bewegung erklärt die Richtung — genau der Punkt, an dem gerade Verwirrung entstand. |
+| Toast ein/aus | klein | **Ja**, ist ohnehin schon halb da (§ 8.2). |
+| Zahlen-Zähler auf `MetricTile` | klein | **Nein.** Verzögert das Ablesen einer Zahl, deren einziger Zweck das Ablesen ist. |
+| Chart-Aufbau (Recharts `isAnimationActive`) | klein | **Nein**, bewusst aus. Beim Umschalten von Kanälen würde jede Kurve neu aufbauen, und die CLS-Tests messen genau diese Phase. |
+| Seitenübergänge (View Transitions API) | mittel | **Später.** In Next 16 mit App Router noch nicht rund, und ein halb funktionierender Übergang ist schlechter als keiner. |
+| Skeleton-Shimmer | klein | **Nein.** Bewusste Designentscheidung: eine Kachel ohne Messwert soll wie ein unbestromtes Segment aussehen, nicht wie eine laufende Animation. |
+
+### 8.4 Kosten
+
+Keine neue Laufzeit-Abhängigkeit nötig. `tailwindcss-animate` wäre reines CSS
+(~2 KB gz) und nur, wenn man sich die Keyframes nicht selbst schreiben will.
+`framer-motion` (~35 KB gz) ist für das Obige **nicht** nötig und würde ich hier
+nicht aufnehmen — es lohnt erst bei Layout-Animationen mit geteilten Elementen,
+die es hier nicht gibt.
+
+**Ein Fallstrick, der bleibt:** Animierte Höhen verschieben Inhalte. Die
+CLS-Disziplin aus `CLAUDE.md` gilt weiter — animiert werden `transform` und
+`opacity`, nie `height` oder `width` von etwas, das im Fluss liegt.
+
+---
+
+## 9. Reihenfolge-Vorschlag
 
 1. Pre-Release testen (aktueller Stand)
-2. Mantine-Rest entfernen (§ 2) → das ist der Löwenanteil
-3. Release-Channel (§ 3) — braucht den GitHub-Aufbau vorher
+2. ~~Mantine-Rest entfernen~~ ✅ (§ 2)
+3. ~~Release-Channel~~ ✅ (§ 3) — offen bleibt der `next`-Branch im GitHub-Aufbau
 4. Tunnel-Hardening (§ 5, Teil 1) — unabhängig, sofort machbar
 5. Cloudflare-Integration + 2FA-Zwang (§ 5, Teil 2)
 6. HA über eigenen HTTPS-Hostname (§ 4, Weg A) — setzt 5 voraus
 7. **v3.0.0 Full Release**
-8. Danach erst das Log-Analyzer-Backlog (§ 6)
+8. Danach Plattform-Backlog (§ 7) und Animationen (§ 8)
+9. Zuletzt das Log-Analyzer-Backlog (§ 6)
