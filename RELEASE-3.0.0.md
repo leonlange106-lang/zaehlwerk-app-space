@@ -346,6 +346,17 @@ Platzhalter"), was ehrlich, aber kein Ersatz für Daten ist.
 - **Nicht offensichtlich:** Ein erfundenes Leergewicht ist schlimmer als gar keins —
   die Schätzung sieht danach genauso selbstbewusst aus wie eine richtige. Profile
   nur mit belegten Werten ergänzen.
+- **Besser als nachgelieferte Presets: eigene Referenzprofile anlegen dürfen.** Wer
+  das Auto fährt, kennt Leergewicht, Reifengröße und Übersetzung — und kann sie
+  belegen. Ein benanntes, wiederverwendbares Profil („E92 335i, Sommerreifen"), das
+  wie ein mitgeliefertes Preset auswählbar ist, löst das Abdeckungsproblem dauerhaft
+  statt es Modell für Modell nachzuziehen.
+  - **Ansatz:** dieselbe Ablage wie § 7.5 — ein Profil ist ein Datensatz, kein
+    Konstanten-Eintrag im Code. Die mitgelieferten Presets werden damit nur noch
+    Startwerte.
+  - **Teilen wäre denkbar** (Profil exportieren/importieren wie beim Zähler-Export),
+    braucht aber eine Herkunftsangabe: ein fremdes Profil ist eine Schätzung eines
+    Fremden, und der Prüfstand darf nicht so tun, als sei sie gemessen.
 
 ### 7.7 Marke überarbeiten und in den Header holen
 
@@ -406,10 +417,33 @@ schlechteste der drei Möglichkeiten.
 | Seitenübergänge (View Transitions API) | mittel | **Später.** In Next 16 mit App Router noch nicht rund, und ein halb funktionierender Übergang ist schlechter als keiner. |
 | Skeleton-Shimmer | klein | **Nein.** Bewusste Designentscheidung: eine Kachel ohne Messwert soll wie ein unbestromtes Segment aussehen, nicht wie eine laufende Animation. |
 
-### 8.4 Kosten
+### 8.4 Entschieden: über eine Animations-Utility-Bibliothek
 
-Keine neue Laufzeit-Abhängigkeit nötig. `tailwindcss-animate` wäre reines CSS
-(~2 KB gz) und nur, wenn man sich die Keyframes nicht selbst schreiben will.
+Richtung steht — fließende Animationen sollen sauber eingebettet werden, nicht als
+handgeschriebene Keyframes verstreut.
+
+**Eine Einschränkung, die vorher geklärt gehört:** `tailwindcss-animate` ist ein
+Plugin für Tailwind **v3**. Dieses Projekt läuft auf **v4**, das die Plugin-API
+abgelöst hat. Der gepflegte Nachfolger mit denselben Utilities (`animate-in`,
+`fade-in`, `slide-in-from-*`, `zoom-in-*`, `duration-*`) ist **`tw-animate-css`**
+— reines CSS, wird per `@import` eingebunden, kein Plugin. Das ist auch der Weg,
+den die shadcn-Dokumentation für v4 nimmt.
+
+Damit sind die drei toten Klassen in `Toast.tsx` (§ 8.2) mit demselben Handgriff
+erledigt: sie stammen genau aus dieser Utility-Familie und funktionieren, sobald
+sie tatsächlich vorhanden ist.
+
+**Reihenfolge, wenn es so weit ist:**
+1. `tw-animate-css` aufnehmen und in `globals.css` importieren.
+2. `Toast.tsx` verifizieren — die Klassen stehen schon da.
+3. Radix-Overlays über `data-[state=open]` / `data-[state=closed]` animieren.
+4. Menü-Ebenenwechsel als horizontale Bewegung.
+5. Alles gegen `prefers-reduced-motion` prüfen — der globale Block greift
+   automatisch, aber die E2E-CLS-Tests sollten den Vorher/Nachher-Wert bestätigen.
+
+### 8.5 Kosten
+
+Keine neue Laufzeit-Abhängigkeit nötig. `tw-animate-css` ist reines CSS (~2 KB gz nach Purge) und braucht keine Laufzeit.
 `framer-motion` (~35 KB gz) ist für das Obige **nicht** nötig und würde ich hier
 nicht aufnehmen — es lohnt erst bei Layout-Animationen mit geteilten Elementen,
 die es hier nicht gibt.

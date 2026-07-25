@@ -204,7 +204,7 @@ test.describe("Mobile: touch targets ≥ 44px", () => {
   test("menu rows and launcher tiles meet the minimum", async ({ page }) => {
     await page.goto("/apps/zaehlwerk");
     await page.getByRole("button", { name: "Navigation öffnen" }).click();
-    await page.getByRole("menu").getByRole("menuitem", { name: "Zählwerk", exact: true }).click();
+    // Already on Zählwerk's level — the menu opens on the app you are in.
     await expectTapTarget(
       page.getByRole("menu").getByRole("menuitem", { name: "Berichte" }),
       "menu: Berichte",
