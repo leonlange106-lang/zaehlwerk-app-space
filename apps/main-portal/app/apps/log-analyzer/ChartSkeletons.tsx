@@ -1,6 +1,6 @@
 "use client";
 
-import { Card, Group, Skeleton, Stack } from "@mantine/core";
+import { Skeleton } from "@/app/components/ui/Skeleton";
 import classes from "./LogAnalyzer.module.css";
 
 // Placeholders shown while a lazily-loaded chart chunk is still downloading.
@@ -19,17 +19,17 @@ import classes from "./LogAnalyzer.module.css";
 /** One chart panel: the header row plus the fixed-height plot area. */
 function ChartPanelSkeleton({ boxClass }: { boxClass: string }) {
   return (
-    <Card withBorder radius="md" p="sm">
-      <Group justify="space-between" mb={6} px={6}>
-        <Skeleton height={14} width={120} radius="sm" />
-        <Skeleton height={12} width={160} radius="sm" />
-      </Group>
+    <div className="panel p-3">
+      <div className="mb-1.5 flex items-center justify-between px-1.5">
+        <Skeleton height={14} width={120} />
+        <Skeleton height={12} width={160} />
+      </div>
       <div className={classes.chartClip}>
         <div className={boxClass}>
-          <Skeleton height="100%" radius="sm" />
+          <Skeleton className="h-full w-full" />
         </div>
       </div>
-    </Card>
+    </div>
   );
 }
 
@@ -40,11 +40,11 @@ function ChartPanelSkeleton({ boxClass }: { boxClass: string }) {
  */
 export function ChartStackSkeleton({ count }: { count: number }) {
   return (
-    <Stack gap="md">
+    <div className="flex flex-col gap-4">
       {Array.from({ length: Math.max(1, count) }, (_, i) => (
         <ChartPanelSkeleton key={i} boxClass={classes.chartBox} />
       ))}
-    </Stack>
+    </div>
   );
 }
 
@@ -53,7 +53,7 @@ export function OverlayChartSkeleton() {
   return (
     <div className={classes.chartClip}>
       <div className={classes.chartBox}>
-        <Skeleton height="100%" radius="sm" />
+        <Skeleton className="h-full w-full" />
       </div>
     </div>
   );
@@ -64,7 +64,7 @@ export function DynoChartSkeleton() {
   return (
     <div className={classes.chartClip}>
       <div className={classes.dynoBox}>
-        <Skeleton height="100%" radius="sm" />
+        <Skeleton className="h-full w-full" />
       </div>
     </div>
   );

@@ -1,5 +1,8 @@
+"use client";
+
 import type { ComponentProps, ReactNode } from "react";
-import { useId } from "react";
+import { useId, useState } from "react";
+import { IconEye, IconEyeOff } from "@tabler/icons-react";
 import { cn } from "@/app/lib/cn";
 
 // Form controls in the design language: a recessed well on the glass plate.
@@ -58,6 +61,37 @@ export function Field({
 
 export function TextInput({ className, ...rest }: ComponentProps<"input">) {
   return <input {...rest} className={cn(controlBase, className)} />;
+}
+
+/** Numeric entry. `inputMode` matters on phones — it summons the number pad. */
+export function NumberInput({ className, ...rest }: ComponentProps<"input">) {
+  return <input {...rest} type="number" inputMode="decimal" className={cn(controlBase, className)} />;
+}
+
+/**
+ * Password with a reveal toggle. The toggle is a real button inside the field —
+ * typing a long generated password blind is a common reason people give up on a
+ * password manager and pick something weak instead.
+ */
+export function PasswordInput({ className, ...rest }: Omit<ComponentProps<"input">, "type">) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <div className="relative">
+      <input
+        {...rest}
+        type={visible ? "text" : "password"}
+        className={cn(controlBase, "pr-11", className)}
+      />
+      <button
+        type="button"
+        onClick={() => setVisible((current) => !current)}
+        aria-label={visible ? "Passwort verbergen" : "Passwort anzeigen"}
+        className="absolute right-1 top-1/2 grid size-9 -translate-y-1/2 place-items-center rounded-full text-dim transition-colors hover:bg-canvas hover:text-ink"
+      >
+        {visible ? <IconEyeOff size={16} stroke={1.8} /> : <IconEye size={16} stroke={1.8} />}
+      </button>
+    </div>
+  );
 }
 
 export function Select({ className, children, ...rest }: ComponentProps<"select">) {

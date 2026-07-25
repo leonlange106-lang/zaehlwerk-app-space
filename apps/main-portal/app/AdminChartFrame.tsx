@@ -1,6 +1,6 @@
 "use client";
 
-import { Card, Skeleton, Text } from "@mantine/core";
+import { Skeleton } from "./components/ui/Skeleton";
 
 // Recharts-free frame + placeholder for the admin metric plots.
 //
@@ -26,12 +26,10 @@ export interface MetricPoint {
 /** Card chrome shared by the chart and its placeholder, so only the plot swaps. */
 export function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <Card withBorder radius="md" p="sm">
-      <Text size="sm" fw={600} mb={6} px={4}>
-        {title}
-      </Text>
+    <div className="panel p-3">
+      <p className="mb-1.5 px-1 text-[13px] font-semibold">{title}</p>
       <div style={{ width: "100%", height: PLOT_HEIGHT }}>{children}</div>
-    </Card>
+    </div>
   );
 }
 
@@ -39,7 +37,7 @@ export function ChartCard({ title, children }: { title: string; children: React.
 export function MetricChartSkeleton({ title }: { title: string }) {
   return (
     <ChartCard title={title}>
-      <Skeleton height="100%" radius="sm" />
+      <Skeleton className="h-full w-full" />
     </ChartCard>
   );
 }

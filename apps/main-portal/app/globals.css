@@ -146,6 +146,13 @@
 
   --zw-radius-panel: 16px;
   --zw-radius-control: 10px;
+
+  /* Chart series identities. Fixed, not the app accent: a trace means "Log A"
+     regardless of which app you happen to be in, and the pair has to stay
+     distinguishable under both common red-green deficiencies (the dash pattern
+     carries the distinction where hue cannot). */
+  --zw-series-primary: #ea580c;
+  --zw-series-secondary: #0e7490;
 }
 
 [data-theme="dark"],
@@ -177,6 +184,9 @@
 
   --zw-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
   --zw-shadow-lg: 0 24px 60px rgba(0, 0, 0, 0.6);
+
+  --zw-series-primary: #fb923c;
+  --zw-series-secondary: #22d3ee;
 }
 
 /* Zählwerk reads as energy: electric cyan into blue. */

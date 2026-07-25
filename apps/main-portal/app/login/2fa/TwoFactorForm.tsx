@@ -3,19 +3,11 @@
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { signIn } from "next-auth/react";
-import {
-  Alert,
-  Button,
-  Card,
-  Center,
-  PinInput,
-  Stack,
-  Text,
-  ThemeIcon,
-  Title,
-} from "@mantine/core";
 import { IconAlertCircle, IconShieldLock } from "@tabler/icons-react";
-import classes from "../LoginForm.module.css";
+import { AuthShell } from "@/app/components/ui/AuthShell";
+import { Button } from "@/app/components/ui/Button";
+import { PinInput } from "@/app/components/ui/PinInput";
+import { Alert } from "@/app/components/ui/primitives";
 
 export function TwoFactorForm() {
   const router = useRouter();
@@ -46,52 +38,45 @@ export function TwoFactorForm() {
   }
 
   return (
-    <Center className={classes.screen}>
-      <Card withBorder radius="md" p="xl" className={classes.card}>
-        <Stack gap="sm" align="center" mb="md">
-          <ThemeIcon size={44} radius="md" variant="light" color="slate">
-            <IconShieldLock size={24} stroke={1.6} />
-          </ThemeIcon>
-          <div style={{ textAlign: "center" }}>
-            <Title order={3}>Zwei-Faktor-Bestätigung</Title>
-            <Text c="dimmed" size="sm">
-              Gib den 6-stelligen Code aus deiner Authenticator-App ein.
-            </Text>
-          </div>
-        </Stack>
+    <AuthShell
+      icon={<IconShieldLock size={24} stroke={1.7} />}
+      title="Zwei-Faktor-Bestätigung"
+      description="Gib den 6-stelligen Code aus deiner Authenticator-App ein."
+      footer={
+        <button
+          type="button"
+          onClick={() => router.push("/login")}
+          className="text-xs text-dim underline-offset-2 hover:underline"
+        >
+          Zurück zur Anmeldung
+        </button>
+      }
+    >
+      <div className="flex flex-col gap-4">
+        <PinInput
+          length={6}
+          value={code}
+          onChange={setCode}
+          onComplete={submit}
+          disabled={pending}
+          label="6-stelliger Code"
+        />
 
-        <Stack gap="md" align="center">
-          <PinInput
-            length={6}
-            type="number"
-            oneTimeCode
-            value={code}
-            onChange={setCode}
-            onComplete={submit}
-            disabled={pending}
-            aria-label="6-stelliger Code"
-          />
+        {error && (
+          <Alert tone="risk" role="alert" icon={<IconAlertCircle size={16} />}>
+            {error}
+          </Alert>
+        )}
 
-          {error && (
-            <Alert color="red" icon={<IconAlertCircle size={16} />} variant="light" w="100%">
-              {error}
-            </Alert>
-          )}
-
-          <Button
-            color="slate"
-            fullWidth
-            loading={pending}
-            disabled={code.length !== 6}
-            onClick={() => submit(code)}
-          >
-            Bestätigen
-          </Button>
-          <Button variant="subtle" color="slate" size="xs" onClick={() => router.push("/login")}>
-            Zurück zur Anmeldung
-          </Button>
-        </Stack>
-      </Card>
-    </Center>
+        <Button
+          variant="primary"
+          full
+          disabled={code.length !== 6 || pending}
+          onClick={() => submit(code)}
+        >
+          {pending ? "Wird geprüft…" : "Bestätigen"}
+        </Button>
+      </div>
+    </AuthShell>
   );
 }

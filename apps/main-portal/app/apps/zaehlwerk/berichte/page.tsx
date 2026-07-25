@@ -1,17 +1,6 @@
-import {
-  Badge,
-  Card,
-  Group,
-  Stack,
-  Table,
-  TableTbody,
-  TableTd,
-  TableTh,
-  TableThead,
-  TableTr,
-  Text,
-  Title,
-} from "@mantine/core";
+import { Badge } from "@/app/components/ui/Badge";
+import { Panel } from "@/app/components/ui/Panel";
+import { PageHeader, Table, TableScroll, Td, Th } from "@/app/components/ui/primitives";
 import { IconAlertTriangle, IconChartLine } from "@tabler/icons-react";
 import { ENERGY_CATEGORY_LABELS } from "@zaehlwerk/database/shared";
 import { getConsumptionSummary, getProjectionSummary } from "@/app/lib/zaehler-actions";
@@ -32,96 +21,80 @@ export default async function BerichtePage() {
   const meters = summary.map((entry) => ({ id: entry.zaehlerId, name: entry.name }));
 
   return (
-    <Stack gap="lg">
-      <div>
-        <Title order={2}>Berichte</Title>
-        <Text c="dimmed" size="sm">
-          Verbrauchsübersicht, flexible Exporte und Jahres-Hochrechnung je Zähler.
-        </Text>
-      </div>
+    <div className="flex flex-col gap-6">
+      <PageHeader
+        title="Berichte"
+        description="Verbrauchsübersicht, flexible Exporte und Jahres-Hochrechnung je Zähler."
+      />
 
       <ExportPanel meters={meters} />
 
-      <Card withBorder radius="md" p="lg">
-        <Group gap="xs" mb="sm">
-          <IconChartLine size={18} stroke={1.6} />
-          <Title order={4}>Verbrauchs-Hochrechnung</Title>
-        </Group>
-        <Text size="sm" c="dimmed" mb="md">
-          Prognose des Jahresverbrauchs auf Basis der bisherigen Ablesungen — saisonal gewichtet bei
-          Gas/PV, linear bei Strom/Wasser — mit Vergleich zum Vorjahr.
-        </Text>
+      <Panel
+        title="Verbrauchs-Hochrechnung"
+        description="Prognose des Jahresverbrauchs auf Basis der bisherigen Ablesungen — saisonal gewichtet bei Gas/PV, linear bei Strom/Wasser — mit Vergleich zum Vorjahr."
+        icon={<IconChartLine size={17} stroke={1.7} />}
+      >
         <ProjectionOverview entries={projections} />
-      </Card>
+      </Panel>
 
-      <Card withBorder radius="md" p="lg">
-        <Title order={4} mb="sm">
-          Verbrauchsübersicht
-        </Title>
+      <Panel title="Verbrauchsübersicht" bare>
         {summary.length === 0 ? (
-          <Text size="sm" c="dimmed">
-            Noch keine Zähler angelegt.
-          </Text>
+          <p className="px-5 pb-5 text-sm text-dim">Noch keine Zähler angelegt.</p>
         ) : (
-          <Table verticalSpacing="sm" fz="sm">
-            <TableThead>
-              <TableTr>
-                <TableTh>Zähler</TableTh>
-                <TableTh>Kategorie</TableTh>
-                <TableTh>Ablesungen</TableTh>
-                <TableTh>Verbrauch gesamt</TableTh>
-                <TableTh>Ø / Tag</TableTh>
-              </TableTr>
-            </TableThead>
-            <TableTbody>
-              {summary.map((entry) => (
-                <TableTr key={entry.zaehlerId}>
-                  <TableTd>
-                    <Group gap="xs" wrap="nowrap">
-                      <span
-                        style={{
-                          display: "inline-block",
-                          width: 10,
-                          height: 10,
-                          borderRadius: "50%",
-                          background: entry.farbe,
-                          flexShrink: 0,
-                        }}
-                      />
-                      <Text size="sm">{entry.name}</Text>
-                    </Group>
-                  </TableTd>
-                  <TableTd>
-                    <Badge variant="light" color="slate" size="sm">
-                      {ENERGY_CATEGORY_LABELS[entry.kategorie]}
-                    </Badge>
-                  </TableTd>
-                  <TableTd>{entry.readingCount}</TableTd>
-                  <TableTd>
-                    <Group gap={6} wrap="nowrap">
-                      <Text size="sm">
-                        {numberFormatter.format(entry.totalConsumption)} {entry.einheit}
-                      </Text>
-                      {entry.hasImplausibleData && (
-                        <IconAlertTriangle
-                          size={14}
-                          color="var(--mantine-color-orange-6)"
-                          aria-label="Enthält unplausible Intervalle"
+          <TableScroll className="pb-1">
+            <Table>
+              <thead>
+                <tr>
+                  <Th className="pl-5">Zähler</Th>
+                  <Th>Kategorie</Th>
+                  <Th>Ablesungen</Th>
+                  <Th>Verbrauch gesamt</Th>
+                  <Th className="pr-5">Ø / Tag</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {summary.map((entry) => (
+                  <tr key={entry.zaehlerId} className="last:[&>td]:border-0">
+                    <Td className="pl-5">
+                      <span className="flex items-center gap-2.5">
+                        <span
+                          aria-hidden
+                          className="size-2.5 flex-none rounded-full"
+                          style={{ background: entry.farbe }}
                         />
-                      )}
-                    </Group>
-                  </TableTd>
-                  <TableTd>
-                    {entry.avgPerDay !== null
-                      ? `${perDayFormatter.format(entry.avgPerDay)} ${entry.einheit}`
-                      : "–"}
-                  </TableTd>
-                </TableTr>
-              ))}
-            </TableTbody>
-          </Table>
+                        <span className="truncate">{entry.name}</span>
+                      </span>
+                    </Td>
+                    <Td>
+                      <Badge>{ENERGY_CATEGORY_LABELS[entry.kategorie]}</Badge>
+                    </Td>
+                    <Td className="readout">{entry.readingCount}</Td>
+                    <Td>
+                      <span className="flex items-center gap-1.5 whitespace-nowrap">
+                        <span className="readout">
+                          {numberFormatter.format(entry.totalConsumption)} {entry.einheit}
+                        </span>
+                        {entry.hasImplausibleData && (
+                          <IconAlertTriangle
+                            size={14}
+                            className="text-watch"
+                            aria-label="Enthält unplausible Intervalle"
+                          />
+                        )}
+                      </span>
+                    </Td>
+                    <Td className="readout pr-5 whitespace-nowrap">
+                      {entry.avgPerDay !== null
+                        ? `${perDayFormatter.format(entry.avgPerDay)} ${entry.einheit}`
+                        : "–"}
+                    </Td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+          </TableScroll>
         )}
-      </Card>
-    </Stack>
+      </Panel>
+    </div>
   );
 }
