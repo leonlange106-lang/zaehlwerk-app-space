@@ -43,7 +43,7 @@ import {
   gasM3ToKwh,
   pickTariffForDate,
   type ConsumptionProjection,
-} from "@zaehlwerk/database/shared";
+} from "@zaehlwerk/database/client";
 import type { getZaehlerById, listLocations } from "@/app/lib/zaehler-actions";
 import {
   createAblesungAction,

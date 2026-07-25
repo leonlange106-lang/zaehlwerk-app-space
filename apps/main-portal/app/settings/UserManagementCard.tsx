@@ -41,8 +41,8 @@ import {
   IconUserPlus,
   IconUsersGroup,
 } from "@tabler/icons-react";
-import { USER_ROLE_LABELS, USER_ROLES } from "@zaehlwerk/database/shared";
-import type { UserRole } from "@zaehlwerk/database/shared";
+import { USER_ROLE_LABELS, USER_ROLES } from "@zaehlwerk/database/client";
+import type { UserRole } from "@zaehlwerk/database/client";
 import type { AppUser } from "@/app/lib/user-actions";
 import {
   changeRole,

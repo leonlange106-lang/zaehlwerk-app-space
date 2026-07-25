@@ -45,8 +45,8 @@ import {
   IconSun,
   IconWorldDownload,
 } from "@tabler/icons-react";
-import { USER_ROLE_LABELS } from "@zaehlwerk/database/shared";
-import type { UserRole } from "@zaehlwerk/database/shared";
+import { USER_ROLE_LABELS } from "@zaehlwerk/database/client";
+import type { UserRole } from "@zaehlwerk/database/client";
 import { APPS, activeAppFor } from "./lib/apps";
 import classes from "./PortalShell.module.css";
 

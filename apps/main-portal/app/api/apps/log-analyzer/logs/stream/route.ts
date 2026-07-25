@@ -1,4 +1,4 @@
-import { getSessionUser } from "@/app/lib/auth-helpers";
+import { denyUnlessAppAccess } from "@/app/lib/api-guards";
 import { subscribeLogEvents, type LogIngestedEvent } from "@/app/lib/log-events";
 
 export const runtime = "nodejs";
@@ -13,8 +13,10 @@ export const dynamic = "force-dynamic";
 const HEARTBEAT_MS = 15_000;
 
 export async function GET(request: Request) {
-  const user = await getSessionUser();
-  if (!user) return new Response("Unauthorized", { status: 401 });
+  // Ingestion events name the imported file and its verdict, so this needs the
+  // same app gate as the log API — not merely "is signed in".
+  const denied = await denyUnlessAppAccess("log-analyzer");
+  if (denied) return denied;
 
   const encoder = new TextEncoder();
 

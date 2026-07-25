@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { NextResponse } from "next/server";
+import { denyUnlessAdmin } from "@/app/lib/api-guards";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,6 +15,9 @@ const LOG_FILE = process.env.UPDATE_LOG_FILE ?? "/data/update.log";
 const MAX_BYTES = 200_000;
 
 export async function GET() {
+  const denied = await denyUnlessAdmin();
+  if (denied) return denied;
+
   try {
     const raw = await readFile(LOG_FILE, "utf8");
     const text = raw.length > MAX_BYTES ? raw.slice(raw.length - MAX_BYTES) : raw;

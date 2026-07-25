@@ -2,12 +2,18 @@
 
 import { revalidatePath } from "next/cache";
 import { Prisma, locationCreateSchema, locationUpdateSchema, prisma } from "@zaehlwerk/database";
+import { assertAppAccess } from "./app-access";
 import type { ActionState } from "./action-state";
+
+// Locations belong to Zählwerk — see the note in zaehler-actions.ts on why a
+// `"use server"` export has to authorize itself rather than rely on the layout.
+const APP_ID = "zaehlwerk";
 
 export async function createLocationAction(
   _prevState: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
+  await assertAppAccess(APP_ID);
   const addressRaw = formData.get("address");
 
   const parsed = locationCreateSchema.safeParse({
@@ -35,6 +41,7 @@ export async function updateLocationAction(
   _prevState: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
+  await assertAppAccess(APP_ID);
   const addressRaw = formData.get("address");
 
   const parsed = locationUpdateSchema.safeParse({
@@ -75,6 +82,7 @@ export async function deleteLocationAction(
   _prevState: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
+  await assertAppAccess(APP_ID);
   const id = formData.get("id");
   if (typeof id !== "string" || id.length === 0) {
     return { success: false, error: "Ungültige Eingabe." };

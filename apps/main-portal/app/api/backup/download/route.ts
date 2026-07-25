@@ -5,7 +5,16 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
-  if (!(await authenticateApiRequest(request))) return unauthorizedResponse();
+  // A full-instance dump of every location, meter, reading and tariff — the
+  // read counterpart to restoreBackup, and admin-only for the same reason.
+  const user = await authenticateApiRequest(request);
+  if (!user) return unauthorizedResponse();
+  if (user.role !== "ADMIN") {
+    return Response.json(
+      { error: "Diese Aktion ist Administratoren vorbehalten." },
+      { status: 403 },
+    );
+  }
 
   const backup = await buildFullBackup();
 

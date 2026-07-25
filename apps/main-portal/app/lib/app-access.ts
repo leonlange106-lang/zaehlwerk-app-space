@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { redirect } from "next/navigation";
 import { prisma } from "@zaehlwerk/database";
 import { APPS } from "./apps";
@@ -27,17 +28,23 @@ export function serializeAllowedApps(ids: string[]): string {
   return JSON.stringify(clean);
 }
 
+// Per-request memo: a page renders several Server Components and actions that
+// each need the assignment, and without this every one of them re-reads the row.
+const cachedAllowedAppIds = cache(async (userId: string): Promise<string[]> => {
+  const row = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { allowedApps: true },
+  });
+  return parseAllowedApps(row?.allowedApps);
+});
+
 /** App ids a given user may see/use. Admins get all; others only what's assigned. */
 export async function allowedAppIdsFor(
   user: Pick<SessionUser, "id" | "role"> | null | undefined,
 ): Promise<string[]> {
   if (!user) return [];
   if (user.role === "ADMIN") return [...ALL_APP_IDS];
-  const row = await prisma.user.findUnique({
-    where: { id: user.id },
-    select: { allowedApps: true },
-  });
-  return parseAllowedApps(row?.allowedApps);
+  return cachedAllowedAppIds(user.id);
 }
 
 /** App ids the current session may see/use. */
@@ -52,4 +59,21 @@ export async function getAllowedAppIds(): Promise<string[]> {
 export async function requireAppAccess(appId: string): Promise<void> {
   const allowed = await getAllowedAppIds();
   if (!allowed.includes(appId)) redirect("/");
+}
+
+/**
+ * Authorization guard for Server Actions — throws instead of redirecting.
+ *
+ * `requireAppAccess()` above is NOT sufficient for actions: a `"use server"`
+ * export is a directly addressable endpoint, it can be POSTed to any route, and
+ * Next runs the action BEFORE rendering the layout that would have redirected.
+ * So every action touching an app's data has to authorize itself, exactly like
+ * `requireAdmin()` does for the admin-only ones.
+ */
+export async function assertAppAccess(appId: string): Promise<SessionUser> {
+  const user = await getSessionUser();
+  if (!user) throw new Error("Nicht autorisiert.");
+  const allowed = await allowedAppIdsFor(user);
+  if (!allowed.includes(appId)) throw new Error("Nicht autorisiert.");
+  return user;
 }

@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { type NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { denyUnlessAdmin, sessionUserForAudit } from "@/app/lib/api-guards";
 import { AUDIT_ACTIONS, recordAuditEvent } from "../../../lib/audit";
 
 export const dynamic = "force-dynamic";
@@ -26,7 +26,10 @@ function tokensMatch(provided: string, expected: string): boolean {
  * Lets the UI know whether the token field is needed, so it doesn't ask for a
  * secret that isn't configured on the server.
  */
-export function GET() {
+export async function GET() {
+  const denied = await denyUnlessAdmin();
+  if (denied) return denied;
+
   return NextResponse.json(
     { tokenRequired: tokenRequired() },
     { headers: { "Cache-Control": "no-store" } },
@@ -38,12 +41,16 @@ export function GET() {
  * immediately. The script builds the new image, migrates the DB, then hands the
  * actual restart to a separate deployer container (see scripts/update.sh).
  *
- * Optionally protected by a shared-secret header. This app has no user/session
- * system, so on an untrusted network you MUST keep the whole app behind a
- * network boundary (VPN/reverse-proxy allowlist) regardless of the token — see
- * DEPLOYMENT.md.
+ * Restricted to signed-in ADMINs. `UPDATE_TRIGGER_TOKEN`, when configured, is an
+ * ADDITIONAL shared-secret header on top of that — it is not a substitute, which
+ * is what it used to be back when this app had no user/session system: with the
+ * token unset (the default) every signed-in user could rebuild and restart the
+ * container. See DEPLOYMENT.md.
  */
 export async function POST(request: NextRequest) {
+  const denied = await denyUnlessAdmin();
+  if (denied) return denied;
+
   const expectedToken = process.env.UPDATE_TRIGGER_TOKEN;
   if (expectedToken) {
     const providedToken = request.headers.get("x-update-token") ?? "";
@@ -75,8 +82,8 @@ export async function POST(request: NextRequest) {
 
   // Best-effort audit trail — never block the update on the session lookup or log.
   try {
-    const session = await auth();
-    await recordAuditEvent(AUDIT_ACTIONS.systemUpdate, session?.user?.email ?? "system", "Update ausgelöst");
+    const user = await sessionUserForAudit();
+    await recordAuditEvent(AUDIT_ACTIONS.systemUpdate, user?.email ?? "system", "Update ausgelöst");
   } catch (error) {
     console.error("[update/trigger] audit", error);
   }

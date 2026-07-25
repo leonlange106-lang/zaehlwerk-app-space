@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { checkForUpdates } from "@zaehlwerk/updater";
 import { getRepoRoot, getRunningBuildSha } from "../../../lib/version";
+import { denyUnlessAdmin } from "@/app/lib/api-guards";
 
 export const dynamic = "force-dynamic";
 
@@ -8,6 +9,9 @@ const REPO_OWNER = "leonlange106-lang";
 const REPO_NAME = "zaehlwerk-app-space";
 
 export async function GET() {
+  const denied = await denyUnlessAdmin();
+  if (denied) return denied;
+
   try {
     const result = await checkForUpdates({
       owner: REPO_OWNER,

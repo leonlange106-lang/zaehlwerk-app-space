@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { createLogs, listLogs, type LogUploadInput } from "@/app/lib/log-repository";
 import { recordAuditEvent } from "@/app/lib/audit";
-import { auth } from "@/auth";
+import { denyUnlessAppAccess, sessionUserForAudit } from "@/app/lib/api-guards";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,14 +10,24 @@ export const dynamic = "force-dynamic";
 // (bulk upload) as { files: [{ name, csv, source?, sourceUrl? }] }.
 
 export async function GET() {
+  const denied = await denyUnlessAppAccess(APP_ID);
+  if (denied) return denied;
+
   const logs = await listLogs();
   return NextResponse.json({ logs }, { headers: { "Cache-Control": "no-store" } });
 }
+
+// Stored datalogs carry VINs and vehicle data — readable only by users who were
+// actually granted the Log Analyzer, not by everyone with a session.
+const APP_ID = "log-analyzer";
 
 const MAX_FILES = 50;
 const MAX_CSV_BYTES = 8_000_000; // 8 MB per file — generous for a long datalog
 
 export async function POST(request: NextRequest) {
+  const denied = await denyUnlessAppAccess(APP_ID);
+  if (denied) return denied;
+
   let body: unknown;
   try {
     body = await request.json();
@@ -55,10 +65,10 @@ export async function POST(request: NextRequest) {
   const logs = await createLogs(inputs);
 
   try {
-    const session = await auth();
+    const user = await sessionUserForAudit();
     await recordAuditEvent(
       "loganalyzer.upload",
-      session?.user?.email ?? "system",
+      user?.email ?? "system",
       `${logs.length} Log(s) hochgeladen`,
     );
   } catch {

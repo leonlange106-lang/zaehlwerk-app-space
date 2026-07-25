@@ -6,7 +6,8 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
-    "./shared": "./dist/shared.js"
+    "./shared": "./dist/shared.js",
+    "./client": "./dist/client.js"
   },
   "scripts": {
     "build": "prisma generate && tsc -p tsconfig.build.json",

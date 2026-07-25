@@ -2,6 +2,7 @@ import React from "react";
 import { type NextRequest, NextResponse } from "next/server";
 import { renderToBuffer } from "@react-pdf/renderer";
 import { getLog } from "@/app/lib/log-repository";
+import { denyUnlessAppAccess } from "@/app/lib/api-guards";
 import { sha256Hex } from "@/app/lib/crypto";
 import { parseLog } from "@/app/apps/log-analyzer/lib/log-parser";
 import { evaluateLogPull, healthFromAlerts } from "@/app/apps/log-analyzer/lib/evaluate-log-pull";
@@ -40,6 +41,9 @@ import { LogAnalyzerReport } from "@/src/components/pdf/LogAnalyzerReport";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+/** Reports expose the full stored log (incl. VIN) — same gate as the log API. */
+const APP_ID = "log-analyzer";
 
 /** Generous cap for an ad-hoc CSV posted straight from the dyno page. */
 const MAX_CSV_BYTES = 8_000_000;
@@ -175,6 +179,9 @@ async function resolveSource(body: Record<string, unknown>): Promise<ResolvedSou
 }
 
 export async function POST(request: NextRequest) {
+  const denied = await denyUnlessAppAccess(APP_ID);
+  if (denied) return denied;
+
   let parsed: unknown;
   try {
     parsed = await request.json();

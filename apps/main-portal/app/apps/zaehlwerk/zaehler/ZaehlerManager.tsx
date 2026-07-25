@@ -27,7 +27,7 @@ import {
   ENERGY_CATEGORY_LABELS,
   calculateConsumption,
   sumConsumption,
-} from "@zaehlwerk/database/shared";
+} from "@zaehlwerk/database/client";
 import type { listLocations, listZaehler } from "@/app/lib/zaehler-actions";
 import { createAblesungAction, createZaehlerAction } from "@/app/lib/zaehler-actions";
 import { initialActionState } from "@/app/lib/action-state";

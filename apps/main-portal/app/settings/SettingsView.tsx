@@ -98,7 +98,7 @@ export function SettingsView({
       {currentUser && <ApiTokenCard tokens={apiTokens} />}
       {isAdmin && <IngestionKeyCard keys={ingestionKeys} />}
       {isAdmin && currentUser && <UserManagementCard users={users} currentUserId={currentUser.id} />}
-      <SystemBackupCard />
+      {isAdmin && <SystemBackupCard />}
       {isAdmin && governance && (
         <>
           <BackupPolicyCard policy={governance.policy} snapshots={governance.snapshots} />

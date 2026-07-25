@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { Suspense, lazy, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Alert,
   Button,
@@ -12,6 +12,7 @@ import {
   ThemeIcon,
   Title,
 } from "@mantine/core";
+import { MetricChartSkeleton, type MetricPoint } from "./AdminChartFrame";
 import {
   IconCpu,
   IconDatabase,
@@ -19,15 +20,6 @@ import {
   IconServerBolt,
   IconTrash,
 } from "@tabler/icons-react";
-import {
-  Area,
-  AreaChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 
 // Admin-only ops panel on the App Space landing page: live host/container
 // metrics (CPU, memory, disk) with rolling graphs, plus a manual cache-clear.
@@ -43,12 +35,12 @@ interface Metrics {
   host: { uptimeS: number; platform: string; arch: string; nodeVersion: string; hostname: string };
 }
 
-interface Point {
-  t: number;
-  label: string;
-  cpu: number;
-  mem: number;
-}
+// Recharts (~103 KB gzip) lives behind this boundary — see AdminMetricsChart.
+const MetricChart = lazy(() =>
+  import("./AdminMetricsChart").then((m) => ({ default: m.MetricChart })),
+);
+
+type Point = MetricPoint;
 
 const POLL_MS = 2000;
 const MAX_POINTS = 40;
@@ -203,8 +195,12 @@ export function AdminPanel() {
       </SimpleGrid>
 
       <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
-        <MetricChart title="CPU-Auslastung (%)" data={history} dataKey="cpu" color={CPU_COLOR} />
-        <MetricChart title="Speicher-Auslastung (%)" data={history} dataKey="mem" color={MEM_COLOR} />
+        <Suspense fallback={<MetricChartSkeleton title="CPU-Auslastung (%)" />}>
+          <MetricChart title="CPU-Auslastung (%)" data={history} dataKey="cpu" color={CPU_COLOR} />
+        </Suspense>
+        <Suspense fallback={<MetricChartSkeleton title="Speicher-Auslastung (%)" />}>
+          <MetricChart title="Speicher-Auslastung (%)" data={history} dataKey="mem" color={MEM_COLOR} />
+        </Suspense>
       </SimpleGrid>
     </Card>
   );
@@ -244,57 +240,6 @@ function Stat({
       {pct !== null && (
         <Progress value={pct} color={pct >= 90 ? "red" : pct >= 75 ? "orange" : "teal"} size="xs" mt={6} radius="sm" />
       )}
-    </Card>
-  );
-}
-
-function MetricChart({
-  title,
-  data,
-  dataKey,
-  color,
-}: {
-  title: string;
-  data: Point[];
-  dataKey: "cpu" | "mem";
-  color: string;
-}) {
-  const gradientId = `grad-${dataKey}`;
-  return (
-    <Card withBorder radius="md" p="sm">
-      <Text size="sm" fw={600} mb={6} px={4}>
-        {title}
-      </Text>
-      <div style={{ width: "100%", height: 180 }}>
-        <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={data} margin={{ top: 4, right: 8, bottom: 4, left: -12 }}>
-            <defs>
-              <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={color} stopOpacity={0.35} />
-                <stop offset="100%" stopColor={color} stopOpacity={0.02} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" opacity={0.2} vertical={false} />
-            <XAxis dataKey="label" tick={{ fontSize: 10 }} minTickGap={40} />
-            <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} width={34} unit="%" />
-            <Tooltip
-              isAnimationActive={false}
-              labelFormatter={(v) => `t = ${v}`}
-              formatter={(value) => [`${value}%`, title]}
-              contentStyle={{ fontSize: 12, borderRadius: 8 }}
-            />
-            <Area
-              type="monotone"
-              dataKey={dataKey}
-              stroke={color}
-              strokeWidth={2}
-              fill={`url(#${gradientId})`}
-              isAnimationActive={false}
-              dot={false}
-            />
-          </AreaChart>
-        </ResponsiveContainer>
-      </div>
     </Card>
   );
 }

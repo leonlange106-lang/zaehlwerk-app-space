@@ -15,11 +15,25 @@ import {
   Title,
 } from "@mantine/core";
 import { IconAlertCircle, IconCheck, IconFileImport } from "@tabler/icons-react";
-import { meterExportSchema } from "@zaehlwerk/database/shared";
 import type { listLocations } from "@/app/lib/zaehler-actions";
 import { importMeter, type LocationChoice } from "@/app/lib/backup-actions";
 
 type LocationList = Awaited<ReturnType<typeof listLocations>>;
+
+/**
+ * Shape check for the file-picker preview only — deliberately NOT the Zod
+ * schema. `importMeter` re-validates the same text with `meterExportSchema`
+ * server-side and is the authority on what imports; running Zod here as well
+ * bought nothing but pulled its whole runtime into the browser bundle.
+ */
+function previewOf(raw: unknown): { name: string; readings: number } | null {
+  const data = (raw as { data?: unknown })?.data as
+    | { zaehler?: { name?: unknown }; ablesungen?: unknown }
+    | undefined;
+  const name = data?.zaehler?.name;
+  if (typeof name !== "string" || !Array.isArray(data?.ablesungen)) return null;
+  return { name, readings: data.ablesungen.length };
+}
 
 export function MeterImportCard({ locations }: { locations: LocationList }) {
   const [preview, setPreview] = useState<{ name: string; readings: number; text: string } | null>(null);
@@ -32,13 +46,18 @@ export function MeterImportCard({ locations }: { locations: LocationList }) {
     setResult(null);
     if (!picked) return;
     const text = await picked.text();
+    let preview: { name: string; readings: number } | null = null;
     try {
-      const parsed = meterExportSchema.parse(JSON.parse(text));
-      setPreview({ name: parsed.data.zaehler.name, readings: parsed.data.ablesungen.length, text });
-      setLocValue("none");
+      preview = previewOf(JSON.parse(text));
     } catch {
-      setResult({ ok: false, message: "Keine gültige Zähler-Export-Datei." });
+      preview = null;
     }
+    if (!preview) {
+      setResult({ ok: false, message: "Keine gültige Zähler-Export-Datei." });
+      return;
+    }
+    setPreview({ ...preview, text });
+    setLocValue("none");
   }
 
   async function handleConfirm() {
