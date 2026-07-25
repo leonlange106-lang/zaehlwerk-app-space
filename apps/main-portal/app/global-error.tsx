@@ -3,7 +3,8 @@
 // Last-resort boundary: catches errors thrown in the ROOT layout itself, where
 // the normal error.tsx (which renders inside the layout) can't help. It replaces
 // the whole document, so it must ship its own <html>/<body> and cannot rely on
-// the Mantine provider — hence plain inline styles and no design-system imports.
+// the theme provider or globals.css — hence plain inline styles and no
+// design-system imports.
 
 import { useEffect } from "react";
 

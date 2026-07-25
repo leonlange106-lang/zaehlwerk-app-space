@@ -15,7 +15,7 @@
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  font-family: var(--mantine-font-family-monospace);
+  font-family: var(--zw-font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
 }
 
 /* The commit body is quoted text, so it sits one elevation step above the card
@@ -23,7 +23,7 @@
 .body {
   margin-top: 8px;
   padding: 10px 12px;
-  border-radius: var(--mantine-radius-sm);
+  border-radius: var(--zw-radius-control);
   border: 1px solid var(--zw-border);
   background: var(--zw-elevated);
   white-space: pre-wrap;
@@ -31,19 +31,28 @@
 }
 
 .expandButton {
-  font-size: var(--mantine-font-size-xs);
-  color: var(--mantine-color-dimmed);
+  font-size: 0.75rem;
+  color: var(--zw-text-dim);
 }
 
 .expandButton:hover {
-  color: var(--mantine-color-text);
+  color: var(--zw-text);
 }
 
+/*
+ * The entry marker. It used to live inside a Timeline component that positioned
+ * it; the list now draws its own spine with a left border, so the bullet places
+ * itself on that line — half its width to the left of the padding edge.
+ */
 .bullet {
-  width: 8px;
-  height: 8px;
-  border-radius: 2px;
-  background: currentColor;
+  position: absolute;
+  left: -1.5rem;
+  top: 0.4rem;
+  transform: translateX(-50%);
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  outline: 3px solid var(--zw-canvas);
 }
 
 /* The commit you are running gets an accent halo — the one row in the timeline

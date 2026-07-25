@@ -2,27 +2,14 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import {
-  Alert,
-  Anchor,
-  Badge,
-  Button,
-  Card,
-  Code,
-  CopyButton,
-  Divider,
-  Group,
-  SegmentedControl,
-  Select,
-  SimpleGrid,
-  Text,
-  Title,
-} from "@mantine/core";
+import { Badge } from "@/app/components/ui/Badge";
+import { CopyButton } from "@/app/components/ui/CopyButton";
+import { Field, Select, SelectShell } from "@/app/components/ui/Field";
+import { Panel } from "@/app/components/ui/Panel";
+import { Alert, Code, CodeBlock, Divider, SegmentedControl } from "@/app/components/ui/primitives";
 import {
   IconApi,
   IconBulb,
-  IconCheck,
-  IconCopy,
   IconExternalLink,
   IconInfoCircle,
 } from "@tabler/icons-react";
@@ -87,112 +74,101 @@ export function SmartHomeCard({
   ];
 
   return (
-    <Card withBorder radius="md" p="lg">
-      <Group gap="xs" mb="sm">
-        <IconBulb size={18} stroke={1.6} />
-        <Title order={4}>Smart Home & Automatische Auslesung</Title>
-      </Group>
-      <Text size="sm" c="dimmed" mb="md">
-        Empfehlungen zur automatischen Erfassung dieses Zählers und fertige Snippets, um Zählerstände
-        per API an dieses Portal zu übertragen.
-      </Text>
-
-      <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
+    <Panel
+      title="Smart Home & Automatische Auslesung"
+      icon={<IconBulb size={17} stroke={1.7} />}
+      description="Empfehlungen zur automatischen Erfassung dieses Zählers und fertige Snippets, um Zählerstände per API an dieses Portal zu übertragen."
+    >
+      <div className="grid gap-4 sm:grid-cols-2">
         {tips.map((tip) => (
-          <div key={tip.title}>
-            <Text size="sm" fw={600}>
-              {tip.title}
-            </Text>
-            <Text size="xs" c="dimmed">
-              {tip.description}
-            </Text>
+          <div key={tip.title} className="min-w-0">
+            <p className="text-sm font-semibold">{tip.title}</p>
+            <p className="mt-0.5 text-xs text-dim">{tip.description}</p>
             {tip.link && (
-              <Anchor href={tip.link} target="_blank" rel="noopener noreferrer" size="xs">
-                <Group gap={4} wrap="nowrap" mt={2}>
-                  Mehr erfahren
-                  <IconExternalLink size={12} />
-                </Group>
-              </Anchor>
+              <a
+                href={tip.link}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-1 inline-flex items-center gap-1 text-xs text-accent underline-offset-2 hover:underline"
+              >
+                Mehr erfahren
+                <IconExternalLink size={12} />
+              </a>
             )}
           </div>
         ))}
-      </SimpleGrid>
+      </div>
 
-      <Divider my="md" />
+      <Divider className="my-5" />
 
-      <Group gap="xs" mb="xs">
-        <IconApi size={16} stroke={1.6} />
-        <Title order={5}>Snippet-Generator</Title>
-        <Badge variant="light" color="slate" size="sm">
-          POST /api/v1/readings
-        </Badge>
-      </Group>
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <IconApi size={16} stroke={1.7} className="flex-none text-dim" />
+        <h3 className="text-sm font-semibold">Snippet-Generator</h3>
+        <Badge>POST /api/v1/readings</Badge>
+      </div>
 
       {tokens.length === 0 ? (
-        <Alert color="yellow" icon={<IconInfoCircle size={16} />} variant="light" mb="sm">
+        <Alert tone="watch" icon={<IconInfoCircle size={16} />} className="mb-4">
           Du hast noch keinen aktiven Personal Access Token. Erstelle einen unter{" "}
-          <Anchor component={Link} href="/settings">
+          <Link href="/settings" className="text-accent underline-offset-2 hover:underline">
             Einstellungen → API-Zugriff
-          </Anchor>
+          </Link>
           , um Zählerstände automatisch zu übertragen.
         </Alert>
       ) : (
-        <Alert color="blue" icon={<IconInfoCircle size={16} />} variant="light" mb="sm">
+        <Alert icon={<IconInfoCircle size={16} />} className="mb-4">
           Der Token-Wert wird aus Sicherheitsgründen nur einmalig bei Erstellung angezeigt. Ersetze
           den Platzhalter <Code>{tokenPlaceholder}</Code> im Snippet durch den geheimen Wert deines
           Tokens.
         </Alert>
       )}
 
-      <Group gap="sm" mb="sm" align="flex-end" wrap="wrap">
+      <div className="mb-4 flex flex-wrap items-end gap-3">
         <SegmentedControl
+          className="sm:w-auto sm:min-w-72"
+          label="Snippet-Format"
           value={kind}
           onChange={(value) => setKind(value as SnippetKind)}
-          data={SNIPPET_OPTIONS}
-          size="xs"
+          options={SNIPPET_OPTIONS.map((o) => ({ value: o.value as SnippetKind, label: o.label }))}
         />
-        <Select
-          label="Token"
-          size="xs"
-          data={tokenData}
-          value={selectedToken}
-          onChange={(value) => setSelectedToken(value ?? NO_TOKEN)}
-          allowDeselect={false}
-          w={200}
-        />
-      </Group>
+        <Field label="Token" className="w-52">
+          {({ id }) => (
+            <SelectShell>
+              <Select
+                id={id}
+                value={selectedToken}
+                onChange={(event) => setSelectedToken(event.currentTarget.value)}
+              >
+                {tokenData.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </Select>
+            </SelectShell>
+          )}
+        </Field>
+      </div>
 
       {kind === "homeassistant" && (
-        <Text size="xs" c="dimmed" mb="xs">
+        <p className="mb-2 text-xs text-dim">
           Fertiger Home-Assistant-Blueprint und Gerätevorlagen (ESPHome, Tasmota, Shelly):{" "}
-          <Anchor href={HA_DOCS_URL} target="_blank" rel="noopener noreferrer">
-            <Group gap={4} wrap="nowrap" component="span" display="inline-flex">
-              docs/integrations/home-assistant
-              <IconExternalLink size={12} />
-            </Group>
-          </Anchor>
-        </Text>
+          <a
+            href={HA_DOCS_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-accent underline-offset-2 hover:underline"
+          >
+            docs/integrations/home-assistant
+            <IconExternalLink size={12} />
+          </a>
+        </p>
       )}
 
-      <div style={{ position: "relative" }}>
-        <CopyButton value={snippet}>
-          {({ copied, copy }) => (
-            <Button
-              size="compact-xs"
-              variant="light"
-              color={copied ? "green" : "slate"}
-              leftSection={copied ? <IconCheck size={14} /> : <IconCopy size={14} />}
-              onClick={copy}
-              style={{ position: "absolute", top: 8, right: 8, zIndex: 1 }}
-            >
-              {copied ? "Kopiert" : "Kopieren"}
-            </Button>
-          )}
-        </CopyButton>
-        <Code block style={{ maxHeight: 360, overflow: "auto", paddingTop: 40 }}>
-          {snippet}
-        </Code>
+      <div className="relative">
+        <CopyButton value={snippet} size="sm" className="absolute right-2 top-2 z-10" />
+        <CodeBlock className="max-h-90 overflow-auto pt-12">{snippet}</CodeBlock>
       </div>
-    </Card>
+    </Panel>
   );
 }

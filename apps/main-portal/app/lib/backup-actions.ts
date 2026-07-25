@@ -14,7 +14,8 @@ import {
   type FullBackup,
 } from "@zaehlwerk/database";
 import { AUDIT_ACTIONS, recordAuditEvent } from "./audit";
-import { getSessionUser } from "./auth-helpers";
+import { getSessionUser, requireAdmin } from "./auth-helpers";
+import { assertAppAccess } from "./app-access";
 
 async function currentActor(): Promise<string> {
   const user = await getSessionUser();
@@ -88,6 +89,10 @@ function tarifRow(t: BackupTarif) {
 
 /** Spielt ein Vollbackup ein — entweder alles ersetzen (reset) oder nur Fehlendes ergänzen (merge). */
 export async function restoreBackup(jsonText: string, mode: RestoreMode): Promise<BackupResult> {
+  // Platform-wide and destructive in "reset" mode (it empties every table), so
+  // it belongs to the same admin class as user management and data governance.
+  // `getSessionUser()` was only ever consulted for the audit entry.
+  await requireAdmin();
   let raw: unknown;
   try {
     raw = JSON.parse(jsonText);
@@ -162,6 +167,7 @@ export type LocationChoice =
  * bestehenden Datensätzen gibt. Der Standort wird gemappt.
  */
 export async function importMeter(jsonText: string, choice: LocationChoice): Promise<BackupResult> {
+  await assertAppAccess("zaehlwerk");
   let raw: unknown;
   try {
     raw = JSON.parse(jsonText);
@@ -259,6 +265,7 @@ export async function importReadings(
   zaehlerId: string,
   readings: CsvReadingInput[],
 ): Promise<BackupResult> {
+  await assertAppAccess("zaehlwerk");
   const zaehler = await prisma.zaehler.findUnique({ where: { id: zaehlerId }, select: { id: true } });
   if (!zaehler) return { success: false, message: "Der Zähler existiert nicht mehr." };
 

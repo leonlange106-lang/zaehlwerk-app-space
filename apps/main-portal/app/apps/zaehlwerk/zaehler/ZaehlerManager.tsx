@@ -3,31 +3,25 @@
 import type { CSSProperties } from "react";
 import { useActionState, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { Badge } from "@/app/components/ui/Badge";
+import { Button } from "@/app/components/ui/Button";
+import { Checkbox as UiCheckbox } from "@/app/components/ui/primitives";
 import {
-  Alert,
-  Badge,
-  Button,
-  Card,
-  Checkbox,
-  Divider,
-  Grid,
-  GridCol,
-  Group,
+  Field,
   NumberInput,
-  SegmentedControl,
   Select,
-  Stack,
-  Text,
+  SelectShell,
   TextInput,
-  Title,
-} from "@mantine/core";
+} from "@/app/components/ui/Field";
+import { Panel } from "@/app/components/ui/Panel";
+import { Alert, Divider, PageHeader, SegmentedControl } from "@/app/components/ui/primitives";
 import { IconAlertCircle, IconCheck, IconGauge } from "@tabler/icons-react";
 import {
   ENERGY_CATEGORIES,
   ENERGY_CATEGORY_LABELS,
   calculateConsumption,
   sumConsumption,
-} from "@zaehlwerk/database/shared";
+} from "@zaehlwerk/database/client";
 import type { listLocations, listZaehler } from "@/app/lib/zaehler-actions";
 import { createAblesungAction, createZaehlerAction } from "@/app/lib/zaehler-actions";
 import { initialActionState } from "@/app/lib/action-state";
@@ -66,40 +60,38 @@ export function ZaehlerManager({
   const [pane, setPane] = useState<Pane>("zaehler");
 
   return (
-    <Stack gap="md">
-      <div>
-        <Title order={2}>Zähler</Title>
-        <Text c="dimmed" size="sm">
-          Zähler anlegen, Zählerstände erfassen und Verbrauch je Zähler einsehen.
-        </Text>
-      </div>
+    <div className="flex flex-col gap-5">
+      <PageHeader
+        title="Zähler"
+        description="Zähler anlegen, Zählerstände erfassen und Verbrauch je Zähler einsehen."
+      />
 
+      {/* Phone-only pane switch. Hidden from `sm` up, where every pane is on
+          screen at once — see `.pane` in the module. */}
       <SegmentedControl
-        hiddenFrom="sm"
-        fullWidth
+        className="sm:hidden"
+        label="Bereich wählen"
         value={pane}
         onChange={(value) => setPane(value as Pane)}
-        aria-label="Bereich wählen"
-        data={[
-          { value: "zaehler", label: `Zähler (${zaehlerList.length})` },
-          { value: "anlegen", label: "Erfassen" },
-          { value: "import", label: "Import" },
+        options={[
+          { value: "zaehler" as Pane, label: `Zähler (${zaehlerList.length})` },
+          { value: "anlegen" as Pane, label: "Erfassen" },
+          { value: "import" as Pane, label: "Import" },
         ]}
       />
 
-      <Grid gutter="md">
-        <GridCol
-          span={{ base: 12, lg: 7 }}
-          className={classes.pane}
+      <div className="grid gap-5 lg:grid-cols-12">
+        <div
+          className={`${classes.pane} lg:col-span-7`}
           data-active={pane === "zaehler" ? "true" : "false"}
         >
-          <Stack gap="xs">
+          <div className="flex flex-col gap-2.5">
             {zaehlerList.length === 0 && (
-              <Card p="md">
-                <Text c="dimmed" size="sm">
+              <Panel className="[&]:p-4">
+                <p className="text-sm text-dim">
                   Noch keine Zähler angelegt. Lege über „Erfassen“ den ersten Zähler an.
-                </Text>
-              </Card>
+                </p>
+              </Panel>
             )}
             {zaehlerList.map((zaehler) => {
               const intervals = calculateConsumption(zaehler.ablesungen);
@@ -107,84 +99,72 @@ export function ZaehlerManager({
               const lastReading = zaehler.ablesungen.at(-1);
 
               return (
-                <Card
+                <Link
                   key={zaehler.id}
-                  component={Link}
                   href={`/apps/zaehlwerk/zaehler/${zaehler.id}`}
-                  p="md"
                   className={classes.zaehlerCard}
                   // The meter's own colour becomes the card's left spine, so a
                   // list of eight meters is scannable by edge alone.
                   style={{ "--meter-color": zaehler.farbe } as CSSProperties}
                 >
-                  <Group justify="space-between" align="flex-start" wrap="nowrap">
-                    <div className={classes.meterName}>
-                      <Text fw={600} truncate>
-                        {zaehler.name}
-                      </Text>
-                      <Text size="xs" c="dimmed" truncate>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold">{zaehler.name}</p>
+                      <p className="truncate text-xs text-dim">
                         {zaehler.location?.name ?? "Kein Standort"}
-                      </Text>
+                      </p>
                     </div>
-                    <Badge variant="outline" color="slate" size="sm">
-                      {ENERGY_CATEGORY_LABELS[zaehler.kategorie]}
-                    </Badge>
-                  </Group>
+                    <Badge>{ENERGY_CATEGORY_LABELS[zaehler.kategorie]}</Badge>
+                  </div>
 
-                  <Divider my="xs" />
+                  <Divider className="my-3" />
 
-                  <Group justify="space-between" gap="xs" wrap="nowrap">
-                    <div>
-                      <Text className={classes.microLabel}>Letzter Stand</Text>
-                      <Text fw={600} size="sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="legend-label">Letzter Stand</p>
+                      <p className="readout mt-0.5 text-sm">
                         {lastReading
                           ? `${formatNumber(lastReading.wert)} ${zaehler.einheit}`
                           : "keine Ablesung"}
-                      </Text>
+                      </p>
                       {lastReading && (
-                        <Text size="xs" c="dimmed">
-                          {formatDate(lastReading.datum)}
-                        </Text>
+                        <p className="mt-0.5 text-xs text-dim">{formatDate(lastReading.datum)}</p>
                       )}
                     </div>
-                    <div className={classes.alignEnd}>
-                      <Text className={classes.microLabel}>Verbrauch gesamt</Text>
-                      <Text fw={600} size="sm">
+                    <div className="min-w-0 text-right">
+                      <p className="legend-label">Verbrauch gesamt</p>
+                      <p className="readout mt-0.5 text-sm">
                         {formatNumber(total)} {zaehler.einheit}
-                      </Text>
-                      <Text size="xs" c="dimmed">
+                      </p>
+                      <p className="mt-0.5 text-xs text-dim">
                         {zaehler.ablesungen.length} Ablesungen
-                      </Text>
+                      </p>
                     </div>
-                  </Group>
-                </Card>
+                  </div>
+                </Link>
               );
             })}
-          </Stack>
-        </GridCol>
+          </div>
+        </div>
 
-        <GridCol
-          span={{ base: 12, lg: 5 }}
-          className={classes.pane}
+        <div
+          className={`${classes.pane} lg:col-span-5`}
           data-active={pane !== "zaehler" ? "true" : "false"}
         >
-          <Stack gap="md">
-            <div
-              className={classes.pane}
-              data-active={pane === "anlegen" ? "true" : "false"}
-            >
-              <Stack gap="md">
+          <div className="flex flex-col gap-5">
+            <div className={classes.pane} data-active={pane === "anlegen" ? "true" : "false"}>
+              <div className="flex flex-col gap-5">
                 <CreateZaehlerForm locations={locations} />
                 <CreateAblesungForm zaehlerList={zaehlerList} />
-              </Stack>
+              </div>
             </div>
             <div className={classes.pane} data-active={pane === "import" ? "true" : "false"}>
               <MeterImportCard locations={locations} />
             </div>
-          </Stack>
-        </GridCol>
-      </Grid>
-    </Stack>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -199,59 +179,77 @@ function CreateZaehlerForm({ locations }: { locations: LocationList }) {
   }, [state.success]);
 
   return (
-    <Card p="md">
-      <Group gap="xs" mb="sm">
-        <IconGauge size={18} stroke={1.6} />
-        <Title order={4}>Neuen Zähler anlegen</Title>
-      </Group>
-
-      <form action={formAction} ref={formRef}>
-        <Stack gap="sm">
-          <TextInput name="name" label="Name" placeholder="z. B. Strom Hauptzähler" required />
-          <Select
-            name="kategorie"
-            label="Kategorie / Energieträger"
-            placeholder="Kategorie wählen"
-            required
-            data={ENERGY_CATEGORIES.map((category) => ({
-              value: category,
-              label: ENERGY_CATEGORY_LABELS[category],
-            }))}
-          />
-          <TextInput
-            name="einheit"
-            label="Einheit"
-            placeholder="z. B. kWh, m³"
-            description="Übliche Einheiten: kWh (Strom), m³ (Gas/Wasser)"
-            required
-          />
-          {locations.length > 0 && (
-            <Select
-              name="locationId"
-              label="Standort"
-              placeholder="Kein Standort"
-              clearable
-              data={locations.map((location) => ({ value: location.id, label: location.name }))}
+    <Panel title="Neuen Zähler anlegen" icon={<IconGauge size={17} stroke={1.7} />}>
+      <form action={formAction} ref={formRef} className="flex flex-col gap-4">
+        <Field label="Name" required>
+          {({ id }) => (
+            <TextInput id={id} name="name" placeholder="z. B. Strom Hauptzähler" required />
+          )}
+        </Field>
+        <Field label="Kategorie / Energieträger" required>
+          {({ id }) => (
+            <SelectShell>
+              <Select id={id} name="kategorie" defaultValue="" required>
+                <option value="" disabled>
+                  Kategorie wählen
+                </option>
+                {ENERGY_CATEGORIES.map((category) => (
+                  <option key={category} value={category}>
+                    {ENERGY_CATEGORY_LABELS[category]}
+                  </option>
+                ))}
+              </Select>
+            </SelectShell>
+          )}
+        </Field>
+        <Field
+          label="Einheit"
+          description="Übliche Einheiten: kWh (Strom), m³ (Gas/Wasser)"
+          required
+        >
+          {({ id, describedBy }) => (
+            <TextInput
+              id={id}
+              aria-describedby={describedBy}
+              name="einheit"
+              placeholder="z. B. kWh, m³"
+              required
             />
           )}
+        </Field>
+        {locations.length > 0 && (
+          <Field label="Standort">
+            {({ id }) => (
+              <SelectShell>
+                <Select id={id} name="locationId" defaultValue="">
+                  <option value="">Kein Standort</option>
+                  {locations.map((location) => (
+                    <option key={location.id} value={location.id}>
+                      {location.name}
+                    </option>
+                  ))}
+                </Select>
+              </SelectShell>
+            )}
+          </Field>
+        )}
 
-          {state.error && (
-            <Alert color="red" icon={<IconAlertCircle size={16} />} variant="light">
-              {state.error}
-            </Alert>
-          )}
-          {state.success && (
-            <Alert color="green" icon={<IconCheck size={16} />} variant="light">
-              Zähler wurde angelegt.
-            </Alert>
-          )}
+        {state.error && (
+          <Alert tone="risk" role="alert" icon={<IconAlertCircle size={16} />}>
+            {state.error}
+          </Alert>
+        )}
+        {state.success && (
+          <Alert tone="ok" icon={<IconCheck size={16} />}>
+            Zähler wurde angelegt.
+          </Alert>
+        )}
 
-          <Button type="submit" color="slate" loading={pending} fullWidth>
-            Zähler anlegen
-          </Button>
-        </Stack>
+        <Button type="submit" variant="primary" full disabled={pending}>
+          {pending ? "Wird angelegt…" : "Zähler anlegen"}
+        </Button>
       </form>
-    </Card>
+    </Panel>
   );
 }
 
@@ -267,63 +265,77 @@ function CreateAblesungForm({ zaehlerList }: { zaehlerList: ZaehlerList }) {
   }, [state.success]);
 
   return (
-    <Card p="md">
-      <Group gap="xs" mb="sm">
-        <IconGauge size={18} stroke={1.6} />
-        <Title order={4}>Zählerstand erfassen</Title>
-      </Group>
-
+    <Panel title="Zählerstand erfassen" icon={<IconGauge size={17} stroke={1.7} />}>
       {zaehlerList.length === 0 ? (
-        <Text size="sm" c="dimmed">
-          Lege zuerst einen Zähler an.
-        </Text>
+        <p className="text-sm text-dim">Lege zuerst einen Zähler an.</p>
       ) : (
-        <form action={formAction} ref={formRef}>
-          <Stack gap="sm">
-            <Select
-              name="zaehlerId"
-              label="Zähler"
-              placeholder="Zähler wählen"
-              required
-              data={zaehlerList.map((zaehler) => ({ value: zaehler.id, label: zaehler.name }))}
-            />
-            <TextInput name="datum" label="Ablesedatum" type="date" defaultValue={today} required />
-            <NumberInput name="wert" label="Zählerstand" placeholder="0" min={0} inputMode="decimal" required />
-            <NumberInput
-              name="kosten"
-              label="Kosten (optional)"
-              placeholder="0.00"
-              min={0}
-              decimalScale={2}
-              inputMode="decimal"
-            />
-            <Checkbox name="zaehlerGetauscht" label="Zähler wurde bei dieser Ablesung getauscht" />
-            <NumberInput
-              name="startwertNeu"
-              label="Startwert neuer Zähler (bei Tausch)"
-              placeholder="0"
-              min={0}
-              inputMode="decimal"
-            />
-            <TextInput name="notiz" label="Notiz (optional)" placeholder="z. B. Ablesung durch Hausverwaltung" />
-
-            {state.error && (
-              <Alert color="red" icon={<IconAlertCircle size={16} />} variant="light">
-                {state.error}
-              </Alert>
+        <form action={formAction} ref={formRef} className="flex flex-col gap-4">
+          <Field label="Zähler" required>
+            {({ id }) => (
+              <SelectShell>
+                <Select id={id} name="zaehlerId" defaultValue="" required>
+                  <option value="" disabled>
+                    Zähler wählen
+                  </option>
+                  {zaehlerList.map((zaehler) => (
+                    <option key={zaehler.id} value={zaehler.id}>
+                      {zaehler.name}
+                    </option>
+                  ))}
+                </Select>
+              </SelectShell>
             )}
-            {state.success && (
-              <Alert color="green" icon={<IconCheck size={16} />} variant="light">
-                Zählerstand wurde erfasst.
-              </Alert>
+          </Field>
+          <Field label="Ablesedatum" required>
+            {({ id }) => (
+              <TextInput id={id} name="datum" type="date" defaultValue={today} required />
             )}
+          </Field>
+          <Field label="Zählerstand" required>
+            {({ id }) => (
+              <NumberInput id={id} name="wert" placeholder="0" min={0} step="any" required />
+            )}
+          </Field>
+          <Field label="Kosten (optional)">
+            {({ id }) => (
+              <NumberInput id={id} name="kosten" placeholder="0.00" min={0} step="0.01" />
+            )}
+          </Field>
+          <UiCheckbox
+            name="zaehlerGetauscht"
+            label="Zähler wurde bei dieser Ablesung getauscht"
+          />
+          <Field label="Startwert neuer Zähler (bei Tausch)">
+            {({ id }) => (
+              <NumberInput id={id} name="startwertNeu" placeholder="0" min={0} step="any" />
+            )}
+          </Field>
+          <Field label="Notiz (optional)">
+            {({ id }) => (
+              <TextInput
+                id={id}
+                name="notiz"
+                placeholder="z. B. Ablesung durch Hausverwaltung"
+              />
+            )}
+          </Field>
 
-            <Button type="submit" color="slate" loading={pending} fullWidth>
-              Zählerstand speichern
-            </Button>
-          </Stack>
+          {state.error && (
+            <Alert tone="risk" role="alert" icon={<IconAlertCircle size={16} />}>
+              {state.error}
+            </Alert>
+          )}
+          {state.success && (
+            <Alert tone="ok" icon={<IconCheck size={16} />}>
+              Zählerstand wurde erfasst.
+            </Alert>
+          )}
+
+          <Button type="submit" variant="primary" full disabled={pending}>
+            {pending ? "Wird gespeichert…" : "Zählerstand speichern"}
+          </Button>
         </form>
       )}
-    </Card>
+    </Panel>
   );
 }

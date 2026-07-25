@@ -4,19 +4,11 @@ import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { signIn } from "next-auth/react";
 import { beginLoginAction } from "../lib/login-actions";
-import {
-  Alert,
-  Button,
-  Card,
-  Center,
-  PasswordInput,
-  Stack,
-  Text,
-  TextInput,
-  Title,
-} from "@mantine/core";
 import { IconAlertCircle, IconCheck } from "@tabler/icons-react";
-import classes from "./LoginForm.module.css";
+import { AuthShell } from "../components/ui/AuthShell";
+import { Button } from "../components/ui/Button";
+import { Field, PasswordInput, TextInput } from "../components/ui/Field";
+import { Alert } from "../components/ui/primitives";
 
 export function LoginForm() {
   const router = useRouter();
@@ -75,55 +67,60 @@ export function LoginForm() {
   }
 
   return (
-    <Center className={classes.screen}>
-      <Card withBorder radius="md" p="xl" className={classes.card}>
-        <Stack gap="sm" align="center" mb="md">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/mark-appspace.svg" alt="App Space" width={48} height={48} />
-          <div style={{ textAlign: "center" }}>
-            <Title order={3}>App Space</Title>
-            <Text c="dimmed" size="sm">
-              Bitte melde dich an.
-            </Text>
-          </div>
-        </Stack>
+    <AuthShell
+      icon={
+        /* eslint-disable-next-line @next/next/no-img-element */
+        <img src="/mark-appspace.svg" alt="" width={26} height={26} />
+      }
+      title="App Space"
+      description="Bitte melde dich an."
+    >
+      {justSetUp && (
+        <Alert tone="ok" icon={<IconCheck size={16} />} className="mb-4">
+          Admin-Account erstellt. Melde dich jetzt an.
+        </Alert>
+      )}
 
-        {justSetUp && (
-          <Alert color="green" icon={<IconCheck size={16} />} variant="light" mb="sm">
-            Admin-Account erstellt. Melde dich jetzt an.
-          </Alert>
-        )}
-
-        <form onSubmit={handleSubmit}>
-          <Stack gap="sm">
+      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        <Field label="E-Mail" required>
+          {({ id }) => (
             <TextInput
-              label="E-Mail"
+              id={id}
               type="email"
+              autoComplete="email"
               placeholder="admin@example.com"
               value={email}
               onChange={(event) => setEmail(event.currentTarget.value)}
               required
             />
+          )}
+        </Field>
+        <Field
+          label="Passwort"
+          description="Erstanmeldung? Feld leer lassen – du vergibst dein Passwort danach."
+        >
+          {({ id, describedBy }) => (
             <PasswordInput
-              label="Passwort"
+              id={id}
+              aria-describedby={describedBy}
+              autoComplete="current-password"
               placeholder="••••••••"
-              description="Erstanmeldung? Feld leer lassen – du vergibst dein Passwort danach."
               value={password}
               onChange={(event) => setPassword(event.currentTarget.value)}
             />
+          )}
+        </Field>
 
-            {error && (
-              <Alert color="red" icon={<IconAlertCircle size={16} />} variant="light">
-                {error}
-              </Alert>
-            )}
+        {error && (
+          <Alert tone="risk" role="alert" icon={<IconAlertCircle size={16} />}>
+            {error}
+          </Alert>
+        )}
 
-            <Button type="submit" color="slate" loading={pending} fullWidth mt="xs">
-              Anmelden
-            </Button>
-          </Stack>
-        </form>
-      </Card>
-    </Center>
+        <Button type="submit" variant="primary" full disabled={pending}>
+          {pending ? "Wird angemeldet…" : "Anmelden"}
+        </Button>
+      </form>
+    </AuthShell>
   );
 }

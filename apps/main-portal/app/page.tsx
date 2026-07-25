@@ -1,13 +1,12 @@
-import type { CSSProperties } from "react";
 import Link from "next/link";
-import { Alert, Badge, Group, SimpleGrid, Stack, Text } from "@mantine/core";
 import { IconInfoCircle, IconPlus } from "@tabler/icons-react";
 import { APPS } from "./lib/apps";
 import { getAllowedAppIds } from "./lib/app-access";
 import { getSessionUser } from "./lib/auth-helpers";
 import { AdminPanel } from "./AdminPanel";
 import { BrandLogo } from "./components/BrandLogo";
-import classes from "./launcher.module.css";
+import { Badge } from "./components/ui/Badge";
+import { Alert } from "./components/ui/primitives";
 
 // App Space hub (hub-and-spoke root). Lists only the apps assigned to the
 // current user (admins see all). Reads the session → force-dynamic.
@@ -17,85 +16,101 @@ export const metadata = {
   title: "App Space",
 };
 
+// Each tile is washed in its own app's accent so the hub reads as a shelf of
+// distinct tools rather than a list of links — the same device the KPI tiles use.
+const tile =
+  "panel group relative flex flex-col overflow-hidden p-5 transition-[transform,box-shadow] duration-200";
+
 export default async function LauncherPage() {
   const [allowedAppIds, user] = await Promise.all([getAllowedAppIds(), getSessionUser()]);
   const apps = APPS.filter((app) => allowedAppIds.includes(app.id));
   const isAdmin = user?.role === "ADMIN";
 
   return (
-    <Stack gap="lg" className={classes.wrap}>
-      <Stack gap={4} align="center" className={classes.hero}>
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-7">
+      <div className="flex flex-col items-center gap-3 pt-6 text-center">
         <BrandLogo height={52} />
-        <Text c="dimmed" size="sm" ta="center" maw={520}>
-          Dein modulares Portal. Wähle eine App, um loszulegen – zwischen Apps wechselst du jederzeit
-          über das Raster-Symbol oben links.
-        </Text>
-      </Stack>
+        <p className="max-w-lg text-sm text-dim">
+          Dein modulares Portal. Wähle eine App, um loszulegen – über das Menü oben links springst
+          du jederzeit direkt in einen Bereich oder auf einen einzelnen Zähler.
+        </p>
+      </div>
 
       {apps.length === 0 && (
         <Alert
-          color="slate"
-          variant="light"
+          className="mx-auto max-w-xl"
           icon={<IconInfoCircle size={18} />}
           title="Noch keine App freigegeben"
-          maw={560}
-          mx="auto"
         >
           Dir wurde bisher keine App zugewiesen. Bitte wende dich an einen Administrator, um für die
           gewünschten Apps freigeschaltet zu werden.
         </Alert>
       )}
 
-      <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="sm" className={classes.grid}>
-        {apps.map((app) =>
-          app.available ? (
-            <Link key={app.id} href={app.href} className={classes.tile}>
-              <span className={classes.iconWrap} style={{ "--accent": app.accent } as CSSProperties}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={app.icon} alt="" width={48} height={48} />
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {apps.map((app) => {
+          const wash = (
+            <span
+              aria-hidden
+              className="pointer-events-none absolute inset-0"
+              style={{
+                background: `radial-gradient(120% 90% at 100% 0%, color-mix(in srgb, ${app.accent} 20%, transparent), transparent 60%)`,
+              }}
+            />
+          );
+          const body = (
+            <>
+              {wash}
+              <span className="relative flex items-start justify-between gap-3">
+                <span
+                  className="grid size-14 flex-none place-items-center rounded-panel"
+                  style={{
+                    background: `color-mix(in srgb, ${app.accent} 16%, transparent)`,
+                    boxShadow: `inset 0 0 0 1px color-mix(in srgb, ${app.accent} 28%, transparent)`,
+                  }}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={app.icon} alt="" width={40} height={40} />
+                </span>
+                {!app.available && <Badge>Bald</Badge>}
               </span>
-              <Text fw={600} mt="md">
+              <span className="relative mt-4 block text-[17px] font-semibold tracking-tight">
                 {app.name}
-              </Text>
-              <Text size="sm" c="dimmed" mt={2}>
-                {app.tagline}
-              </Text>
+              </span>
+              <span className="relative mt-1 block text-sm text-dim">{app.tagline}</span>
+            </>
+          );
+
+          return app.available ? (
+            <Link
+              key={app.id}
+              href={app.href}
+              className={`${tile} hover:-translate-y-0.5 hover:shadow-panel-lg`}
+            >
+              {body}
             </Link>
           ) : (
-            <div key={app.id} className={`${classes.tile} ${classes.tileDisabled}`} aria-disabled>
-              <Group justify="space-between" w="100%">
-                <span className={classes.iconWrap} style={{ "--accent": app.accent } as CSSProperties}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={app.icon} alt="" width={48} height={48} />
-                </span>
-                <Badge variant="light" color="slate" size="sm">
-                  Bald
-                </Badge>
-              </Group>
-              <Text fw={600} mt="md">
-                {app.name}
-              </Text>
-              <Text size="sm" c="dimmed" mt={2}>
-                {app.tagline}
-              </Text>
+            <div key={app.id} className={`${tile} opacity-60`} aria-disabled>
+              {body}
             </div>
-          ),
-        )}
+          );
+        })}
 
-        <div className={`${classes.tile} ${classes.tilePlaceholder}`} aria-hidden>
-          <span className={classes.plusWrap}>
-            <IconPlus size={26} stroke={1.6} />
+        <div
+          className="flex flex-col items-start rounded-panel border border-dashed border-line p-5 text-dim"
+          aria-hidden
+        >
+          <span className="grid size-14 place-items-center rounded-panel border border-dashed border-line">
+            <IconPlus size={24} stroke={1.6} />
           </span>
-          <Text fw={600} mt="md" c="dimmed">
-            Weitere Apps
-          </Text>
-          <Text size="sm" c="dimmed" mt={2}>
+          <span className="mt-4 block text-[17px] font-semibold tracking-tight">Weitere Apps</span>
+          <span className="mt-1 block text-sm">
             Platz für zukünftige Erweiterungen des App Space.
-          </Text>
+          </span>
         </div>
-      </SimpleGrid>
+      </div>
 
       {isAdmin && <AdminPanel />}
-    </Stack>
+    </div>
   );
 }

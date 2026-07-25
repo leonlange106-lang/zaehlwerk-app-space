@@ -1,0 +1,102 @@
+/* Two-thumb range slider.
+ *
+ * Built from two real `input[type=range]` stacked on one track rather than from
+ * divs with pointer handlers: each thumb is then a genuine slider to the
+ * platform, so arrow keys, Home/End, screen-reader announcements and touch
+ * targets all come from the browser instead of being re-implemented (and
+ * half-implemented) here.
+ *
+ * The inputs themselves are click-through — only their thumbs take pointer
+ * events — so the two overlaid tracks cannot steal each other's drags.
+ */
+
+.root {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 44px; /* WCAG 2.5.5 target size for the thumbs */
+}
+
+.track {
+  position: absolute;
+  inset-inline: 0;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--zw-inset);
+  box-shadow: inset 0 0 0 1px var(--zw-border);
+}
+
+/* The selected window, positioned from the component via custom properties. */
+.fill {
+  position: absolute;
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--zw-accent), var(--zw-accent-2));
+  left: var(--zw-range-start);
+  right: var(--zw-range-end);
+}
+
+.input {
+  position: absolute;
+  inset-inline: 0;
+  width: 100%;
+  height: 44px;
+  margin: 0;
+  background: transparent;
+  appearance: none;
+  -webkit-appearance: none;
+  pointer-events: none; /* the track belongs to nobody; only thumbs are grabbable */
+}
+
+.input:focus-visible {
+  outline: none;
+}
+
+/* --- Thumb: WebKit/Blink --- */
+.input::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  pointer-events: auto;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--zw-elevated);
+  border: 2px solid var(--zw-accent);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 45%);
+  cursor: grab;
+}
+
+.input:focus-visible::-webkit-slider-thumb {
+  outline: 2px solid var(--zw-accent);
+  outline-offset: 2px;
+}
+
+.input:active::-webkit-slider-thumb {
+  cursor: grabbing;
+}
+
+.input:disabled::-webkit-slider-thumb {
+  cursor: default;
+  border-color: var(--zw-border-strong);
+}
+
+/* --- Thumb: Gecko --- */
+.input::-moz-range-thumb {
+  pointer-events: auto;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--zw-elevated);
+  border: 2px solid var(--zw-accent);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 45%);
+  cursor: grab;
+}
+
+.input:focus-visible::-moz-range-thumb {
+  outline: 2px solid var(--zw-accent);
+  outline-offset: 2px;
+}
+
+.input::-moz-range-track {
+  background: transparent;
+}

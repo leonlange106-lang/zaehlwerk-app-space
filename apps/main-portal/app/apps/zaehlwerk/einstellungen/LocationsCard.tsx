@@ -2,26 +2,6 @@
 
 import { useActionState, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import {
-  ActionIcon,
-  Alert,
-  Button,
-  Card,
-  Group,
-  Modal,
-  Stack,
-  Table,
-  TableTbody,
-  TableTd,
-  TableTh,
-  TableThead,
-  TableTr,
-  Text,
-  TextInput,
-  Title,
-  Tooltip,
-} from "@mantine/core";
-import { notifications } from "@mantine/notifications";
 import { IconAlertCircle, IconCheck, IconMapPin, IconPencil, IconTrash } from "@tabler/icons-react";
 import type { listLocations } from "@/app/lib/zaehler-actions";
 import {
@@ -30,13 +10,24 @@ import {
   updateLocationAction,
 } from "@/app/lib/location-actions";
 import { initialActionState } from "@/app/lib/action-state";
+import { Button } from "@/app/components/ui/Button";
+import { Field, TextInput } from "@/app/components/ui/Field";
+import { Panel } from "@/app/components/ui/Panel";
+import { ResponsiveDialog } from "@/app/components/ui/ResponsiveDialog";
+import { Tooltip } from "@/app/components/ui/Tooltip";
+import { useToast } from "@/app/components/ui/Toast";
+import { Alert, Table, TableScroll, Td, Th } from "@/app/components/ui/primitives";
 
 type LocationList = Awaited<ReturnType<typeof listLocations>>;
 type Location = LocationList[number];
 
 export function LocationsCard({ locations }: { locations: LocationList }) {
   const router = useRouter();
-  const [createState, createAction, creating] = useActionState(createLocationAction, initialActionState);
+  const toast = useToast();
+  const [createState, createAction, creating] = useActionState(
+    createLocationAction,
+    initialActionState,
+  );
   const [deletePending, startDelete] = useTransition();
   const createRef = useRef<HTMLFormElement>(null);
   const [editTarget, setEditTarget] = useState<Location | null>(null);
@@ -46,93 +37,111 @@ export function LocationsCard({ locations }: { locations: LocationList }) {
   }, [createState.success]);
 
   function remove(location: Location) {
-    if (!window.confirm(`Standort „${location.name}" löschen? Zugeordnete Zähler behalten ihre Daten und werden auf „kein Standort" gesetzt.`)) {
+    if (
+      !window.confirm(
+        `Standort „${location.name}" löschen? Zugeordnete Zähler behalten ihre Daten und werden auf „kein Standort" gesetzt.`,
+      )
+    ) {
       return;
     }
     startDelete(async () => {
       const fd = new FormData();
       fd.set("id", location.id);
       const result = await deleteLocationAction(initialActionState, fd);
-      notifications.show({
-        color: result.success ? "green" : "red",
-        icon: result.success ? <IconCheck size={16} /> : <IconAlertCircle size={16} />,
-        message: result.success ? "Standort gelöscht." : result.error ?? "Fehler.",
+      toast.show({
+        tone: result.success ? "ok" : "risk",
+        title: result.success ? "Standort gelöscht" : "Löschen fehlgeschlagen",
+        message: result.success ? undefined : (result.error ?? undefined),
       });
       if (result.success) router.refresh();
     });
   }
 
   return (
-    <Card withBorder radius="md" p="lg">
-      <Group gap="xs" mb="sm">
-        <IconMapPin size={18} stroke={1.6} />
-        <Title order={4}>Standorte / Zählergruppen</Title>
-      </Group>
-
+    <Panel title="Standorte / Zählergruppen" icon={<IconMapPin size={17} stroke={1.7} />}>
       {locations.length === 0 ? (
-        <Text size="sm" c="dimmed" mb="sm">
-          Noch keine Standorte angelegt.
-        </Text>
+        <p className="mb-5 text-sm text-dim">Noch keine Standorte angelegt.</p>
       ) : (
-        <Table verticalSpacing="xs" fz="sm" mb="md">
-          <TableThead>
-            <TableTr>
-              <TableTh>Name</TableTh>
-              <TableTh>Adresse</TableTh>
-              <TableTh />
-            </TableTr>
-          </TableThead>
-          <TableTbody>
-            {locations.map((location) => (
-              <TableTr key={location.id}>
-                <TableTd fw={600}>{location.name}</TableTd>
-                <TableTd c={location.address ? undefined : "dimmed"}>{location.address ?? "—"}</TableTd>
-                <TableTd>
-                  <Group gap={4} wrap="nowrap" justify="flex-end">
-                    <Tooltip label="Bearbeiten">
-                      <ActionIcon variant="subtle" color="slate" onClick={() => setEditTarget(location)}>
-                        <IconPencil size={16} />
-                      </ActionIcon>
-                    </Tooltip>
-                    <Tooltip label="Löschen">
-                      <ActionIcon
-                        variant="subtle"
-                        color="red"
-                        loading={deletePending}
-                        onClick={() => remove(location)}
-                      >
-                        <IconTrash size={16} />
-                      </ActionIcon>
-                    </Tooltip>
-                  </Group>
-                </TableTd>
-              </TableTr>
-            ))}
-          </TableTbody>
-        </Table>
+        <TableScroll className="mb-5">
+          <Table>
+            <thead>
+              <tr>
+                <Th>Name</Th>
+                <Th>Adresse</Th>
+                <Th className="text-right">Aktionen</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {locations.map((location) => (
+                <tr key={location.id} className="last:[&>td]:border-0">
+                  <Td className="font-semibold">{location.name}</Td>
+                  <Td className={location.address ? undefined : "text-dim"}>
+                    {location.address ?? "—"}
+                  </Td>
+                  <Td>
+                    <span className="flex justify-end gap-1">
+                      <Tooltip label="Bearbeiten">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          aria-label={`Standort „${location.name}" bearbeiten`}
+                          onClick={() => setEditTarget(location)}
+                        >
+                          <IconPencil size={16} />
+                        </Button>
+                      </Tooltip>
+                      <Tooltip label="Löschen">
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          disabled={deletePending}
+                          aria-label={`Standort „${location.name}" löschen`}
+                          onClick={() => remove(location)}
+                        >
+                          <IconTrash size={16} />
+                        </Button>
+                      </Tooltip>
+                    </span>
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        </TableScroll>
       )}
 
-      <form action={createAction} ref={createRef}>
-        <Group align="flex-end" gap="sm" wrap="wrap">
-          <TextInput name="name" label="Neuer Standort" placeholder="z. B. Nebengebäude" required style={{ flex: 1, minWidth: 200 }} />
-          <TextInput name="address" label="Adresse (optional)" placeholder="Straße, Ort" style={{ flex: 1, minWidth: 200 }} />
-          <Button type="submit" color="slate" loading={creating}>
-            Hinzufügen
+      <form action={createAction} ref={createRef} className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-end gap-3">
+          <Field label="Neuer Standort" required className="min-w-50 flex-1">
+            {({ id }) => (
+              <TextInput id={id} name="name" placeholder="z. B. Nebengebäude" required />
+            )}
+          </Field>
+          <Field label="Adresse (optional)" className="min-w-50 flex-1">
+            {({ id }) => <TextInput id={id} name="address" placeholder="Straße, Ort" />}
+          </Field>
+          <Button type="submit" variant="primary" disabled={creating}>
+            {creating ? "Wird angelegt…" : "Hinzufügen"}
           </Button>
-        </Group>
+        </div>
         {createState.error && (
-          <Alert color="red" icon={<IconAlertCircle size={16} />} variant="light" mt="sm">
+          <Alert tone="risk" role="alert" icon={<IconAlertCircle size={16} />}>
             {createState.error}
           </Alert>
         )}
         {createState.success && (
-          <Alert color="green" icon={<IconCheck size={16} />} variant="light" mt="sm">
+          <Alert tone="ok" icon={<IconCheck size={16} />}>
             Standort wurde angelegt.
           </Alert>
         )}
       </form>
 
-      <Modal opened={editTarget !== null} onClose={() => setEditTarget(null)} title="Standort bearbeiten" centered>
+      <ResponsiveDialog
+        opened={editTarget !== null}
+        onClose={() => setEditTarget(null)}
+        title="Standort bearbeiten"
+        size="sm"
+      >
         {editTarget && (
           <EditLocationForm
             location={editTarget}
@@ -142,8 +151,8 @@ export function LocationsCard({ locations }: { locations: LocationList }) {
             }}
           />
         )}
-      </Modal>
-    </Card>
+      </ResponsiveDialog>
+    </Panel>
   );
 }
 
@@ -155,25 +164,29 @@ function EditLocationForm({ location, onDone }: { location: Location; onDone: ()
   }, [state.success, onDone]);
 
   return (
-    <form action={formAction} key={location.id}>
+    <form action={formAction} key={location.id} className="flex flex-col gap-4">
       <input type="hidden" name="id" value={location.id} />
-      <Stack gap="sm">
-        <TextInput name="name" label="Name" defaultValue={location.name} required />
-        <TextInput name="address" label="Adresse (optional)" defaultValue={location.address ?? ""} />
-        {state.error && (
-          <Alert color="red" icon={<IconAlertCircle size={16} />} variant="light">
-            {state.error}
-          </Alert>
+      <Field label="Name" required>
+        {({ id }) => <TextInput id={id} name="name" defaultValue={location.name} required />}
+      </Field>
+      <Field label="Adresse (optional)">
+        {({ id }) => (
+          <TextInput id={id} name="address" defaultValue={location.address ?? ""} />
         )}
-        <Group justify="flex-end" mt="sm">
-          <Button variant="default" onClick={onDone} disabled={pending}>
-            Abbrechen
-          </Button>
-          <Button type="submit" color="slate" loading={pending}>
-            Speichern
-          </Button>
-        </Group>
-      </Stack>
+      </Field>
+      {state.error && (
+        <Alert tone="risk" role="alert" icon={<IconAlertCircle size={16} />}>
+          {state.error}
+        </Alert>
+      )}
+      <div className="mt-1 flex justify-end gap-2">
+        <Button type="button" onClick={onDone} disabled={pending}>
+          Abbrechen
+        </Button>
+        <Button type="submit" variant="primary" disabled={pending}>
+          {pending ? "Wird gespeichert…" : "Speichern"}
+        </Button>
+      </div>
     </form>
   );
 }

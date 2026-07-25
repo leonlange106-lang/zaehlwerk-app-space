@@ -2,23 +2,6 @@
 
 import { useMemo, useState } from "react";
 import {
-  Alert,
-  Anchor,
-  Badge,
-  Card,
-  Chip,
-  Collapse,
-  Group,
-  SegmentedControl,
-  Stack,
-  Text,
-  TextInput,
-  ThemeIcon,
-  Timeline,
-  Title,
-  UnstyledButton,
-} from "@mantine/core";
-import {
   IconAlertTriangle,
   IconChevronDown,
   IconChevronRight,
@@ -28,6 +11,10 @@ import {
   IconSearch,
 } from "@tabler/icons-react";
 import type { ChangelogEntry, ChangelogType } from "@zaehlwerk/updater";
+import { Badge } from "@/app/components/ui/Badge";
+import { TextInput } from "@/app/components/ui/Field";
+import { Panel } from "@/app/components/ui/Panel";
+import { Alert, Code, IconChip, PageHeader, SegmentedControl } from "@/app/components/ui/primitives";
 import classes from "./ChangelogView.module.css";
 
 // Kept local (not imported from @zaehlwerk/updater) so this client bundle never
@@ -47,19 +34,23 @@ const TYPE_LABELS: Record<ChangelogType, string> = {
   other: "Sonstiges",
 };
 
+/**
+ * Commit-type tints. The label is always spelled out beside the colour — this is
+ * a log, and a hue on its own says nothing about what changed.
+ */
 const TYPE_COLORS: Record<ChangelogType, string> = {
-  feat: "teal",
-  fix: "red",
-  perf: "grape",
-  refactor: "blue",
-  docs: "gray",
-  chore: "gray",
-  test: "cyan",
-  build: "indigo",
-  ci: "indigo",
-  style: "pink",
-  revert: "orange",
-  other: "gray",
+  feat: "var(--zw-ok)",
+  fix: "var(--zw-risk)",
+  perf: "#a78bfa",
+  refactor: "var(--zw-accent-2)",
+  docs: "var(--zw-neutral)",
+  chore: "var(--zw-neutral)",
+  test: "var(--zw-accent)",
+  build: "#818cf8",
+  ci: "#818cf8",
+  style: "#f472b6",
+  revert: "var(--zw-watch)",
+  other: "var(--zw-neutral)",
 };
 
 // Stable display order for the filter chips.
@@ -94,6 +85,37 @@ const dateTimeFormatter = new Intl.DateTimeFormat("de-DE", {
 const GITHUB_PR_BASE = "https://github.com/leonlange106-lang/zaehlwerk-app-space/pull";
 
 type SortOrder = "newest" | "oldest";
+
+/** Filter chip. Tinted in the type's own colour when active, quiet when not. */
+function FilterChip({
+  active,
+  color,
+  onToggle,
+  children,
+}: {
+  active: boolean;
+  color: string;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <label
+      className="inline-flex cursor-pointer items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors"
+      style={
+        active
+          ? {
+              color,
+              borderColor: `color-mix(in srgb, ${color} 45%, transparent)`,
+              background: `color-mix(in srgb, ${color} 14%, transparent)`,
+            }
+          : undefined
+      }
+    >
+      <input type="checkbox" className="sr-only" checked={active} onChange={onToggle} />
+      <span className={active ? undefined : "border-line text-dim"}>{children}</span>
+    </label>
+  );
+}
 
 export function ChangelogView({
   entries,
@@ -147,199 +169,212 @@ export function ChangelogView({
     return result;
   }, [entries, search, selectedTypes, breakingOnly, sort]);
 
-  const activeIndex = currentSha
-    ? filtered.findIndex((entry) => entry.sha === currentSha)
-    : -1;
+  const filtersActive = selectedTypes.length > 0 || breakingOnly || search.trim() !== "";
 
   return (
-    <Stack gap="lg">
-      <div>
-        <Group gap="sm" mb={4}>
-          <ThemeIcon size={32} radius="md" variant="light" color="slate">
-            <IconHistory size={19} stroke={1.6} />
-          </ThemeIcon>
-          <div>
-            <Title order={2}>Changelog</Title>
-            <Text c="dimmed" size="sm">
-              Alle Änderungen dieser Instanz – filterbar nach Art, Text und mehr.
-            </Text>
-          </div>
-        </Group>
+    <div className="flex flex-col gap-6">
+      <div className="flex items-center gap-3">
+        <IconChip size={36}>
+          <IconHistory size={18} stroke={1.7} />
+        </IconChip>
+        <PageHeader
+          title="Changelog"
+          description="Alle Änderungen dieser Instanz – filterbar nach Art, Text und mehr."
+        />
       </div>
 
       {error ? (
-        <Alert color="red" variant="light" icon={<IconAlertTriangle size={16} />} title="Changelog nicht verfügbar">
+        <Alert
+          tone="risk"
+          role="alert"
+          icon={<IconAlertTriangle size={16} />}
+          title="Changelog nicht verfügbar"
+        >
           {error}
-          <Text size="xs" c="dimmed" mt={4}>
-            Meist fehlt oder ist der <code>GITHUB_TOKEN</code> abgelaufen (privates Repo). Details in DEPLOYMENT.md.
-          </Text>
+          <p className="mt-1 text-xs">
+            Meist fehlt oder ist der <Code>GITHUB_TOKEN</Code> abgelaufen (privates Repo). Details
+            in DEPLOYMENT.md.
+          </p>
         </Alert>
       ) : (
         <>
-          <Card withBorder radius="md" p="md">
-            <Stack gap="sm">
-              <Group justify="space-between" wrap="wrap" gap="sm">
-                <TextInput
-                  className={classes.search}
-                  placeholder="Suchen (Text, Scope, PR #, SHA, Autor)…"
-                  leftSection={<IconSearch size={15} />}
-                  value={search}
-                  onChange={(event) => setSearch(event.currentTarget.value)}
-                  size="sm"
-                  radius="sm"
-                />
+          <Panel className="[&]:p-4">
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="relative min-w-60 flex-1">
+                  <IconSearch
+                    size={15}
+                    className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-dim"
+                  />
+                  <TextInput
+                    aria-label="Changelog durchsuchen"
+                    className="pl-10"
+                    placeholder="Suchen (Text, Scope, PR #, SHA, Autor)…"
+                    value={search}
+                    onChange={(event) => setSearch(event.currentTarget.value)}
+                  />
+                </div>
                 <SegmentedControl
-                  size="xs"
+                  className="w-auto min-w-64"
+                  label="Sortierung"
                   value={sort}
-                  onChange={(value) => setSort(value as SortOrder)}
-                  data={[
-                    { label: "Neueste zuerst", value: "newest" },
-                    { label: "Älteste zuerst", value: "oldest" },
+                  onChange={(value) => setSort(value)}
+                  options={[
+                    { value: "newest" as SortOrder, label: "Neueste zuerst" },
+                    { value: "oldest" as SortOrder, label: "Älteste zuerst" },
                   ]}
                 />
-              </Group>
+              </div>
 
-              <Chip.Group multiple value={selectedTypes} onChange={setSelectedTypes}>
-                <Group gap={6}>
-                  {availableTypes.map((type) => (
-                    <Chip key={type} value={type} size="xs" variant="outline" color={TYPE_COLORS[type]}>
-                      {TYPE_LABELS[type]} ({typeCounts.get(type)})
-                    </Chip>
-                  ))}
-                  {breakingCount > 0 && (
-                    <Chip
-                      checked={breakingOnly}
-                      onChange={setBreakingOnly}
-                      size="xs"
-                      variant="outline"
-                      color="red"
-                    >
-                      ⚠ Breaking ({breakingCount})
-                    </Chip>
-                  )}
-                </Group>
-              </Chip.Group>
+              <div className="flex flex-wrap gap-1.5">
+                {availableTypes.map((type) => (
+                  <FilterChip
+                    key={type}
+                    active={selectedTypes.includes(type)}
+                    color={TYPE_COLORS[type]}
+                    onToggle={() =>
+                      setSelectedTypes((current) =>
+                        current.includes(type)
+                          ? current.filter((t) => t !== type)
+                          : [...current, type],
+                      )
+                    }
+                  >
+                    {TYPE_LABELS[type]} ({typeCounts.get(type)})
+                  </FilterChip>
+                ))}
+                {breakingCount > 0 && (
+                  <FilterChip
+                    active={breakingOnly}
+                    color="var(--zw-risk)"
+                    onToggle={() => setBreakingOnly((current) => !current)}
+                  >
+                    ⚠ Breaking ({breakingCount})
+                  </FilterChip>
+                )}
+              </div>
 
-              <Text size="xs" c="dimmed">
+              <p className="text-xs text-dim">
                 {filtered.length} von {entries.length} Einträgen
-                {(selectedTypes.length > 0 || breakingOnly || search.trim()) && (
+                {filtersActive && (
                   <>
                     {" · "}
-                    <Anchor
-                      component="button"
+                    <button
                       type="button"
-                      size="xs"
                       onClick={() => {
                         setSearch("");
                         setSelectedTypes([]);
                         setBreakingOnly(false);
                       }}
+                      className="text-accent underline-offset-2 hover:underline"
                     >
                       Filter zurücksetzen
-                    </Anchor>
+                    </button>
                   </>
                 )}
-              </Text>
-            </Stack>
-          </Card>
+              </p>
+            </div>
+          </Panel>
 
           {filtered.length === 0 ? (
-            <Card withBorder radius="md" p="xl">
-              <Text c="dimmed" size="sm" ta="center">
-                Keine Einträge für diese Filter.
-              </Text>
-            </Card>
+            <Panel className="[&]:p-8">
+              <p className="text-center text-sm text-dim">Keine Einträge für diese Filter.</p>
+            </Panel>
           ) : (
-            <Timeline active={activeIndex >= 0 ? activeIndex : undefined} bulletSize={18} lineWidth={2}>
+            // A plain list with a drawn spine rather than a timeline component:
+            // these are commits, and the only thing the spine has to say is
+            // "these are in order".
+            <ol className="relative flex flex-col gap-5 border-l border-line pl-6">
               {filtered.map((entry) => {
                 const isCurrent = currentSha != null && entry.sha === currentSha;
                 const isOpen = expanded[entry.sha] ?? false;
                 return (
-                  <Timeline.Item
-                    key={entry.sha}
-                    color={TYPE_COLORS[entry.type]}
-                    bullet={<span className={classes.bullet} data-current={isCurrent || undefined} />}
-                    title={
-                      <Group gap="xs" wrap="wrap">
-                        <Badge size="sm" variant="light" color={TYPE_COLORS[entry.type]}>
-                          {TYPE_LABELS[entry.type]}
-                        </Badge>
-                        {entry.scope && (
-                          <Badge size="sm" variant="outline" color="slate">
-                            {entry.scope}
-                          </Badge>
-                        )}
-                        {entry.breaking && (
-                          <Badge size="sm" variant="filled" color="red" leftSection={<IconAlertTriangle size={11} />}>
-                            Breaking
-                          </Badge>
-                        )}
-                        {isCurrent && (
-                          <Badge size="sm" variant="dot" color="green">
-                            Läuft aktuell
-                          </Badge>
-                        )}
-                      </Group>
-                    }
-                  >
-                    <Text size="sm" fw={500} className={classes.subject}>
-                      {entry.subject}
-                    </Text>
-
-                    <Group gap="sm" mt={4} className={classes.meta}>
-                      <Text span size="xs" c="dimmed" title={dateTimeFormatter.format(new Date(entry.date))}>
-                        {entry.date ? dateFormatter.format(new Date(entry.date)) : "—"}
-                      </Text>
-                      {entry.authorName && (
-                        <Text span size="xs" c="dimmed">
-                          {entry.authorName}
-                        </Text>
+                  <li key={entry.sha} className="relative">
+                    <span
+                      aria-hidden
+                      className={classes.bullet}
+                      data-current={isCurrent || undefined}
+                      style={{ background: TYPE_COLORS[entry.type] }}
+                    />
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span
+                        className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-semibold"
+                        style={{
+                          color: TYPE_COLORS[entry.type],
+                          borderColor: `color-mix(in srgb, ${TYPE_COLORS[entry.type]} 40%, transparent)`,
+                          background: `color-mix(in srgb, ${TYPE_COLORS[entry.type]} 12%, transparent)`,
+                        }}
+                      >
+                        {TYPE_LABELS[entry.type]}
+                      </span>
+                      {entry.scope && <Badge>{entry.scope}</Badge>}
+                      {entry.breaking && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-risk px-2.5 py-0.5 text-[11px] font-semibold text-canvas">
+                          <IconAlertTriangle size={11} stroke={2.2} />
+                          Breaking
+                        </span>
                       )}
-                      <Anchor href={entry.url} target="_blank" rel="noreferrer" size="xs" className={classes.sha}>
+                      {isCurrent && <Badge tone="accent">Läuft aktuell</Badge>}
+                    </div>
+
+                    <p className={`mt-1.5 text-sm font-medium ${classes.subject}`}>
+                      {entry.subject}
+                    </p>
+
+                    <div className={`mt-1 flex flex-wrap items-center gap-3 ${classes.meta}`}>
+                      <span
+                        className="text-xs text-dim"
+                        title={dateTimeFormatter.format(new Date(entry.date))}
+                      >
+                        {entry.date ? dateFormatter.format(new Date(entry.date)) : "—"}
+                      </span>
+                      {entry.authorName && (
+                        <span className="text-xs text-dim">{entry.authorName}</span>
+                      )}
+                      <a
+                        href={entry.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className={`inline-flex items-center gap-1 text-xs text-accent underline-offset-2 hover:underline ${classes.sha}`}
+                      >
                         {entry.shortSha}
                         <IconExternalLink size={11} />
-                      </Anchor>
+                      </a>
                       {entry.prNumber && (
-                        <Anchor
+                        <a
                           href={`${GITHUB_PR_BASE}/${entry.prNumber}`}
                           target="_blank"
                           rel="noreferrer"
-                          size="xs"
+                          className="inline-flex items-center gap-1 text-xs text-accent underline-offset-2 hover:underline"
                         >
-                          <Group gap={2} wrap="nowrap">
-                            <IconGitPullRequest size={12} />#{entry.prNumber}
-                          </Group>
-                        </Anchor>
+                          <IconGitPullRequest size={12} />#{entry.prNumber}
+                        </a>
                       )}
                       {entry.body && (
-                        <UnstyledButton
-                          className={classes.expandButton}
+                        <button
+                          type="button"
+                          aria-expanded={isOpen}
+                          className={`inline-flex items-center gap-1 text-xs text-dim hover:text-ink ${classes.expandButton}`}
                           onClick={() =>
                             setExpanded((prev) => ({ ...prev, [entry.sha]: !isOpen }))
                           }
                         >
-                          <Group gap={2} wrap="nowrap">
-                            {isOpen ? <IconChevronDown size={12} /> : <IconChevronRight size={12} />}
-                            Details
-                          </Group>
-                        </UnstyledButton>
+                          {isOpen ? <IconChevronDown size={12} /> : <IconChevronRight size={12} />}
+                          Details
+                        </button>
                       )}
-                    </Group>
+                    </div>
 
-                    {entry.body && (
-                      <Collapse in={isOpen}>
-                        <Text size="xs" c="dimmed" className={classes.body}>
-                          {entry.body}
-                        </Text>
-                      </Collapse>
+                    {entry.body && isOpen && (
+                      <p className={`mt-2 text-xs text-dim ${classes.body}`}>{entry.body}</p>
                     )}
-                  </Timeline.Item>
+                  </li>
                 );
               })}
-            </Timeline>
+            </ol>
           )}
         </>
       )}
-    </Stack>
+    </div>
   );
 }

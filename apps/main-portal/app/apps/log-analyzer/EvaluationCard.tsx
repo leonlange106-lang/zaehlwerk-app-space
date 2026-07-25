@@ -1,18 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import {
-  Alert,
-  Anchor,
-  Card,
-  Group,
-  List,
-  ListItem,
-  Stack,
-  Text,
-  ThemeIcon,
-  Title,
-} from "@mantine/core";
+import { Panel } from "@/app/components/ui/Panel";
+import { Alert, IconChip } from "@/app/components/ui/primitives";
 import {
   IconAlertTriangle,
   IconCheck,
@@ -92,24 +82,25 @@ export function EvaluationCard({
   ];
 
   return (
-    <Card p="md" data-testid="evaluation-card">
-      <Group justify="space-between" mb="md" wrap="wrap" gap="xs">
-        <Group gap="xs">
-          <ThemeIcon
-            variant="light"
-            color={status.tone === "ok" ? "emerald" : status.tone === "watch" ? "amber" : "red"}
-            radius="sm"
-            size={28}
-          >
-            {status.tone === "risk" ? (
-              <IconShieldX size={16} stroke={1.75} />
-            ) : (
-              <IconShieldCheck size={16} stroke={1.75} />
-            )}
-          </ThemeIcon>
-          <Title order={5}>Log-Pull Bewertung</Title>
-        </Group>
-        <Group gap={6}>
+    <Panel
+      className="[&]:p-4"
+      title="Log-Pull Bewertung"
+      icon={
+        status.tone === "risk" ? (
+          <IconShieldX size={17} stroke={1.8} />
+        ) : (
+          <IconShieldCheck size={17} stroke={1.8} />
+        )
+      }
+      accent={
+        status.tone === "ok"
+          ? "var(--zw-ok)"
+          : status.tone === "watch"
+            ? "var(--zw-watch)"
+            : "var(--zw-risk)"
+      }
+      action={
+        <>
           <StatusBadge
             size="lg"
             variant="filled"
@@ -123,96 +114,92 @@ export function EvaluationCard({
             label={status.label}
             data-testid="pull-status"
           />
-        </Group>
-      </Group>
+        </>
+      }
+    >
+      <div data-testid="evaluation-card">
+        <ul className="flex flex-col gap-2.5">
+          {checks.map((c) => {
+            const tone = toneForCheck(c.ok);
+            return (
+              <li key={c.label} className="flex items-center gap-2.5">
+                <IconChip
+                  size={22}
+                  accent={
+                    tone === "ok"
+                      ? "var(--zw-ok)"
+                      : tone === "risk"
+                        ? "var(--zw-risk)"
+                        : "var(--zw-neutral)"
+                  }
+                >
+                  {c.ok === true ? (
+                    <IconCheck size={13} stroke={2.4} />
+                  ) : c.ok === false ? (
+                    <IconAlertTriangle size={13} stroke={2} />
+                  ) : (
+                    <IconInfoCircle size={13} stroke={2} />
+                  )}
+                </IconChip>
+                <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
+                  <span className="text-sm">{c.label}</span>
+                  <span className="readout flex-none text-xs text-dim">{c.value}</span>
+                </span>
+              </li>
+            );
+          })}
+        </ul>
 
-      <List spacing={8} size="sm" center>
-        {checks.map((c) => (
-          <ListItem
-            key={c.label}
-            icon={
-              <ThemeIcon
-                size={20}
-                radius="sm"
-                variant="light"
-                color={
-                  toneForCheck(c.ok) === "ok"
-                    ? "emerald"
-                    : toneForCheck(c.ok) === "risk"
-                      ? "red"
-                      : "slate"
-                }
+        {validity.reasons.length > 0 && (
+          <div className="mt-3 flex flex-col gap-1">
+            {validity.reasons.map((r) => (
+              <p key={r} className="text-xs text-dim">
+                • {r}
+              </p>
+            ))}
+          </div>
+        )}
+
+        {alerts.length > 0 && (
+          <div className="mt-6 flex flex-col gap-2" data-testid="safety-alerts">
+            <p className="legend-label">Safety &amp; Health</p>
+            {alerts.map((a) => (
+              <Alert
+                key={a.id}
+                role="alert"
+                // Watch, not the app's own orange: a warning has to read as a
+                // status, not as "this is the Log Analyzer".
+                tone={a.severity === "critical" ? "risk" : "watch"}
+                icon={<IconAlertTriangle size={16} />}
+                title={a.title}
               >
-                {c.ok === true ? (
-                  <IconCheck size={13} stroke={2.2} />
-                ) : c.ok === false ? (
-                  <IconAlertTriangle size={13} stroke={1.75} />
-                ) : (
-                  <IconInfoCircle size={13} stroke={1.75} />
-                )}
-              </ThemeIcon>
-            }
+                {a.detail}
+              </Alert>
+            ))}
+          </div>
+        )}
+
+        {missing.length > 0 && (
+          <div className="mt-6 flex flex-col gap-2" data-testid="missing-params">
+            <p className="legend-label">Logging-Profil Hinweise</p>
+            {missing.map((m) => (
+              <Alert key={m.key} icon={<IconInfoCircle size={16} />}>
+                {m.message}
+              </Alert>
+            ))}
+          </div>
+        )}
+
+        <p className="mt-6 text-xs text-dim">
+          Bewertet gegen Profil: {summarizeSpec(spec)}.{" "}
+          <Link
+            href="/apps/log-analyzer/specs"
+            className="text-accent underline-offset-2 hover:underline"
           >
-            <Group gap={6} justify="space-between" wrap="nowrap">
-              <Text size="sm">{c.label}</Text>
-              <Text size="xs" c="dimmed">
-                {c.value}
-              </Text>
-            </Group>
-          </ListItem>
-        ))}
-      </List>
-
-      {validity.reasons.length > 0 && (
-        <Stack gap={4} mt="sm">
-          {validity.reasons.map((r) => (
-            <Text key={r} size="xs" c="dimmed">
-              • {r}
-            </Text>
-          ))}
-        </Stack>
-      )}
-
-      {alerts.length > 0 && (
-        <Stack gap="xs" mt="lg" data-testid="safety-alerts">
-          <Text size="xs" fw={700} tt="uppercase" c="dimmed">
-            Safety &amp; Health
-          </Text>
-          {alerts.map((a) => (
-            <Alert
-              key={a.id}
-              variant="light"
-              // Amber, not the app's orange accent: a warning must read as a
-              // status, not as "this is the Log Analyzer".
-              color={a.severity === "critical" ? "red" : "amber"}
-              icon={<IconAlertTriangle size={16} />}
-              title={a.title}
-            >
-              {a.detail}
-            </Alert>
-          ))}
-        </Stack>
-      )}
-
-      {missing.length > 0 && (
-        <Stack gap={6} mt="lg" data-testid="missing-params">
-          <Text size="xs" fw={700} tt="uppercase" c="dimmed">
-            Logging-Profil Hinweise
-          </Text>
-          {missing.map((m) => (
-            <Alert key={m.key} variant="light" color="cyan" icon={<IconInfoCircle size={16} />}>
-              {m.message}
-            </Alert>
-          ))}
-        </Stack>
-      )}
-
-      <Text size="xs" c="dimmed" mt="lg">
-        Bewertet gegen Profil: {summarizeSpec(spec)}.{" "}
-        <Anchor component={Link} href="/apps/log-analyzer/specs" size="xs" c="orange">
-          Anpassen
-        </Anchor>
-      </Text>
-    </Card>
+            Anpassen
+          </Link>
+        </p>
+      </div>
+    </Panel>
   );
 }

@@ -10,7 +10,7 @@
  */
 .rail {
   display: flex;
-  gap: 8px;
+  gap: 10px;
   width: 100%;
   overflow-x: auto;
   overscroll-behavior-x: contain;
@@ -33,23 +33,23 @@
   /* Opaque, or the page would smear through the pinned rail as it scrolls. */
   background: var(--zw-canvas);
   border-bottom: 1px solid var(--zw-border);
-  margin-inline: calc(-1 * var(--mantine-spacing-xs));
-  padding-inline: var(--mantine-spacing-xs);
+  margin-inline: calc(-1 * var(--zw-gutter));
+  padding-inline: var(--zw-gutter);
 }
 
 .item {
   flex: 0 0 auto;
   /* Wide enough for "1.234,5 kWh" without wrapping, narrow enough that a second
      tile peeks in at 390px — the affordance that says "this scrolls". */
-  width: 148px;
+  width: 172px;
   scroll-snap-align: start;
 }
 
-@media (min-width: $mantine-breakpoint-sm) {
+@media (min-width: 48em) {
   .rail {
     display: grid;
     grid-template-columns: repeat(var(--rail-cols, 4), minmax(0, 1fr));
-    gap: var(--mantine-spacing-sm);
+    gap: 16px;
     overflow-x: visible;
   }
 
@@ -67,7 +67,7 @@
 }
 
 /* Between phone and tablet, two columns beat four cramped ones. */
-@media (min-width: $mantine-breakpoint-sm) and (max-width: $mantine-breakpoint-md) {
+@media (min-width: 48em) and (max-width: 62em) {
   .rail {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }

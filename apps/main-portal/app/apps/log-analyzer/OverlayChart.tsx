@@ -1,6 +1,5 @@
 "use client";
 
-import { Text } from "@mantine/core";
 import {
   CartesianGrid,
   Line,
@@ -38,9 +37,9 @@ export function OverlayChart({
 }) {
   if (overlay.points.length === 0) {
     return (
-      <Text c="dimmed" ta="center" size="sm" py="lg">
+      <p className="py-6 text-center text-sm text-dim">
         Für diesen Kanal liegen in beiden Logs keine gemeinsamen Daten vor.
-      </Text>
+      </p>
     );
   }
 

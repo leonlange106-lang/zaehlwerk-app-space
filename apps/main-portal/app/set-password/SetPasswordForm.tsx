@@ -3,20 +3,12 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
-import {
-  Alert,
-  Anchor,
-  Button,
-  Card,
-  Center,
-  PasswordInput,
-  Stack,
-  Text,
-  Title,
-} from "@mantine/core";
 import { IconAlertCircle, IconShieldLock } from "@tabler/icons-react";
 import { completePasswordSetupAction } from "../lib/login-actions";
-import classes from "../login/LoginForm.module.css";
+import { AuthShell } from "../components/ui/AuthShell";
+import { Button } from "../components/ui/Button";
+import { Field, PasswordInput } from "../components/ui/Field";
+import { Alert } from "../components/ui/primitives";
 
 // Forced first-login password setup. The account was created with a temp
 // password; the user must set a real one here before any app becomes usable.
@@ -55,61 +47,73 @@ export function SetPasswordForm({ email }: { email: string }) {
   }
 
   return (
-    <Center className={classes.screen}>
-      <Card withBorder radius="md" p="xl" className={classes.card}>
-        <Stack gap="sm" align="center" mb="md">
-          <IconShieldLock size={40} stroke={1.4} color="var(--mantine-color-slate-6)" />
-          <div style={{ textAlign: "center" }}>
-            <Title order={3}>Passwort festlegen</Title>
-            <Text c="dimmed" size="sm">
-              Lege für <strong>{email}</strong> ein eigenes Passwort fest, um fortzufahren.
-            </Text>
-          </div>
-        </Stack>
-
-        <form onSubmit={handleSubmit}>
-          <Stack gap="sm">
+    <AuthShell
+      icon={<IconShieldLock size={24} stroke={1.7} />}
+      title="Passwort festlegen"
+      description={
+        <>
+          Lege für <strong className="text-ink">{email}</strong> ein eigenes Passwort fest, um
+          fortzufahren.
+        </>
+      }
+      footer={
+        <button
+          type="button"
+          onClick={() => signOut({ callbackUrl: "/login" })}
+          className="text-xs text-dim underline-offset-2 hover:underline"
+        >
+          Abmelden
+        </button>
+      }
+    >
+      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        <Field
+          label="Neues Passwort"
+          description="Mindestens 8 Zeichen"
+          error={tooShort ? "Mindestens 8 Zeichen." : undefined}
+          required
+        >
+          {({ id, describedBy }) => (
             <PasswordInput
-              label="Neues Passwort"
-              description="Mindestens 8 Zeichen"
+              id={id}
+              aria-describedby={describedBy}
+              autoComplete="new-password"
               placeholder="••••••••"
               value={password}
               onChange={(event) => setPassword(event.currentTarget.value)}
-              error={tooShort ? "Mindestens 8 Zeichen." : undefined}
               required
-              data-autofocus
+              autoFocus
             />
+          )}
+        </Field>
+        <Field
+          label="Passwort bestätigen"
+          error={mismatch ? "Die Passwörter stimmen nicht überein." : undefined}
+          required
+        >
+          {({ id, describedBy }) => (
             <PasswordInput
-              label="Passwort bestätigen"
+              id={id}
+              aria-describedby={describedBy}
+              autoComplete="new-password"
               placeholder="••••••••"
               value={confirm}
               onChange={(event) => setConfirm(event.currentTarget.value)}
-              error={mismatch ? "Die Passwörter stimmen nicht überein." : undefined}
               required
             />
+          )}
+        </Field>
 
-            {error && (
-              <Alert color="red" icon={<IconAlertCircle size={16} />} variant="light">
-                {error}
-              </Alert>
-            )}
+        {error && (
+          <Alert tone="risk" role="alert" icon={<IconAlertCircle size={16} />}>
+            {error}
+          </Alert>
+        )}
 
-            <Button type="submit" color="slate" loading={pending} disabled={!canSubmit} fullWidth mt="xs">
-              Passwort speichern &amp; fortfahren
-            </Button>
-            <Anchor
-              component="button"
-              type="button"
-              size="xs"
-              c="dimmed"
-              ta="center"
-              onClick={() => signOut({ callbackUrl: "/login" })}
-            >
-              Abmelden
-            </Anchor>
-          </Stack>
-        </form>
-      </Card>
-    </Center>
+        <Button type="submit" variant="primary" full disabled={!canSubmit}>
+          {pending ? "Wird gespeichert…" : "Passwort speichern & fortfahren"}
+        </Button>
+      </form>
+    </AuthShell>
   );
 }

@@ -1,16 +1,10 @@
 import type { Metadata, Viewport } from "next";
-import {
-  ColorSchemeScript,
-  mantineHtmlProps,
-  MantineProvider,
-} from "@mantine/core";
-import { Notifications } from "@mantine/notifications";
 import { SessionProvider } from "next-auth/react";
-import "@mantine/core/styles.css";
-import "@mantine/notifications/styles.css";
 import "./globals.css";
-import { theme } from "../theme";
 import { PortalShell } from "./PortalShell";
+import { ThemeProvider, themeScript } from "./components/shell/ThemeProvider";
+import { ToastProvider } from "./components/ui/Toast";
+import { TooltipProvider } from "./components/ui/Tooltip";
 import { getCurrentVersionInfo } from "./lib/version";
 import { allowedAppIdsFor } from "./lib/app-access";
 import { auth } from "@/auth";
@@ -48,24 +42,28 @@ export default async function RootLayout({
   const allowedAppIds = await allowedAppIdsFor(session?.user);
 
   return (
-    <html lang="de" {...mantineHtmlProps}>
+    <html lang="de" suppressHydrationWarning>
       <head>
-        {/* Dark-mode native: the palette is designed on the OLED canvas first,
-            and light mode is the derived variant. */}
-        <ColorSchemeScript defaultColorScheme="dark" />
+        {/* Resolves the colour scheme onto <html> BEFORE the first paint, so a
+            light-mode user never sees a dark frame. Has to be a raw script: it
+            must run ahead of hydration. Default is "auto" — follow the OS. */}
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
       <body>
-        <MantineProvider theme={theme} defaultColorScheme="dark">
-          <Notifications position="top-right" />
-          <SessionProvider session={session}>
-            <PortalShell
-              version={version ? { shortSha: version.shortSha, branch: version.branch } : null}
-              allowedAppIds={allowedAppIds}
-            >
-              {children}
-            </PortalShell>
-          </SessionProvider>
-        </MantineProvider>
+        <ThemeProvider>
+          <ToastProvider>
+            <TooltipProvider>
+              <SessionProvider session={session}>
+                <PortalShell
+                  version={version ? { shortSha: version.shortSha, branch: version.branch } : null}
+                  allowedAppIds={allowedAppIds}
+                >
+                  {children}
+                </PortalShell>
+              </SessionProvider>
+            </TooltipProvider>
+          </ToastProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

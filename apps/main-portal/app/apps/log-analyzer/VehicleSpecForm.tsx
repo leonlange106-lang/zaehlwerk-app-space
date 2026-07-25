@@ -1,19 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import {
-  Badge,
-  Button,
-  Card,
-  Divider,
-  Group,
-  SimpleGrid,
-  Stack,
-  Text,
-  ThemeIcon,
-  Title,
-  Select,
-} from "@mantine/core";
+import { Badge } from "@/app/components/ui/Badge";
+import { Button } from "@/app/components/ui/Button";
+import { Field, Select, SelectShell } from "@/app/components/ui/Field";
+import { Panel } from "@/app/components/ui/Panel";
+import { Divider, IconChip, PageHeader } from "@/app/components/ui/primitives";
 import { IconCar, IconDeviceFloppy, IconEngine, IconGauge } from "@tabler/icons-react";
 import { loadVehicleSpec, saveVehicleSpec } from "./lib/spec-store";
 import {
@@ -56,6 +48,54 @@ function engineOptions(codes: readonly EngineCode[]) {
 
 function transmissionOptions(codes: readonly TransmissionCode[]) {
   return codes.map((code) => ({ value: code, label: TRANSMISSIONS[code] }));
+}
+
+/**
+ * One labelled native select. Keeps the data-testid the E2E suite locates.
+ *
+ * Module scope on purpose: declared inside the form it would be a NEW component
+ * type on every render, so React would unmount and remount each select — losing
+ * focus mid-interaction and closing an open dropdown on the next keystroke.
+ */
+function Choice({
+  label,
+  testId,
+  value,
+  onChange,
+  disabled,
+  placeholder,
+  options: opts,
+}: {
+  label: string;
+  testId: string;
+  value: string | null;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+  placeholder?: string;
+  options: { value: string; label: string }[];
+}) {
+  return (
+    <Field label={label}>
+      {({ id }) => (
+        <SelectShell>
+          <Select
+            id={id}
+            data-testid={testId}
+            value={value ?? ""}
+            disabled={disabled}
+            onChange={(event) => onChange(event.currentTarget.value)}
+          >
+            {placeholder && <option value="">{placeholder}</option>}
+            {opts.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </Select>
+        </SelectShell>
+      )}
+    </Field>
+  );
 }
 
 export function VehicleSpecForm() {
@@ -120,154 +160,116 @@ export function VehicleSpecForm() {
   }
 
   return (
-    <Stack gap="lg" maw={820} mx="auto">
-      <Group gap="md">
-        <ThemeIcon variant="light" color="orange" radius="md" size={44}>
-          <IconEngine size={24} stroke={1.5} />
-        </ThemeIcon>
-        <div>
-          <Title order={2}>Fahrzeug- &amp; Motor-Profil</Title>
-          <Text c="dimmed" size="sm">
-            Exakte Motorbezeichnung + Hardware bestimmen die kontextuellen Grenzwerte der
-            automatischen Log-Bewertung.
-          </Text>
-        </div>
-      </Group>
+    <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
+      <div className="flex items-center gap-4">
+        <IconChip size={44}>
+          <IconEngine size={22} stroke={1.6} />
+        </IconChip>
+        <PageHeader
+          title="Fahrzeug- & Motor-Profil"
+          description="Exakte Motorbezeichnung + Hardware bestimmen die kontextuellen Grenzwerte der automatischen Log-Bewertung."
+        />
+      </div>
 
-      <Card withBorder radius="md" p="lg">
-        <Group gap="xs" mb="md">
-          <ThemeIcon variant="light" color="orange" radius="md" size={28}>
-            <IconCar size={16} stroke={1.6} />
-          </ThemeIcon>
-          <Title order={5}>Fahrzeug &amp; Antrieb</Title>
-        </Group>
-        <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }} spacing="md">
-          <Select
+      <Panel title="Fahrzeug & Antrieb" icon={<IconCar size={17} stroke={1.7} />}>
+        <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
+          <Choice
             label="Marke"
-            data={VEHICLE_CATALOG.map((b) => ({ value: b.id, label: b.label }))}
+            testId="spec-brand"
             value={spec.brand}
-            onChange={onBrand}
+            onChange={(v) => onBrand(v || null)}
             placeholder="Marke wählen"
-            clearable
-            data-testid="spec-brand"
+            options={VEHICLE_CATALOG.map((b) => ({ value: b.id, label: b.label }))}
           />
-          <Select
+          <Choice
             label="Baureihe"
-            data={(brand?.series ?? []).map((s) => ({ value: s.id, label: s.label }))}
+            testId="spec-series"
             value={spec.series}
-            onChange={onSeries}
-            placeholder={brand ? "Baureihe wählen" : "erst Marke wählen"}
+            onChange={(v) => onSeries(v || null)}
             disabled={!brand}
-            clearable
-            data-testid="spec-series"
+            placeholder={brand ? "Baureihe wählen" : "erst Marke wählen"}
+            options={(brand?.series ?? []).map((x) => ({ value: x.id, label: x.label }))}
           />
-          <Select
+          <Choice
             label="Modell"
-            data={(series?.models ?? []).map((m) => ({ value: m.id, label: m.label }))}
+            testId="spec-model"
             value={spec.model}
-            onChange={onModel}
-            placeholder={series ? "Modell wählen" : "erst Baureihe wählen"}
+            onChange={(v) => onModel(v || null)}
             disabled={!series}
-            clearable
-            data-testid="spec-model"
+            placeholder={series ? "Modell wählen" : "erst Baureihe wählen"}
+            options={(series?.models ?? []).map((m) => ({ value: m.id, label: m.label }))}
           />
-          <Select
+          <Choice
             label="Motor (exakte Bezeichnung)"
-            data={engineChoices}
+            testId="spec-engine"
             value={spec.engineCode}
-            onChange={(v) => v && update("engineCode", v as EngineCode)}
-            allowDeselect={false}
-            searchable
-            data-testid="spec-engine"
+            onChange={(v) => update("engineCode", v as EngineCode)}
+            options={engineChoices}
           />
-          <Select
+          <Choice
             label="Getriebe"
-            data={transmissionChoices}
+            testId="spec-transmission"
             value={spec.transmission}
-            onChange={(v) => v && update("transmission", v as TransmissionCode)}
-            allowDeselect={false}
-            searchable
-            data-testid="spec-transmission"
+            onChange={(v) => update("transmission", v as TransmissionCode)}
+            options={transmissionChoices}
           />
-        </SimpleGrid>
-        <Text size="xs" c="dimmed" mt="sm">
+        </div>
+        <p className="mt-4 text-xs text-dim">
           {ENGINES[spec.engineCode].displacement} · Redline-Bezug{" "}
           {ENGINES[spec.engineCode].thresholds.redlineRpm} RPM
-        </Text>
-      </Card>
+        </p>
+      </Panel>
 
-      <Card withBorder radius="md" p="lg">
-        <Title order={5} mb="md">
-          Hardware-Setup
-        </Title>
-        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
-          <Select
+      <Panel title="Hardware-Setup">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Choice
             label="Katalysator"
-            data={options<CatType>(CAT_TYPE_LABELS)}
+            testId="spec-cat"
             value={spec.catType}
-            onChange={(v) => v && update("catType", v as CatType)}
-            allowDeselect={false}
-            data-testid="spec-cat"
+            onChange={(v) => update("catType", v as CatType)}
+            options={options<CatType>(CAT_TYPE_LABELS)}
           />
-          <Select
+          <Choice
             label="Kraftstoff / Oktan"
-            data={options<FuelType>(FUEL_LABELS)}
+            testId="spec-fuel"
             value={spec.fuel}
-            onChange={(v) => v && update("fuel", v as FuelType)}
-            allowDeselect={false}
-            data-testid="spec-fuel"
+            onChange={(v) => update("fuel", v as FuelType)}
+            options={options<FuelType>(FUEL_LABELS)}
           />
-          <Select
+          <Choice
             label="Turbolader"
-            data={options<TurboType>(TURBO_LABELS)}
+            testId="spec-turbo"
             value={spec.turbo}
-            onChange={(v) => v && update("turbo", v as TurboType)}
-            allowDeselect={false}
-            data-testid="spec-turbo"
+            onChange={(v) => update("turbo", v as TurboType)}
+            options={options<TurboType>(TURBO_LABELS)}
           />
-          <Select
+          <Choice
             label="Hochdruckpumpe (HPFP)"
-            data={options<HpfpType>(HPFP_LABELS)}
+            testId="spec-hpfp"
             value={spec.hpfp}
-            onChange={(v) => v && update("hpfp", v as HpfpType)}
-            allowDeselect={false}
-            data-testid="spec-hpfp"
+            onChange={(v) => update("hpfp", v as HpfpType)}
+            options={options<HpfpType>(HPFP_LABELS)}
           />
-          <Select
+          <Choice
             label="Tuning-Stufe (Map)"
-            data={options<TuneStage>(STAGE_LABELS)}
+            testId="spec-stage"
             value={spec.stage}
-            onChange={(v) => v && update("stage", v as TuneStage)}
-            allowDeselect={false}
-            data-testid="spec-stage"
+            onChange={(v) => update("stage", v as TuneStage)}
+            options={options<TuneStage>(STAGE_LABELS)}
           />
-        </SimpleGrid>
+        </div>
 
-        <Group justify="flex-end" mt="lg">
-          {saved && (
-            <Badge color="teal" variant="light" data-testid="spec-saved">
-              Gespeichert
-            </Badge>
-          )}
-          <Button
-            color="orange"
-            leftSection={<IconDeviceFloppy size={16} />}
-            onClick={save}
-            data-testid="spec-save"
-          >
+        <div className="mt-6 flex items-center justify-end gap-3">
+          {saved && <Badge tone="accent" data-testid="spec-saved">Gespeichert</Badge>}
+          <Button variant="primary" onClick={save} data-testid="spec-save">
+            <IconDeviceFloppy size={16} />
             Profil speichern
           </Button>
-        </Group>
-      </Card>
+        </div>
+      </Panel>
 
-      <Card withBorder radius="md" p="lg">
-        <Group gap="xs" mb="md">
-          <ThemeIcon variant="light" color="slate" radius="md" size={30}>
-            <IconGauge size={17} stroke={1.6} />
-          </ThemeIcon>
-          <Title order={5}>Abgeleitete Grenzwerte</Title>
-        </Group>
-        <SimpleGrid cols={{ base: 2, sm: 3, md: 4 }} spacing="md">
+      <Panel title="Abgeleitete Grenzwerte" icon={<IconGauge size={17} stroke={1.7} />}>
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
           <Limit label="EGT-Limit" value={`${limits.maxEgt} °C`} />
           <Limit label="Max. Boost (plausibel)" value={`${limits.maxBoost.toFixed(2)} bar`} />
           <Limit label="Min. HPFP-Druck" value={`${limits.minHpfpPressure} bar`} />
@@ -276,25 +278,21 @@ export function VehicleSpecForm() {
           <Limit label="HPFP-Einbruch" value={`${limits.hpfpDrop} bar`} />
           <Limit label="Knock-Korrektur" value={`${limits.knockCorrection}°`} />
           <Limit label="Pull-Fenster" value={`≤ ${limits.rpmStartMax} → ≥ ${limits.rpmEndMin}`} />
-        </SimpleGrid>
-        <Divider my="md" />
-        <Text size="xs" c="dimmed">
+        </div>
+        <Divider className="my-4" />
+        <p className="text-xs text-dim">
           Basis: {limits.engineLabel}. {limits.egtRationale}
-        </Text>
-      </Card>
-    </Stack>
+        </p>
+      </Panel>
+    </div>
   );
 }
 
 function Limit({ label, value }: { label: string; value: string }) {
   return (
-    <div>
-      <Text size="xs" c="dimmed" tt="uppercase" fw={600} lh={1.3}>
-        {label}
-      </Text>
-      <Text size="sm" fw={600}>
-        {value}
-      </Text>
+    <div className="min-w-0">
+      <p className="legend-label">{label}</p>
+      <p className="readout mt-0.5 text-sm">{value}</p>
     </div>
   );
 }

@@ -7,18 +7,28 @@
  * two-column layout with no JS involved. Because the initial pane is chosen
  * before the first paint, nothing ever appears and then collapses.
  */
-@media (max-width: $mantine-breakpoint-sm) {
+@media (max-width: 48em) {
   .pane[data-active="false"] {
     display: none;
   }
 }
 
+/*
+ * The row used to be a component Card that supplied its own surface; it is a
+ * plain link now, so the plate look lives here — same recipe as the `panel`
+ * utility in globals.css, plus the meter's identity colour as a hard left spine,
+ * which makes a list of eight meters scannable by edge alone.
+ */
 .zaehlerCard {
   display: block;
+  padding: 16px;
   text-decoration: none;
   color: inherit;
-  /* The meter's identity colour as a hard left spine — scannable down a list
-     without reading a single label. */
+  border-radius: var(--zw-radius-panel);
+  border: 1px solid var(--zw-border);
+  background-color: var(--zw-surface);
+  background-image: linear-gradient(160deg, var(--zw-glass-top), var(--zw-glass-bottom));
+  box-shadow: var(--zw-shadow), inset 0 1px 0 0 var(--zw-glass-edge);
   border-left: 3px solid var(--meter-color, var(--zw-border-strong));
   transition: border-color 100ms ease, background-color 100ms ease;
 }
@@ -46,5 +56,5 @@
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--mantine-color-dimmed);
+  color: var(--zw-text-dim);
 }

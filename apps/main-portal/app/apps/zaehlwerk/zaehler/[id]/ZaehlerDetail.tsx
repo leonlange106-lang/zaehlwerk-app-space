@@ -1,28 +1,19 @@
 "use client";
 
 import { useActionState, useEffect, useRef, useState, useTransition } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { Badge } from "@/app/components/ui/Badge";
+import { Button, ButtonLink } from "@/app/components/ui/Button";
+import { Field, NumberInput, Select, SelectShell, TextInput } from "@/app/components/ui/Field";
+import { Panel } from "@/app/components/ui/Panel";
+import { Tooltip } from "@/app/components/ui/Tooltip";
+import { useToast } from "@/app/components/ui/Toast";
 import {
-  ActionIcon,
   Alert,
-  Badge,
-  Button,
-  Card,
-  Checkbox,
+  Checkbox as UiCheckbox,
   Divider,
-  Grid,
-  GridCol,
-  Group,
-  NumberInput,
   SegmentedControl,
-  Select,
-  Stack,
-  Text,
-  TextInput,
-  Title,
-} from "@mantine/core";
-import { notifications } from "@mantine/notifications";
+} from "@/app/components/ui/primitives";
 import {
   IconAlertCircle,
   IconArrowLeft,
@@ -43,7 +34,7 @@ import {
   gasM3ToKwh,
   pickTariffForDate,
   type ConsumptionProjection,
-} from "@zaehlwerk/database/shared";
+} from "@zaehlwerk/database/client";
 import type { getZaehlerById, listLocations } from "@/app/lib/zaehler-actions";
 import {
   createAblesungAction,
@@ -140,66 +131,56 @@ export function ZaehlerDetail({
   });
 
   return (
-    <Stack gap="md">
+    <div className="flex flex-col gap-5">
       <div>
-        <Button
-          component={Link}
+        <ButtonLink
           href="/apps/zaehlwerk/zaehler"
-          variant="subtle"
-          color="slate"
-          size="xs"
-          leftSection={<IconArrowLeft size={14} />}
-          px={0}
+          variant="ghost"
+          size="sm"
+          className="px-0"
         >
+          <IconArrowLeft size={14} />
           Zurück zu Zähler
-        </Button>
-        <Group justify="space-between" align="flex-start" mt="xs">
-          <div>
-            <Group gap="sm">
+        </ButtonLink>
+        <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2.5">
               <span className={classes.colorDot} style={{ background: zaehler.farbe }} />
-              <Title order={2}>{zaehler.name}</Title>
-            </Group>
-            <Text c="dimmed" size="sm">
-              {zaehler.location?.name ?? "Kein Standort"}
-            </Text>
+              <h1 className="truncate text-2xl font-bold tracking-tight sm:text-3xl">
+                {zaehler.name}
+              </h1>
+            </div>
+            <p className="mt-1 text-sm text-dim">{zaehler.location?.name ?? "Kein Standort"}</p>
           </div>
-          <Badge variant="light" color="slate" size="lg">
-            {ENERGY_CATEGORY_LABELS[zaehler.kategorie]}
-          </Badge>
-        </Group>
+          <Badge tone="accent">{ENERGY_CATEGORY_LABELS[zaehler.kategorie]}</Badge>
+        </div>
       </div>
 
       <SegmentedControl
-        hiddenFrom="sm"
-        fullWidth
+        className="sm:hidden"
+        label="Bereich wählen"
         value={pane}
         onChange={(value) => setPane(value as DetailPane)}
-        aria-label="Bereich wählen"
-        data={[
-          { value: "verlauf", label: "Verlauf" },
-          { value: "erfassen", label: "Erfassen" },
-          { value: "verwalten", label: "Verwalten" },
+        options={[
+          { value: "verlauf" as DetailPane, label: "Verlauf" },
+          { value: "erfassen" as DetailPane, label: "Erfassen" },
+          { value: "verwalten" as DetailPane, label: "Verwalten" },
         ]}
       />
 
-      <Grid gutter="md">
-        <GridCol
-          span={{ base: 12, lg: 8 }}
-          className={classes.pane}
+      <div className="grid gap-5 lg:grid-cols-12">
+        <div
+          className={`${classes.pane} lg:col-span-8`}
           data-active={pane === "verlauf" ? "true" : "false"}
         >
-          <Card p="md">
-            <Title order={4} mb="sm">
-              Verlauf
-            </Title>
-
+          <Panel title="Verlauf">
             {intervals.length > 0 && (
               <div className={classes.detailStats}>
                 <MetricTile
                   label="Verbrauch gesamt"
                   value={`${numberFormatter.format(stats.total)} ${zaehler.einheit}`}
                   hint={`${intervals.length} Intervalle`}
-                  icon={<IconSum size={15} stroke={1.6} />}
+                  icon={<IconSum size={18} stroke={1.7} />}
                 />
                 <MetricTile
                   label="Ø pro Tag"
@@ -209,22 +190,20 @@ export function ZaehlerDetail({
                       : "–"
                   }
                   hint="über den gesamten Zeitraum"
-                  icon={<IconTrendingUp size={15} stroke={1.6} />}
+                  icon={<IconTrendingUp size={18} stroke={1.7} />}
                 />
               </div>
             )}
 
             {stats.hasImplausibleIntervals && (
-              <Alert color="amber" icon={<IconAlertCircle size={16} />} variant="light" mb="sm">
+              <Alert tone="watch" icon={<IconAlertCircle size={16} />} className="mb-4">
                 Mindestens ein Intervall ist unplausibel (negativer Verbrauch) und fließt nicht in
                 die Summe ein. Bitte betroffene Ablesungen prüfen.
               </Alert>
             )}
 
             {zaehler.ablesungen.length === 0 ? (
-              <Text size="sm" c="dimmed">
-                Noch keine Ablesungen erfasst.
-              </Text>
+              <p className="text-sm text-dim">Noch keine Ablesungen erfasst.</p>
             ) : (
               <ReadingHistoryTable
                 rows={readingRows}
@@ -233,38 +212,33 @@ export function ZaehlerDetail({
                 einheit={zaehler.einheit}
               />
             )}
-          </Card>
-        </GridCol>
+          </Panel>
+        </div>
 
-        <GridCol
-          span={{ base: 12, lg: 4 }}
-          className={classes.pane}
+        <div
+          className={`${classes.pane} lg:col-span-4`}
           data-active={pane !== "verlauf" ? "true" : "false"}
         >
-          <Stack gap="md">
+          <div className="flex flex-col gap-5">
             <div className={classes.pane} data-active={pane === "erfassen" ? "true" : "false"}>
               <CreateReadingCard zaehler={zaehler} />
             </div>
 
             <div className={classes.pane} data-active={pane === "verwalten" ? "true" : "false"}>
-              <Stack gap="md">
+              <div className="flex flex-col gap-5">
                 <EditZaehlerForm zaehler={zaehler} locations={locations} />
                 <MeterDataCard zaehlerId={zaehler.id} />
 
-                <Card p="md">
-                  <Group gap="xs" mb="sm">
-                    <IconChartLine size={18} stroke={1.6} />
-                    <Title order={4}>Jahres-Hochrechnung</Title>
-                  </Group>
+                <Panel title="Jahres-Hochrechnung" icon={<IconChartLine size={17} stroke={1.7} />}>
                   <ProjectionStats projection={projection} />
-                </Card>
+                </Panel>
 
                 <TarifeCard zaehler={zaehler} />
-              </Stack>
+              </div>
             </div>
-          </Stack>
-        </GridCol>
-      </Grid>
+          </div>
+        </div>
+      </div>
 
       <div className={classes.pane} data-active={pane === "verwalten" ? "true" : "false"}>
         <SmartHomeCard
@@ -275,7 +249,7 @@ export function ZaehlerDetail({
           origin={origin}
         />
       </div>
-    </Stack>
+    </div>
   );
 }
 
@@ -291,61 +265,62 @@ function CreateReadingCard({ zaehler }: { zaehler: ZaehlerWithHistory }) {
   }, [state.success]);
 
   return (
-    <Card p="md">
-      <Group gap="xs" mb="sm">
-        <IconGaugeFilled size={18} stroke={1.6} />
-        <Title order={4}>Neue Ablesung erfassen</Title>
-      </Group>
-      <Text size="sm" c="dimmed" mb="md">
-        Zählerstand direkt für <b>{zaehler.name}</b> eintragen.
-      </Text>
-      <form action={formAction} ref={formRef}>
+    <Panel
+      title="Neue Ablesung erfassen"
+      icon={<IconGaugeFilled size={17} stroke={1.7} />}
+      description={<>Zählerstand direkt für <strong className="text-ink">{zaehler.name}</strong> eintragen.</>}
+    >
+      <form action={formAction} ref={formRef} className="flex flex-col gap-4">
         <input type="hidden" name="zaehlerId" value={zaehler.id} />
-        <Stack gap="sm">
-          <TextInput name="datum" label="Ablesedatum" type="date" defaultValue={today} required />
-          <NumberInput
-            name="wert"
-            label={`Zählerstand (${zaehler.einheit})`}
-            placeholder="0"
-            min={0}
-            inputMode="decimal"
-            required
-          />
-          <NumberInput
-            name="kosten"
-            label="Kosten (optional)"
-            placeholder="0.00"
-            min={0}
-            decimalScale={2}
-            inputMode="decimal"
-          />
-          <Checkbox name="zaehlerGetauscht" label="Zähler wurde bei dieser Ablesung getauscht" />
-          <NumberInput
-            name="startwertNeu"
-            label="Startwert neuer Zähler (bei Tausch)"
-            placeholder="0"
-            min={0}
-            inputMode="decimal"
-          />
-          <TextInput name="notiz" label="Notiz (optional)" placeholder="z. B. Ablesung durch Hausverwaltung" />
-
-          {state.error && (
-            <Alert color="red" icon={<IconAlertCircle size={16} />} variant="light">
-              {state.error}
-            </Alert>
+        <Field label="Ablesedatum" required>
+          {({ id }) => (
+            <TextInput id={id} name="datum" type="date" defaultValue={today} required />
           )}
-          {state.success && (
-            <Alert color="green" icon={<IconCheck size={16} />} variant="light">
-              Ablesung wurde erfasst.
-            </Alert>
+        </Field>
+        {/* Unit in the label: the mobile spec fills this by accessible name, and
+            a bare "Zählerstand" would not say which unit the number is in. */}
+        <Field label={`Zählerstand (${zaehler.einheit})`} required>
+          {({ id }) => (
+            <NumberInput id={id} name="wert" placeholder="0" min={0} step="any" required />
           )}
+        </Field>
+        <Field label="Kosten (optional)">
+          {({ id }) => (
+            <NumberInput id={id} name="kosten" placeholder="0.00" min={0} step="0.01" />
+          )}
+        </Field>
+        <UiCheckbox name="zaehlerGetauscht" label="Zähler wurde bei dieser Ablesung getauscht" />
+        <Field label="Startwert neuer Zähler (bei Tausch)">
+          {({ id }) => (
+            <NumberInput id={id} name="startwertNeu" placeholder="0" min={0} step="any" />
+          )}
+        </Field>
+        <Field label="Notiz (optional)">
+          {({ id }) => (
+            <TextInput
+              id={id}
+              name="notiz"
+              placeholder="z. B. Ablesung durch Hausverwaltung"
+            />
+          )}
+        </Field>
 
-          <Button type="submit" color="slate" loading={pending} fullWidth>
-            Ablesung speichern
-          </Button>
-        </Stack>
+        {state.error && (
+          <Alert tone="risk" role="alert" icon={<IconAlertCircle size={16} />}>
+            {state.error}
+          </Alert>
+        )}
+        {state.success && (
+          <Alert tone="ok" icon={<IconCheck size={16} />}>
+            Ablesung wurde erfasst.
+          </Alert>
+        )}
+
+        <Button type="submit" variant="primary" full disabled={pending}>
+          {pending ? "Wird gespeichert…" : "Ablesung speichern"}
+        </Button>
       </form>
-    </Card>
+    </Panel>
   );
 }
 
@@ -357,6 +332,7 @@ function EditZaehlerForm({
   locations: LocationList;
 }) {
   const router = useRouter();
+  const toast = useToast();
   const [state, formAction, pending] = useActionState(updateZaehlerAction, initialActionState);
   const [deleting, startDelete] = useTransition();
   const formRef = useRef<HTMLFormElement>(null);
@@ -380,82 +356,87 @@ function EditZaehlerForm({
       fd.set("id", zaehler.id);
       const result = await deleteZaehlerAction(initialActionState, fd);
       if (result.success) {
-        notifications.show({ color: "green", icon: <IconCheck size={16} />, message: "Zähler gelöscht." });
+        toast.show({ tone: "ok", title: "Zähler gelöscht" });
         router.push("/apps/zaehlwerk/zaehler");
       } else {
-        notifications.show({
-          color: "red",
-          icon: <IconAlertCircle size={16} />,
-          message: result.error ?? "Fehler.",
+        toast.show({
+          tone: "risk",
+          title: "Löschen fehlgeschlagen",
+          message: result.error ?? undefined,
         });
       }
     });
   }
 
   return (
-    <Card p="md">
-      <Title order={4} mb="sm">
-        Zähler bearbeiten
-      </Title>
-      <form action={formAction} ref={formRef}>
+    <Panel title="Zähler bearbeiten">
+      <form action={formAction} ref={formRef} className="flex flex-col gap-4">
         <input type="hidden" name="id" value={zaehler.id} />
-        <Stack gap="sm">
-          <TextInput name="name" label="Name" defaultValue={zaehler.name} required />
-          <Select
-            name="kategorie"
-            label="Kategorie / Energieträger"
-            required
-            defaultValue={zaehler.kategorie}
-            data={ENERGY_CATEGORIES.map((category) => ({
-              value: category,
-              label: ENERGY_CATEGORY_LABELS[category],
-            }))}
-          />
-          <TextInput name="einheit" label="Einheit" defaultValue={zaehler.einheit} required />
-          {locations.length > 0 && (
-            <Select
-              name="locationId"
-              label="Standort"
-              placeholder="Kein Standort"
-              clearable
-              defaultValue={zaehler.locationId ?? undefined}
-              data={locations.map((location) => ({ value: location.id, label: location.name }))}
-            />
+        <Field label="Name" required>
+          {({ id }) => <TextInput id={id} name="name" defaultValue={zaehler.name} required />}
+        </Field>
+        <Field label="Kategorie / Energieträger" required>
+          {({ id }) => (
+            <SelectShell>
+              <Select id={id} name="kategorie" defaultValue={zaehler.kategorie} required>
+                {ENERGY_CATEGORIES.map((category) => (
+                  <option key={category} value={category}>
+                    {ENERGY_CATEGORY_LABELS[category]}
+                  </option>
+                ))}
+              </Select>
+            </SelectShell>
           )}
+        </Field>
+        <Field label="Einheit" required>
+          {({ id }) => (
+            <TextInput id={id} name="einheit" defaultValue={zaehler.einheit} required />
+          )}
+        </Field>
+        {locations.length > 0 && (
+          <Field label="Standort">
+            {({ id }) => (
+              <SelectShell>
+                <Select id={id} name="locationId" defaultValue={zaehler.locationId ?? ""}>
+                  <option value="">Kein Standort</option>
+                  {locations.map((location) => (
+                    <option key={location.id} value={location.id}>
+                      {location.name}
+                    </option>
+                  ))}
+                </Select>
+              </SelectShell>
+            )}
+          </Field>
+        )}
 
-          {state.error && (
-            <Alert color="red" icon={<IconAlertCircle size={16} />} variant="light">
-              {state.error}
-            </Alert>
-          )}
-          {state.success && (
-            <Alert color="green" icon={<IconCheck size={16} />} variant="light">
-              Änderungen gespeichert.
-            </Alert>
-          )}
+        {state.error && (
+          <Alert tone="risk" role="alert" icon={<IconAlertCircle size={16} />}>
+            {state.error}
+          </Alert>
+        )}
+        {state.success && (
+          <Alert tone="ok" icon={<IconCheck size={16} />}>
+            Änderungen gespeichert.
+          </Alert>
+        )}
 
-          <Button type="submit" color="slate" loading={pending} fullWidth>
-            Speichern
-          </Button>
-        </Stack>
+        <Button type="submit" variant="primary" full disabled={pending}>
+          {pending ? "Wird gespeichert…" : "Speichern"}
+        </Button>
       </form>
 
-      <Divider my="md" />
-      <Group justify="space-between" align="center" wrap="nowrap">
-        <Text size="xs" c="dimmed">
+      <Divider className="my-5" />
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-xs text-dim">
           Zähler unwiderruflich mit allen Ablesungen und Tarifen entfernen.
-        </Text>
-        <Button
-          variant="light"
-          color="red"
-          leftSection={<IconTrash size={16} />}
-          loading={deleting}
-          onClick={deleteMeter}
-        >
-          Löschen
+        </p>
+        <Button variant="danger" disabled={deleting} onClick={deleteMeter}>
+          <IconTrash size={16} />
+          {deleting ? "Wird gelöscht…" : "Löschen"}
         </Button>
-      </Group>
-    </Card>
+      </div>
+    </Panel>
   );
 }
 
@@ -473,25 +454,20 @@ function TarifeCard({ zaehler }: { zaehler: ZaehlerWithHistory }) {
   }, [createState.success]);
 
   return (
-    <Card p="md">
-      <Group gap="xs" mb="sm">
-        <IconReceipt2 size={18} stroke={1.6} />
-        <Title order={4}>Tarife</Title>
-      </Group>
-
+    <Panel title="Tarife" icon={<IconReceipt2 size={17} stroke={1.7} />}>
       {zaehler.tarife.length === 0 ? (
-        <Text size="sm" c="dimmed" mb="sm">
+        <p className="mb-4 text-sm text-dim">
           Noch kein Tarif hinterlegt. Ohne Tarif werden Kosten nur aus erfassten Beträgen angezeigt.
-        </Text>
+        </p>
       ) : (
-        <Stack gap="xs" mb="md">
+        <div className="mb-5 flex flex-col gap-3">
           {zaehler.tarife.map((tarif) => (
-            <Group key={tarif.id} justify="space-between" wrap="nowrap" align="flex-start">
-              <div>
-                <Text size="sm" fw={600}>
+            <div key={tarif.id} className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold">
                   {tarif.produkt ?? tarif.anbieter ?? "Tarif"}
-                </Text>
-                <Text size="xs" c="dimmed">
+                </p>
+                <p className="mt-0.5 text-xs text-dim">
                   ab {dateFormatter.format(tarif.gueltigAb)}
                   {tarif.gueltigBis ? ` bis ${dateFormatter.format(tarif.gueltigBis)}` : ""} ·{" "}
                   {perDayFormatter.format(tarif.arbeitspreisCtNetto)} ct/{einheit} netto
@@ -499,79 +475,98 @@ function TarifeCard({ zaehler }: { zaehler: ZaehlerWithHistory }) {
                     ? ` · ${perDayFormatter.format(tarif.grundpreisJahrNetto)} €/Jahr GP`
                     : ""}{" "}
                   · {perDayFormatter.format(tarif.mwstProzent)} % MwSt
-                </Text>
+                </p>
               </div>
-              <form action={deleteAction}>
+              <form action={deleteAction} className="flex-none">
                 <input type="hidden" name="id" value={tarif.id} />
                 <input type="hidden" name="zaehlerId" value={zaehler.id} />
-                <ActionIcon type="submit" variant="subtle" color="red" aria-label="Tarif löschen">
-                  <IconTrash size={16} />
-                </ActionIcon>
+                <Tooltip label="Tarif löschen">
+                  <Button type="submit" variant="danger" size="sm" aria-label="Tarif löschen">
+                    <IconTrash size={16} />
+                  </Button>
+                </Tooltip>
               </form>
-            </Group>
+            </div>
           ))}
-        </Stack>
+        </div>
       )}
 
       {deleteState.error && (
-        <Alert color="red" icon={<IconAlertCircle size={16} />} variant="light" mb="sm">
+        <Alert tone="risk" role="alert" icon={<IconAlertCircle size={16} />} className="mb-4">
           {deleteState.error}
         </Alert>
       )}
 
-      <form action={createAction} ref={formRef}>
+      <form action={createAction} ref={formRef} className="flex flex-col gap-3">
         <input type="hidden" name="zaehlerId" value={zaehler.id} />
-        <Stack gap="xs">
-          <TextInput name="produkt" label="Produkt / Tarifname" placeholder="z. B. Grundversorgung 2024" />
-          <Group grow>
-            <TextInput name="gueltigAb" label="Gültig ab" type="date" defaultValue={today} required />
-            <TextInput name="gueltigBis" label="Gültig bis (optional)" type="date" />
-          </Group>
-          <NumberInput
-            name="arbeitspreisCtNetto"
-            label={`Arbeitspreis (ct/${einheit}, netto)`}
-            placeholder="z. B. 34"
-            min={0}
-            decimalScale={4}
-            inputMode="decimal"
-            required
-          />
-          <Group grow>
-            <NumberInput
-              name="grundpreisJahrNetto"
-              label="Grundpreis (€/Jahr, netto)"
-              placeholder="0"
-              min={0}
-              decimalScale={2}
-              inputMode="decimal"
-            />
-            <NumberInput
-              name="mwstProzent"
-              label="MwSt %"
-              defaultValue={19}
-              min={0}
-              max={100}
-              decimalScale={1}
-              inputMode="decimal"
-            />
-          </Group>
-
-          {createState.error && (
-            <Alert color="red" icon={<IconAlertCircle size={16} />} variant="light">
-              {createState.error}
-            </Alert>
+        <Field label="Produkt / Tarifname">
+          {({ id }) => (
+            <TextInput id={id} name="produkt" placeholder="z. B. Grundversorgung 2024" />
           )}
-          {createState.success && (
-            <Alert color="green" icon={<IconCheck size={16} />} variant="light">
-              Tarif gespeichert.
-            </Alert>
+        </Field>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Gültig ab" required>
+            {({ id }) => (
+              <TextInput id={id} name="gueltigAb" type="date" defaultValue={today} required />
+            )}
+          </Field>
+          <Field label="Gültig bis (optional)">
+            {({ id }) => <TextInput id={id} name="gueltigBis" type="date" />}
+          </Field>
+        </div>
+        <Field label={`Arbeitspreis (ct/${einheit}, netto)`} required>
+          {({ id }) => (
+            <NumberInput
+              id={id}
+              name="arbeitspreisCtNetto"
+              placeholder="z. B. 34"
+              min={0}
+              step="0.0001"
+              required
+            />
           )}
+        </Field>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Grundpreis (€/Jahr, netto)">
+            {({ id }) => (
+              <NumberInput
+                id={id}
+                name="grundpreisJahrNetto"
+                placeholder="0"
+                min={0}
+                step="0.01"
+              />
+            )}
+          </Field>
+          <Field label="MwSt %">
+            {({ id }) => (
+              <NumberInput
+                id={id}
+                name="mwstProzent"
+                defaultValue={19}
+                min={0}
+                max={100}
+                step="0.1"
+              />
+            )}
+          </Field>
+        </div>
 
-          <Button type="submit" color="slate" loading={creating} fullWidth>
-            Tarif hinzufügen
-          </Button>
-        </Stack>
+        {createState.error && (
+          <Alert tone="risk" role="alert" icon={<IconAlertCircle size={16} />}>
+            {createState.error}
+          </Alert>
+        )}
+        {createState.success && (
+          <Alert tone="ok" icon={<IconCheck size={16} />}>
+            Tarif gespeichert.
+          </Alert>
+        )}
+
+        <Button type="submit" variant="primary" full disabled={creating}>
+          {creating ? "Wird gespeichert…" : "Tarif hinzufügen"}
+        </Button>
       </form>
-    </Card>
+    </Panel>
   );
 }

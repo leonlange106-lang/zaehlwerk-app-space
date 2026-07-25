@@ -60,6 +60,8 @@ export interface LogSummary {
   notes: string | null;
   /** Drive time parsed from the filename (ISO), or null. */
   recordedAt: string | null;
+  /** Free-text name the user gave this log, or null if never named. */
+  label: string | null;
   octane: string | null;
   tags: string[];
   createdAt: string;
@@ -125,6 +127,7 @@ const SUMMARY_SELECT = {
   health: true,
   notes: true,
   recordedAt: true,
+  label: true,
   octane: true,
   tags: true,
   createdAt: true,
@@ -143,6 +146,7 @@ type SummaryRow = {
   health: string;
   notes: string | null;
   recordedAt: Date | null;
+  label: string | null;
   octane: string | null;
   tags: string;
   createdAt: Date;
@@ -226,6 +230,7 @@ function toSummary(row: SummaryRow): LogSummary {
     health,
     notes: row.notes,
     recordedAt: row.recordedAt ? row.recordedAt.toISOString() : null,
+    label: row.label,
     octane: row.octane,
     tags: splitTags(row.tags),
     createdAt: row.createdAt.toISOString(),
@@ -327,12 +332,15 @@ export async function getLog(id: string): Promise<LogRecord | null> {
   };
 }
 
-/** Update the user tags (octane + free tags) on a log. */
+/** Update the user-editable metadata (name, octane, free tags) on a log. */
 export async function updateLogTags(
   id: string,
-  patch: { octane?: string | null; tags?: string[] },
+  patch: { label?: string | null; octane?: string | null; tags?: string[] },
 ): Promise<LogSummary | null> {
-  const data: { octane?: string | null; tags?: string } = {};
+  const data: { label?: string | null; octane?: string | null; tags?: string } = {};
+  // An emptied field clears the name rather than storing "", so "has a name" stays
+  // a single NULL check — that is what the navigation menu filters on.
+  if (patch.label !== undefined) data.label = patch.label?.trim() || null;
   if (patch.octane !== undefined) data.octane = patch.octane?.trim() || null;
   if (patch.tags !== undefined) {
     data.tags = patch.tags.map((t) => t.trim()).filter(Boolean).join(", ");

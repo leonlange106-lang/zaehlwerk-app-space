@@ -1,7 +1,7 @@
 import { AnalyzerView } from "./AnalyzerView";
 
 export const metadata = {
-  title: "Analyzer – MGflasher Log Analyzer",
+  title: "Analyzer – Log Analyzer",
 };
 
 // Client-driven workspace: parsing, charting and history all live in the

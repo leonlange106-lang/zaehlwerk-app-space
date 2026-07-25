@@ -1,7 +1,7 @@
 import { HistoryView } from "../HistoryView";
 
 export const metadata = {
-  title: "Log-Übersicht – MGflasher Log Analyzer",
+  title: "Log-Übersicht – Log Analyzer",
 };
 
 export default function LogHistoryPage() {

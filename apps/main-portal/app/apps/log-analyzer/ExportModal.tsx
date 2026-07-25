@@ -1,16 +1,8 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import {
-  Alert,
-  Button,
-  Checkbox,
-  Divider,
-  Group,
-  SegmentedControl,
-  Stack,
-  Text,
-} from "@mantine/core";
+import { Button } from "@/app/components/ui/Button";
+import { Alert, Divider, SegmentedControl } from "@/app/components/ui/primitives";
 import { IconAlertCircle, IconDownload, IconFileTypePdf, IconPhoto } from "@tabler/icons-react";
 import { ResponsiveDialog } from "@/app/components/ui/ResponsiveDialog";
 import type { VehicleSpec } from "./lib/vehicle-spec";
@@ -116,110 +108,110 @@ export function ExportModal({
       title="Bericht erstellen"
       size="md"
     >
-      <Stack gap="md" data-testid="export-modal">
+      <div className="flex flex-col gap-5" data-testid="export-modal">
         {error && (
-          <Alert color="red" variant="light" icon={<IconAlertCircle size={16} />}>
+          <Alert tone="risk" role="alert" icon={<IconAlertCircle size={16} />}>
             {error}
           </Alert>
         )}
 
         <div>
-          <Text size="xs" c="dimmed" fw={600} tt="uppercase" mb={6}>
-            Format
-          </Text>
+          <p className="legend-label mb-2">Format</p>
           <SegmentedControl
-            fullWidth
+            label="Berichtsformat"
             value={format}
             onChange={(v) => setFormat(v as ReportFormat)}
             data-testid="export-format"
-            data={[
+            options={[
               {
-                value: "pdf",
+                value: "pdf" as ReportFormat,
                 label: (
-                  <Group gap={6} justify="center" wrap="nowrap">
+                  <span className="flex items-center gap-1.5">
                     <IconFileTypePdf size={15} />
-                    <span>PDF-Dokument</span>
-                  </Group>
+                    PDF-Dokument
+                  </span>
                 ),
               },
               {
-                value: "png",
+                value: "png" as ReportFormat,
                 label: (
-                  <Group gap={6} justify="center" wrap="nowrap">
+                  <span className="flex items-center gap-1.5">
                     <IconPhoto size={15} />
-                    <span>PNG-Bild</span>
-                  </Group>
+                    PNG-Bild
+                  </span>
                 ),
               },
             ]}
           />
-          <Text size="xs" c="dimmed" mt={6}>
+          <p className="mt-2 text-xs text-dim">
             {format === "pdf"
               ? "Mehrseitiger Bericht im Druck-Layout (A4)."
               : "Hochauflösender Bild-Ausschnitt mit Kennwerten und Diagrammen."}
-          </Text>
+          </p>
         </div>
 
         <Divider />
 
         <div>
-          <Text size="xs" c="dimmed" fw={600} tt="uppercase" mb={8}>
-            Inhalte
-          </Text>
-          <Stack gap={10}>
+          <p className="legend-label mb-3">Inhalte</p>
+          <div className="flex flex-col gap-3">
             {SECTION_OPTIONS.map((option) => (
-              <Checkbox
-                key={option.key}
-                checked={sections[option.key]}
-                onChange={(event) => toggleSection(option.key, event.currentTarget.checked)}
-                label={option.label}
-                description={option.hint}
-                data-testid={`export-section-${option.key}`}
-              />
+              <label key={option.key} className="flex cursor-pointer gap-3">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 size-4 flex-none accent-[var(--zw-accent)]"
+                  checked={sections[option.key]}
+                  onChange={(event) => toggleSection(option.key, event.currentTarget.checked)}
+                  data-testid={`export-section-${option.key}`}
+                />
+                <span className="min-w-0">
+                  <span className="block text-[13px] font-medium">{option.label}</span>
+                  {option.hint && (
+                    <span className="mt-0.5 block text-xs text-dim">{option.hint}</span>
+                  )}
+                </span>
+              </label>
             ))}
-          </Stack>
+          </div>
         </div>
 
         <Divider />
 
         <div>
-          <Text size="xs" c="dimmed" fw={600} tt="uppercase" mb={6}>
-            Darstellung
-          </Text>
+          <p className="legend-label mb-2">Darstellung</p>
           <SegmentedControl
-            fullWidth
+            label="Berichts-Darstellung"
             value={theme}
             onChange={(v) => setTheme(v as ReportTheme)}
             data-testid="export-theme"
-            data={[
-              { value: "light", label: "Hell (Druck)" },
-              { value: "dark", label: "Dunkel" },
+            options={[
+              { value: "light" as ReportTheme, label: "Hell (Druck)" },
+              { value: "dark" as ReportTheme, label: "Dunkel" },
             ]}
           />
-          <Text size="xs" c="dimmed" mt={6}>
+          <p className="mt-2 text-xs text-dim">
             Hell ist für den Ausdruck optimiert; Dunkel passt zum Dashboard.
-          </Text>
+          </p>
         </div>
 
-        {/* `grow` rather than right-aligned: on a bottom sheet the two actions
-            span the full width, so the primary one is under the thumb instead of
-            in the far corner. */}
-        <Group grow gap="sm" mt="xs">
-          <Button variant="default" onClick={onClose} disabled={busy}>
+        {/* Both actions span the full width: on a bottom sheet that puts the
+            primary one under the thumb instead of in the far corner. */}
+        <div className="mt-1 grid grid-cols-2 gap-3">
+          <Button type="button" onClick={onClose} disabled={busy}>
             Abbrechen
           </Button>
           <Button
-            color="orange"
-            leftSection={<IconDownload size={16} />}
-            loading={busy}
-            disabled={!target}
+            type="button"
+            variant="primary"
+            disabled={busy || !target}
             onClick={() => void run()}
             data-testid="export-submit"
           >
-            Exportieren
+            <IconDownload size={16} />
+            {busy ? "Wird erstellt…" : "Exportieren"}
           </Button>
-        </Group>
-      </Stack>
+        </div>
+      </div>
     </ResponsiveDialog>
   );
 }

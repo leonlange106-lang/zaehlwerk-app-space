@@ -1,5 +1,6 @@
 "use server";
 
+import { cache } from "react";
 import { revalidatePath } from "next/cache";
 import {
   Prisma,
@@ -15,25 +16,42 @@ import {
   type ConsumptionProjection,
 } from "@zaehlwerk/database";
 import type { EnergyCategoryValue } from "@zaehlwerk/database/shared";
+import { assertAppAccess } from "./app-access";
 import type { ActionState } from "./action-state";
+
+// Every export of a `"use server"` module is a directly addressable endpoint —
+// not just the form actions. `proxy.ts` rejects anonymous callers, but it does
+// not authorize, and the `requireAppAccess()` in the Zählwerk layout cannot help
+// here either: actions run BEFORE the layout renders and can be POSTed to any
+// route. So each export below authorizes itself against the Zählwerk assignment.
+const APP_ID = "zaehlwerk";
 
 /** Erste Zod-Fehlermeldung als strukturierte Action-Antwort. */
 function invalidInput(error: { issues: ReadonlyArray<{ message: string }> }): ActionState {
   return { success: false, error: error.issues[0]?.message ?? "Ungültige Eingabe." };
 }
 
-export async function listZaehler() {
-  return prisma.zaehler.findMany({
+// Per-request memo. The dashboard reads the meter list twice (directly, and
+// again through getConsumptionSummary), which used to run this query — every
+// reading of every meter — twice per render.
+const queryZaehler = cache(async () =>
+  prisma.zaehler.findMany({
     where: { aktiv: true },
     orderBy: { sortIndex: "asc" },
     include: {
       location: true,
       ablesungen: { orderBy: { datum: "asc" } },
     },
-  });
+  }),
+);
+
+export async function listZaehler() {
+  await assertAppAccess(APP_ID);
+  return queryZaehler();
 }
 
 export async function getZaehlerById(id: string) {
+  await assertAppAccess(APP_ID);
   return prisma.zaehler.findUnique({
     where: { id },
     include: {
@@ -45,10 +63,12 @@ export async function getZaehlerById(id: string) {
 }
 
 export async function listLocations() {
+  await assertAppAccess(APP_ID);
   return prisma.location.findMany({ orderBy: { name: "asc" } });
 }
 
 export async function listRecentAblesungen(limit = 6) {
+  await assertAppAccess(APP_ID);
   return prisma.ablesung.findMany({
     orderBy: { datum: "desc" },
     take: limit,
@@ -57,7 +77,8 @@ export async function listRecentAblesungen(limit = 6) {
 }
 
 export async function getConsumptionSummary() {
-  const zaehlerList = await listZaehler();
+  await assertAppAccess(APP_ID);
+  const zaehlerList = await queryZaehler();
 
   return zaehlerList.map((zaehler) => {
     const stats = computeConsumptionStats(calculateConsumption(zaehler.ablesungen));
@@ -91,6 +112,7 @@ export interface ProjectionSummaryEntry {
  * Berichte-Übersicht. Lädt Ablesungen + Tarife in einem `findMany`.
  */
 export async function getProjectionSummary(): Promise<ProjectionSummaryEntry[]> {
+  await assertAppAccess(APP_ID);
   const zaehlerList = await prisma.zaehler.findMany({
     where: { aktiv: true },
     orderBy: [{ kategorie: "asc" }, { sortIndex: "asc" }],
@@ -119,6 +141,7 @@ export async function createZaehlerAction(
   _prevState: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
+  await assertAppAccess(APP_ID);
   const parsed = zaehlerCreateSchema.safeParse({
     name: formData.get("name"),
     kategorie: formData.get("kategorie"),
@@ -146,6 +169,7 @@ export async function updateZaehlerAction(
   _prevState: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
+  await assertAppAccess(APP_ID);
   const parsed = zaehlerUpdateSchema.safeParse({
     id: formData.get("id"),
     name: formData.get("name"),
@@ -182,6 +206,7 @@ export async function deleteZaehlerAction(
   _prevState: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
+  await assertAppAccess(APP_ID);
   const id = formData.get("id");
   if (typeof id !== "string" || id.length === 0) {
     return { success: false, error: "Ungültige Eingabe." };
@@ -206,6 +231,7 @@ export async function createTarifAction(
   _prevState: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
+  await assertAppAccess(APP_ID);
   const bisRaw = formData.get("gueltigBis");
   const parsed = tarifCreateSchema.safeParse({
     zaehlerId: formData.get("zaehlerId"),
@@ -241,6 +267,7 @@ export async function deleteTarifAction(
   _prevState: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
+  await assertAppAccess(APP_ID);
   const id = formData.get("id");
   const zaehlerId = formData.get("zaehlerId");
   if (typeof id !== "string") {
@@ -265,6 +292,7 @@ export async function createAblesungAction(
   _prevState: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
+  await assertAppAccess(APP_ID);
   const startwertNeuRaw = formData.get("startwertNeu");
   const kostenRaw = formData.get("kosten");
   const notizRaw = formData.get("notiz");
@@ -305,6 +333,7 @@ export async function updateAblesungAction(
   _prevState: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
+  await assertAppAccess(APP_ID);
   const startwertNeuRaw = formData.get("startwertNeu");
   const kostenRaw = formData.get("kosten");
   const notizRaw = formData.get("notiz");
@@ -357,6 +386,7 @@ export async function deleteAblesungAction(
   _prevState: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
+  await assertAppAccess(APP_ID);
   const id = formData.get("id");
   const zaehlerId = formData.get("zaehlerId");
   if (typeof id !== "string" || id.length === 0) {

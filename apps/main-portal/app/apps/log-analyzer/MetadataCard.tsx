@@ -1,6 +1,6 @@
 "use client";
 
-import { Card, Group, SimpleGrid, Stack, Text, ThemeIcon, Title } from "@mantine/core";
+import { Panel } from "@/app/components/ui/Panel";
 import {
   IconClock,
   IconEngine,
@@ -21,13 +21,9 @@ import type { LogMeta } from "./lib/types";
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div>
-      <Text size="xs" c="dimmed" tt="uppercase" fw={600} lh={1.3}>
-        {label}
-      </Text>
-      <Text size="sm" fw={500} style={{ wordBreak: "break-word" }}>
-        {value}
-      </Text>
+    <div className="min-w-0">
+      <p className="legend-label">{label}</p>
+      <p className="mt-0.5 break-words text-sm font-medium">{value}</p>
     </div>
   );
 }
@@ -83,27 +79,25 @@ export function MetadataCard({ meta, rowCount, skippedRows }: {
   ];
 
   return (
-    <Stack gap="xs">
-      <KpiRail items={highlights} columns={4} label="Log-Kennwerte" />
+    <div className="flex flex-col gap-3">
+      {/* NOT sticky here, unlike the Zählwerk dashboard. Below `sm` a pinned rail
+          is ~124px of permanently occupied viewport, and on this page the thing
+          directly beneath it is the channel chip bar — the primary control on a
+          phone. The rail sat on top of it and swallowed taps. These numbers
+          describe the file, which does not change while you scroll the charts,
+          so there is nothing to keep pinned. */}
+      <KpiRail items={highlights} columns={4} label="Log-Kennwerte" sticky={false} />
 
-      <Card p="md">
-        <Group gap="xs" mb="sm">
-          <ThemeIcon variant="light" color="orange" radius="sm" size={28}>
-            <IconGauge size={16} stroke={1.6} />
-          </ThemeIcon>
-          <Title order={5}>Log-Metadaten</Title>
-        </Group>
-        <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="sm">
+      <Panel title="Log-Metadaten" icon={<IconGauge size={17} stroke={1.7} />}>
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           {identity.map((s) => (
             <Stat key={s.label} label={s.label} value={s.value} />
           ))}
-        </SimpleGrid>
+        </div>
         {skippedRows > 0 && (
-          <Text size="xs" c="dimmed" mt="sm">
-            {skippedRows} korrupte Zeile(n) übersprungen
-          </Text>
+          <p className="mt-4 text-xs text-dim">{skippedRows} korrupte Zeile(n) übersprungen</p>
         )}
-      </Card>
-    </Stack>
+      </Panel>
+    </div>
   );
 }

@@ -1,6 +1,5 @@
 "use client";
 
-import { Text } from "@mantine/core";
 import {
   CartesianGrid,
   Label,
@@ -39,9 +38,9 @@ export function DynoChart({
 }) {
   if (rows.length === 0) {
     return (
-      <Text c="dimmed" ta="center" size="sm" py="lg">
+      <p className="py-6 text-center text-sm text-dim">
         Keine Kurvendaten für dieses Log.
-      </Text>
+      </p>
     );
   }
 

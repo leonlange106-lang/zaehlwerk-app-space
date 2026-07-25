@@ -56,14 +56,23 @@ async function readCls(page: Page): Promise<number> {
   return page.evaluate(() => (window as unknown as { __cls: number }).__cls ?? 0);
 }
 
+/**
+ * Measured against `documentElement.clientWidth`, NOT `window.innerWidth`.
+ *
+ * When a mobile page overflows, Chrome widens the layout viewport and
+ * `innerWidth` grows with it — so `scrollWidth <= innerWidth` stayed true while
+ * the page really was scrolling sideways, and this assertion silently stopped
+ * asserting. `clientWidth` stays at the device width and catches it.
+ */
 async function expectNoHorizontalScroll(page: Page) {
-  const { scrollWidth, innerWidth } = await page.evaluate(() => ({
+  const { scrollWidth, clientWidth } = await page.evaluate(() => ({
     scrollWidth: document.documentElement.scrollWidth,
-    innerWidth: window.innerWidth,
+    clientWidth: document.documentElement.clientWidth,
   }));
-  expect(scrollWidth, `no horizontal scroll (sw ${scrollWidth} vs iw ${innerWidth})`).toBeLessThanOrEqual(
-    innerWidth + 1,
-  );
+  expect(
+    scrollWidth,
+    `no horizontal scroll (sw ${scrollWidth} vs client ${clientWidth})`,
+  ).toBeLessThanOrEqual(clientWidth + 1);
 }
 
 const SAMPLE_CSV = [
@@ -176,16 +185,27 @@ test.describe("Log Analyzer: remote import", () => {
 });
 
 test.describe("Log Analyzer: sub-navigation", () => {
-  test("sidebar exposes Analyzer, Remote-Import and Log-Übersicht", async ({ page }) => {
+  test("menu exposes Analyzer, Remote-Import and Log-Übersicht", async ({ page }) => {
+    /** Open the menu and drill into the Log Analyzer's section list. */
+    const openAppLevel = async () => {
+      await page.getByRole("button", { name: "Navigation öffnen" }).click();
+      const menu = page.getByRole("menu");
+      await menu.getByRole("menuitem", { name: "Log Analyzer" }).click();
+      return menu;
+    };
+
     await page.goto("/apps/log-analyzer");
-    // Open the mobile drawer to reach the nav links.
-    await page.getByRole("button", { name: "Navigation umschalten" }).click();
-    await page.getByRole("link", { name: "Remote-Import" }).click();
+    let menu = await openAppLevel();
+    // Not `exact`: the row carries a Beta badge, which is part of its name.
+    await menu.getByRole("menuitem", { name: "Remote-Import" }).click();
     await page.waitForURL(/\/apps\/log-analyzer\/remote$/);
     await expect(page.getByRole("heading", { name: "Remote-Import" })).toBeVisible();
 
-    await page.getByRole("button", { name: "Navigation umschalten" }).click();
-    await page.getByRole("link", { name: "Log-Übersicht" }).click();
+    // Log-Übersicht is not a link but a level: it lists the logs the user named,
+    // and "Alle Logs" is the row that opens the page itself.
+    menu = await openAppLevel();
+    await menu.getByRole("menuitem", { name: "Log-Übersicht", exact: true }).click();
+    await menu.getByRole("menuitem", { name: "Alle Logs", exact: true }).click();
     await page.waitForURL(/\/apps\/log-analyzer\/history$/);
     await expect(page.getByRole("heading", { name: "Log-Übersicht" })).toBeVisible();
   });
@@ -301,9 +321,9 @@ test.describe("Log Analyzer: vehicle & hardware profile", () => {
     // Default OEM cat → 960 °C ceiling.
     await expect(page.getByText("960 °C")).toBeVisible();
 
-    // Switch to catless → looser ceiling (1010 °C).
-    await page.getByTestId("spec-cat").click();
-    await page.getByRole("option", { name: "Catless (kein Kat)" }).click();
+    // Switch to catless → looser ceiling (1010 °C). A native <select> now, so
+    // this is selectOption rather than open-the-listbox-and-click-an-option.
+    await page.getByTestId("spec-cat").selectOption({ label: "Catless (kein Kat)" });
     await expect(page.getByText("1010 °C")).toBeVisible();
 
     await page.getByTestId("spec-save").click();
@@ -499,17 +519,23 @@ test.describe("Log Analyzer: report export", () => {
     await expect(page.getByText(/Nur verifizierte WOT-Pulls/)).toBeVisible();
 
     // The picker lists the clean sweep and withholds the part-throttle fragment.
-    // Both browser projects share one E2E database, so the verified log may
-    // already be there several times over — `.first()` keeps that from tripping
-    // strict mode. The count-0 assertion below is the one that proves the filter.
     // The picker is mounted from first paint and only becomes ENABLED once the
     // stored-log list has arrived with at least one verified pull — so that is
     // the state to wait for, not mere visibility.
+    //
+    // Asserted by COUNT, not visibility: this is a native <select>, whose
+    // <option>s have no box of their own and are never "visible" to Playwright
+    // even with the list open. Both browser projects share one E2E database, so
+    // the verified log may be present several times over — hence `>= 1` rather
+    // than an exact count. The zero-count assertion is what proves the filter.
+    // Anchored regexes, because "unverified-pull.csv" CONTAINS "verified-pull.csv"
+    // — a substring match would let a broken filter satisfy both assertions.
     const picker = page.getByTestId("dyno-history");
     await expect(picker).toBeEnabled();
-    await picker.click();
-    await expect(page.getByRole("option", { name: "verified-pull.csv" }).first()).toBeVisible();
-    await expect(page.getByRole("option", { name: "unverified-pull.csv" })).toHaveCount(0);
+    expect(
+      await picker.locator("option", { hasText: /^verified-pull\.csv$/ }).count(),
+    ).toBeGreaterThanOrEqual(1);
+    await expect(picker.locator("option", { hasText: /^unverified-pull\.csv$/ })).toHaveCount(0);
   });
 });
 

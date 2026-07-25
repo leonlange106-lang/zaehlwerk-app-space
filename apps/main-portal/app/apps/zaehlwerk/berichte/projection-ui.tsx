@@ -1,32 +1,26 @@
-import {
-  Badge,
-  Group,
-  Stack,
-  Table,
-  TableTbody,
-  TableTd,
-  TableTh,
-  TableThead,
-  TableTr,
-  Text,
-} from "@mantine/core";
 import { IconArrowDownRight, IconArrowUpRight, IconMinus } from "@tabler/icons-react";
+import { Badge } from "@/app/components/ui/Badge";
+import { Table, TableScroll, Td, Th } from "@/app/components/ui/primitives";
 import {
   ENERGY_CATEGORY_LABELS,
   type ConsumptionProjection,
   type EnergyCategoryValue,
-} from "@zaehlwerk/database/shared";
+} from "@zaehlwerk/database/client";
 
 const num0 = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 0 });
 const num1 = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 });
 const eur = new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" });
 const pct = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1, signDisplay: "exceptZero" });
-const dateFmt = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
+const dateFmt = new Intl.DateTimeFormat("de-DE", {
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+});
 
-const CONFIDENCE: Record<ConsumptionProjection["confidence"], { label: string; color: string }> = {
-  low: { label: "wenig Daten", color: "gray" },
-  medium: { label: "mittel", color: "blue" },
-  high: { label: "hoch", color: "teal" },
+const CONFIDENCE: Record<ConsumptionProjection["confidence"], { label: string; token: string }> = {
+  low: { label: "wenig Daten", token: "var(--zw-neutral)" },
+  medium: { label: "mittel", token: "var(--zw-watch)" },
+  high: { label: "hoch", token: "var(--zw-ok)" },
 };
 
 const METHOD_LABEL: Record<ConsumptionProjection["method"], string> = {
@@ -34,23 +28,36 @@ const METHOD_LABEL: Record<ConsumptionProjection["method"], string> = {
   seasonal: "Saisonal",
 };
 
-/** Delta-Chip: Anstieg rot (mehr Verbrauch/Kosten), Rückgang grün. */
+/**
+ * Delta-Chip. Ein Anstieg ist hier das Schlechte (mehr Verbrauch, mehr Kosten),
+ * ein Rückgang das Gute. Die Richtung trägt der Pfeil, nicht die Farbe — sowohl
+ * ein Graustufendruck des Berichts als auch eine Rot-Grün-Schwäche brauchen ihn.
+ */
 export function DeltaBadge({ pct: value }: { pct: number | null }) {
   if (value === null) {
     return (
-      <Badge variant="light" color="gray" size="sm" leftSection={<IconMinus size={12} />}>
+      <span className="inline-flex h-[22px] items-center gap-1 rounded-full border border-line px-2.5 text-[11px] font-semibold text-dim">
+        <IconMinus size={12} stroke={2.2} />
         n/a
-      </Badge>
+      </span>
     );
   }
   const up = value > 0.05;
   const down = value < -0.05;
-  const color = up ? "red" : down ? "teal" : "gray";
+  const token = up ? "var(--zw-risk)" : down ? "var(--zw-ok)" : "var(--zw-neutral)";
   const Icon = up ? IconArrowUpRight : down ? IconArrowDownRight : IconMinus;
   return (
-    <Badge variant="light" color={color} size="sm" leftSection={<Icon size={12} />}>
+    <span
+      className="inline-flex h-[22px] items-center gap-1 whitespace-nowrap rounded-full border px-2.5 text-[11px] font-semibold"
+      style={{
+        color: token,
+        borderColor: `color-mix(in srgb, ${token} 38%, transparent)`,
+        backgroundColor: `color-mix(in srgb, ${token} 12%, transparent)`,
+      }}
+    >
+      <Icon size={12} stroke={2.2} />
       {pct.format(value)} %
-    </Badge>
+    </span>
   );
 }
 
@@ -60,10 +67,10 @@ export function ProjectionStats({ projection }: { projection: ConsumptionProject
 
   if (p.projectedAnnual === null) {
     return (
-      <Text size="sm" c="dimmed">
+      <p className="text-sm text-dim">
         Noch zu wenige Ablesungen für eine belastbare Hochrechnung – es werden mindestens zwei
         Ablesungen im Abstand von einigen Wochen benötigt.
-      </Text>
+      </p>
     );
   }
 
@@ -73,73 +80,62 @@ export function ProjectionStats({ projection }: { projection: ConsumptionProject
   const anchor = new Date(p.anchorDate);
 
   return (
-    <Stack gap="sm">
-      <Group gap="xs">
-        <Badge variant="light" color="slate" size="sm">
-          {METHOD_LABEL[p.method]}
-        </Badge>
-        <Badge variant="dot" color={CONFIDENCE[p.confidence].color} size="sm">
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge>{METHOD_LABEL[p.method]}</Badge>
+        <span className="inline-flex h-[22px] items-center gap-1.5 rounded-full border border-line px-2.5 text-[11px] font-semibold text-dim">
+          <span
+            aria-hidden
+            className="size-2 rounded-full"
+            style={{ background: CONFIDENCE[p.confidence].token }}
+          />
           Konfidenz: {CONFIDENCE[p.confidence].label}
-        </Badge>
-      </Group>
+        </span>
+      </div>
 
-      <Group gap="xl" align="flex-start" wrap="wrap">
+      <div className="flex flex-wrap gap-x-10 gap-y-4">
         <div>
-          <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
-            Hochrechnung / Jahr
-          </Text>
-          <Text fw={700} size="lg">
-            {num1.format(p.projectedAnnual)} {p.unit}
-          </Text>
-          <Group gap={6} mt={2}>
-            <Text size="xs" c="dimmed">
-              vs. Vorjahr
-            </Text>
-            <DeltaBadge pct={p.deltaConsumptionPct} />
-          </Group>
+          <p className="legend-label">Hochrechnung / Jahr</p>
+          <p className="readout mt-1 text-readout">
+            {num1.format(p.projectedAnnual)} <span className="text-dim">{p.unit}</span>
+          </p>
+          <p className="mt-1.5 flex items-center gap-1.5 text-xs text-dim">
+            vs. Vorjahr <DeltaBadge pct={p.deltaConsumptionPct} />
+          </p>
         </div>
 
         {p.projectedAnnualCost !== null && (
           <div>
-            <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
-              Geschätzte Jahreskosten
-            </Text>
-            <Text fw={700} size="lg">
-              {eur.format(p.projectedAnnualCost)}
-            </Text>
-            <Group gap={6} mt={2}>
-              <Text size="xs" c="dimmed">
-                vs. Vorjahr
-              </Text>
-              <DeltaBadge pct={p.deltaCostPct} />
-            </Group>
+            <p className="legend-label">Geschätzte Jahreskosten</p>
+            <p className="readout mt-1 text-readout">{eur.format(p.projectedAnnualCost)}</p>
+            <p className="mt-1.5 flex items-center gap-1.5 text-xs text-dim">
+              vs. Vorjahr <DeltaBadge pct={p.deltaCostPct} />
+            </p>
           </div>
         )}
 
         <div>
-          <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
-            Letzte 12 Monate
-          </Text>
-          <Text fw={600}>
-            {num1.format(p.windowConsumption)} {p.unit}
-          </Text>
-          <Text size="xs" c="dimmed" mt={2}>
+          <p className="legend-label">Letzte 12 Monate</p>
+          <p className="readout mt-1 text-readout-sm">
+            {num1.format(p.windowConsumption)} <span className="text-dim">{p.unit}</span>
+          </p>
+          <p className="mt-1.5 text-xs text-dim">
             {num0.format(p.coveredDays)} von {num0.format(p.windowDays)} Tagen erfasst
-          </Text>
+          </p>
         </div>
-      </Group>
+      </div>
 
       {p.previousYearConsumption !== null && (
-        <Text size="xs" c="dimmed">
+        <p className="text-xs text-dim">
           Vorjahr: {num1.format(p.previousYearConsumption)} {p.unit}
           {p.previousYearCost !== null ? ` · ${eur.format(p.previousYearCost)}` : ""}
-        </Text>
+        </p>
       )}
 
-      <Text size="xs" c="dimmed">
+      <p className="text-xs text-dim">
         Gleitendes Jahr bis zur Ablesung vom {dateFmt.format(anchor)}.
-      </Text>
-    </Stack>
+      </p>
+    </div>
   );
 }
 
@@ -154,84 +150,67 @@ export interface ProjectionOverviewEntry {
 /** Mehr-Zähler-Tabelle der Jahres-Hochrechnung (für /berichte). */
 export function ProjectionOverview({ entries }: { entries: ProjectionOverviewEntry[] }) {
   if (entries.length === 0) {
-    return (
-      <Text size="sm" c="dimmed">
-        Noch keine Zähler für eine Prognose vorhanden.
-      </Text>
-    );
+    return <p className="text-sm text-dim">Noch keine Zähler für eine Prognose vorhanden.</p>;
   }
 
   return (
-    <Table verticalSpacing="sm" fz="sm">
-      <TableThead>
-        <TableTr>
-          <TableTh>Zähler</TableTh>
-          <TableTh>Kategorie</TableTh>
-          <TableTh>Methode</TableTh>
-          <TableTh>Prognose Jahr</TableTh>
-          <TableTh>vs. Vorjahr</TableTh>
-          <TableTh>Geschätzte Kosten</TableTh>
-          <TableTh>vs. Vorjahr</TableTh>
-        </TableTr>
-      </TableThead>
-      <TableTbody>
-        {entries.map((entry) => {
-          const p = entry.projection;
-          return (
-            <TableTr key={entry.zaehlerId}>
-              <TableTd>
-                <Group gap="xs" wrap="nowrap">
-                  <span
-                    style={{
-                      display: "inline-block",
-                      width: 10,
-                      height: 10,
-                      borderRadius: "50%",
-                      background: entry.farbe,
-                      flexShrink: 0,
-                    }}
-                  />
-                  <Text size="sm">{entry.name}</Text>
-                </Group>
-              </TableTd>
-              <TableTd>
-                <Badge variant="light" color="slate" size="sm">
-                  {ENERGY_CATEGORY_LABELS[entry.kategorie]}
-                </Badge>
-              </TableTd>
-              <TableTd>
-                {p.projectedAnnual === null ? (
-                  "–"
-                ) : (
-                  <Badge variant="light" color="slate" size="sm">
-                    {METHOD_LABEL[p.method]}
-                  </Badge>
-                )}
-              </TableTd>
-              <TableTd>
-                {p.projectedAnnual === null ? (
-                  <Text size="xs" c="dimmed">
-                    zu wenige Daten
-                  </Text>
-                ) : (
-                  <Text size="sm">
-                    {num1.format(p.projectedAnnual)} {p.unit}
-                  </Text>
-                )}
-              </TableTd>
-              <TableTd>
-                <DeltaBadge pct={p.deltaConsumptionPct} />
-              </TableTd>
-              <TableTd>
-                {p.projectedAnnualCost !== null ? eur.format(p.projectedAnnualCost) : "–"}
-              </TableTd>
-              <TableTd>
-                <DeltaBadge pct={p.deltaCostPct} />
-              </TableTd>
-            </TableTr>
-          );
-        })}
-      </TableTbody>
-    </Table>
+    <TableScroll>
+      <Table>
+        <thead>
+          <tr>
+            <Th>Zähler</Th>
+            <Th>Kategorie</Th>
+            <Th>Methode</Th>
+            <Th>Prognose Jahr</Th>
+            <Th>vs. Vorjahr</Th>
+            <Th>Geschätzte Kosten</Th>
+            <Th>vs. Vorjahr</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {entries.map((entry) => {
+            const p = entry.projection;
+            return (
+              <tr key={entry.zaehlerId} className="last:[&>td]:border-0">
+                <Td>
+                  <span className="flex items-center gap-2.5">
+                    <span
+                      aria-hidden
+                      className="size-2.5 flex-none rounded-full"
+                      style={{ background: entry.farbe }}
+                    />
+                    <span className="truncate">{entry.name}</span>
+                  </span>
+                </Td>
+                <Td>
+                  <Badge>{ENERGY_CATEGORY_LABELS[entry.kategorie]}</Badge>
+                </Td>
+                <Td>
+                  {p.projectedAnnual === null ? "–" : <Badge>{METHOD_LABEL[p.method]}</Badge>}
+                </Td>
+                <Td className="whitespace-nowrap">
+                  {p.projectedAnnual === null ? (
+                    <span className="text-xs text-dim">zu wenige Daten</span>
+                  ) : (
+                    <span className="readout">
+                      {num1.format(p.projectedAnnual)} {p.unit}
+                    </span>
+                  )}
+                </Td>
+                <Td>
+                  <DeltaBadge pct={p.deltaConsumptionPct} />
+                </Td>
+                <Td className="readout whitespace-nowrap">
+                  {p.projectedAnnualCost !== null ? eur.format(p.projectedAnnualCost) : "–"}
+                </Td>
+                <Td>
+                  <DeltaBadge pct={p.deltaCostPct} />
+                </Td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </Table>
+    </TableScroll>
   );
 }

@@ -1,21 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Badge } from "@/app/components/ui/Badge";
+import { Button, ButtonLink } from "@/app/components/ui/Button";
+import { Field, PasswordInput } from "@/app/components/ui/Field";
+import { Panel } from "@/app/components/ui/Panel";
 import {
   Alert,
-  Badge,
-  Button,
-  Card,
   Code,
-  Group,
-  Loader,
-  PasswordInput,
+  PageHeader,
   Progress,
-  ScrollArea,
-  Stack,
-  Text,
-  Title,
-} from "@mantine/core";
+  Spinner,
+} from "@/app/components/ui/primitives";
 import {
   IconAlertCircle,
   IconCheck,
@@ -85,20 +81,19 @@ export function SettingsView({
   const isAdmin = currentUser?.role === "ADMIN";
 
   return (
-    <Stack gap="lg">
-      <div>
-        <Title order={2}>Plattform-Einstellungen</Title>
-        <Text c="dimmed" size="sm">
-          System & Konten: Sicherheit, Benutzer, API-Zugriff, Backups und Updates. App-spezifische
-          Optionen findest du in den jeweiligen App-Einstellungen.
-        </Text>
-      </div>
+    <div className="flex flex-col gap-6">
+      <PageHeader
+        title="Plattform-Einstellungen"
+        description="System & Konten: Sicherheit, Benutzer, API-Zugriff, Backups und Updates. App-spezifische Optionen findest du in den jeweiligen App-Einstellungen."
+      />
 
       {currentUser && <SecurityCard twoFactorEnabled={twoFactorEnabled} />}
       {currentUser && <ApiTokenCard tokens={apiTokens} />}
       {isAdmin && <IngestionKeyCard keys={ingestionKeys} />}
-      {isAdmin && currentUser && <UserManagementCard users={users} currentUserId={currentUser.id} />}
-      <SystemBackupCard />
+      {isAdmin && currentUser && (
+        <UserManagementCard users={users} currentUserId={currentUser.id} />
+      )}
+      {isAdmin && <SystemBackupCard />}
       {isAdmin && governance && (
         <>
           <BackupPolicyCard policy={governance.policy} snapshots={governance.snapshots} />
@@ -110,7 +105,7 @@ export function SettingsView({
         </>
       )}
       <UpdateSettingsCard versionInfo={versionInfo} />
-    </Stack>
+    </div>
   );
 }
 
@@ -132,45 +127,47 @@ function UpdateProgress({ state, failIndex }: { state: UpdateState; failIndex: n
   const active = failed ? failIndex : state.stepIndex;
 
   return (
-    <Stack gap="sm">
+    <div className="flex flex-col gap-3">
       <Progress
         value={success ? 100 : state.progress}
-        color={failed ? "red" : success ? "green" : "slate"}
-        animated={!failed && !success}
-        striped={!failed && !success}
-        radius="sm"
+        tone={failed ? "risk" : success ? "ok" : "accent"}
+        label="Update-Fortschritt"
         data-testid="update-progress-bar"
       />
-      <Stack gap={6}>
+      <div className="flex flex-col gap-1.5">
         {steps.map((label, index) => {
           const isDone = index < active || success;
           const isActiveStep = index === active && !success && !failed;
           const isFailedStep = failed && index === active;
           return (
-            <Group key={label} gap="xs" wrap="nowrap">
+            <div key={label} className="flex items-center gap-2">
               {isFailedStep ? (
-                <IconCircleX size={18} color="var(--zw-risk)" />
+                <IconCircleX size={18} className="flex-none text-risk" />
               ) : isDone ? (
-                <IconCircleCheck size={18} color="var(--zw-ok)" />
+                <IconCircleCheck size={18} className="flex-none text-ok" />
               ) : isActiveStep ? (
-                <Loader size={14} color="slate" />
+                <Spinner size={14} label={`${label} läuft`} className="text-accent" />
               ) : (
-                <IconCircle size={18} color="var(--zw-neutral)" />
+                <IconCircle size={18} className="flex-none text-neutral" />
               )}
-              <Text size="sm" c={isDone || isActiveStep || isFailedStep ? undefined : "dimmed"} fw={isActiveStep ? 600 : 400}>
+              <span
+                className={`text-sm ${isActiveStep ? "font-semibold" : ""} ${
+                  isDone || isActiveStep || isFailedStep ? "" : "text-dim"
+                }`}
+              >
                 {label}
-              </Text>
-            </Group>
+              </span>
+            </div>
           );
         })}
-      </Stack>
+      </div>
       {state.status === "RUNNING" && (
-        <Text size="xs" c="dimmed">
+        <p className="text-xs text-dim">
           {state.message || "…"}
           {state.stage === "building" && " — genauer Fortschritt im Live-Log unten."}
-        </Text>
+        </p>
       )}
-    </Stack>
+    </div>
   );
 }
 
@@ -188,12 +185,12 @@ function UpdateLogView({ logs }: { logs: string }) {
   }, [logs]);
 
   return (
-    <ScrollArea h={300} viewportRef={viewportRef} className={classes.logScroll} type="auto">
+    <div ref={viewportRef} className={classes.logScroll} style={{ height: 300, overflow: "auto" }}>
       <pre className={classes.logPre}>
         {logs ||
           "Noch keine Log-Ausgabe. Sobald ein Update läuft, erscheint hier live das komplette Server-Protokoll (git pull, Migration, Build, Neustart)."}
       </pre>
-    </ScrollArea>
+    </div>
   );
 }
 
@@ -402,18 +399,15 @@ function UpdateSettingsCard({ versionInfo }: { versionInfo: LocalCommitInfo | nu
   const logs = state?.logs ?? "";
 
   return (
-    <Card withBorder radius="md" p="lg">
-      <Title order={4} mb="sm">
-        System-Update
-      </Title>
-
+    <Panel title="System-Update">
       {showProgress && state && (
         <Alert
-          variant="light"
-          color={failed ? "red" : succeeded ? "green" : "slate"}
+          className="mb-5"
+          tone={failed ? "risk" : succeeded ? "ok" : "info"}
+          role={failed ? "alert" : "status"}
           icon={
             running ? (
-              <Loader size={16} color="slate" />
+              <Spinner size={16} label="Update läuft" />
             ) : succeeded ? (
               <IconCircleCheck size={18} />
             ) : (
@@ -427,166 +421,149 @@ function UpdateSettingsCard({ versionInfo }: { versionInfo: LocalCommitInfo | nu
                 ? "Update abgeschlossen"
                 : "Update fehlgeschlagen"
           }
-          mb="md"
-          data-testid="update-progress"
         >
-          <Stack gap="sm">
-            <Text size="xs" c="dimmed">
+          <div className="flex flex-col gap-3" data-testid="update-progress">
+            <p className="text-xs">
               {running
                 ? "Läuft global auf dem Server — der Fortschritt ist in allen geöffneten Sitzungen sichtbar und überdauert einen Reload."
                 : succeeded
                   ? "Die Seite lädt neu…"
                   : state.error}
-            </Text>
+            </p>
 
             <UpdateProgress state={state} failIndex={lastRunningStep} />
 
             {running && state.stage === "restarting" && (
-              <Button
-                variant="light"
-                color="slate"
-                size="xs"
-                leftSection={<IconRefresh size={14} />}
-                onClick={() => window.location.reload()}
-              >
+              <Button size="sm" onClick={() => window.location.reload()}>
+                <IconRefresh size={14} />
                 Lädt nicht automatisch? Jetzt neu laden
               </Button>
             )}
 
             {succeeded && (
-              <Group justify="flex-end">
-                <Button
-                  size="xs"
-                  color="green"
-                  variant="light"
-                  leftSection={<IconRefresh size={14} />}
-                  onClick={() => window.location.reload()}
-                >
+              <div className="flex justify-end">
+                <Button variant="primary" size="sm" onClick={() => window.location.reload()}>
+                  <IconRefresh size={14} />
                   Jetzt neu laden
                 </Button>
-              </Group>
+              </div>
             )}
 
             {failed && (
-              <Text size="xs">
+              <p className="text-xs">
                 Vollständiges Protokoll auf dem Server:{" "}
-                <Code>docker compose -f docker-compose.prod.yml exec main-portal cat /data/update.log</Code>
-              </Text>
+                <Code>
+                  docker compose -f docker-compose.prod.yml exec main-portal cat /data/update.log
+                </Code>
+              </p>
             )}
-          </Stack>
+          </div>
         </Alert>
       )}
 
-      <Group justify="space-between" mb="md">
+      <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
-            Aktuelle Version
-          </Text>
+          <p className="legend-label">Aktuelle Version</p>
           {versionInfo ? (
-            <Group gap="xs">
+            <span className="mt-1 flex items-center gap-2">
               <Code>{versionInfo.shortSha}</Code>
-              <Badge variant="light" color="slate" size="sm">
-                {versionInfo.branch}
-              </Badge>
-            </Group>
+              <Badge>{versionInfo.branch}</Badge>
+            </span>
           ) : (
-            <Text size="sm" c="dimmed">
+            <p className="mt-1 text-sm text-dim">
               Kein Git-Repository gefunden (REPO_ROOT prüfen).
-            </Text>
+            </p>
           )}
         </div>
-        <Button
-          variant="light"
-          color="slate"
-          leftSection={<IconRefresh size={16} />}
-          loading={checkState.status === "loading"}
-          onClick={handleCheck}
-        >
-          Nach Updates suchen
+        <Button disabled={checkState.status === "loading"} onClick={handleCheck}>
+          <IconRefresh size={16} />
+          {checkState.status === "loading" ? "Wird geprüft…" : "Nach Updates suchen"}
         </Button>
-      </Group>
+      </div>
 
       {checkState.status === "error" && (
-        <Alert color="red" icon={<IconAlertCircle size={16} />} variant="light" mb="sm">
+        <Alert tone="risk" role="alert" icon={<IconAlertCircle size={16} />} className="mb-3">
           {checkState.message}
         </Alert>
       )}
 
       {checkState.status === "done" && !updateAvailable && (
-        <Alert color="green" icon={<IconCheck size={16} />} variant="light" mb="sm">
+        <Alert tone="ok" icon={<IconCheck size={16} />} className="mb-3">
           Auf dem neuesten Stand ({checkState.result.branch} @ {checkState.result.currentShortSha}).
         </Alert>
       )}
 
       {checkState.status === "done" && updateAvailable && (
-        <Stack gap="sm">
-          <Alert color="yellow" icon={<IconRocket size={16} />} variant="light">
-            <Text size="sm" fw={600}>
+        <div className="flex flex-col gap-3">
+          <Alert tone="watch" icon={<IconRocket size={16} />}>
+            <p className="text-sm font-semibold text-ink">
               Update verfügbar: {checkState.result.latestShortSha}
-            </Text>
-            <Text size="sm">{checkState.result.latestCommitMessage}</Text>
-            <Text size="xs" c="dimmed">
-              {checkState.result.latestCommitDate ? dateFormatter.format(new Date(checkState.result.latestCommitDate)) : ""}
-            </Text>
-            <Button
-              component="a"
+            </p>
+            <p className="text-sm">{checkState.result.latestCommitMessage}</p>
+            <p className="text-xs">
+              {checkState.result.latestCommitDate
+                ? dateFormatter.format(new Date(checkState.result.latestCommitDate))
+                : ""}
+            </p>
+            <ButtonLink
               href={checkState.result.latestCommitUrl}
               target="_blank"
               rel="noreferrer"
-              variant="subtle"
-              color="slate"
-              size="xs"
-              mt={4}
-              rightSection={<IconExternalLink size={12} />}
-              px={0}
+              variant="ghost"
+              size="sm"
+              className="mt-1 px-0"
             >
               Auf GitHub ansehen
-            </Button>
+              <IconExternalLink size={12} />
+            </ButtonLink>
           </Alert>
 
           {!running && (
             <>
               {tokenRequired && (
-                <PasswordInput
+                <Field
                   label="Update-Token"
                   description="Nur nötig, weil UPDATE_TRIGGER_TOKEN auf dem Server gesetzt ist. Wird im Browser gemerkt — leer lassen und die Variable entfernen, wenn du keinen Schutz brauchst."
-                  placeholder="Token eingeben"
-                  value={token}
-                  onChange={(event) => setToken(event.currentTarget.value)}
-                />
+                >
+                  {({ id, describedBy }) => (
+                    <PasswordInput
+                      id={id}
+                      aria-describedby={describedBy}
+                      placeholder="Token eingeben"
+                      value={token}
+                      onChange={(event) => setToken(event.currentTarget.value)}
+                    />
+                  )}
+                </Field>
               )}
               <Button
-                color="slate"
-                leftSection={<IconRocket size={16} />}
+                variant="primary"
+                className="w-fit"
                 disabled={tokenRequired && !token}
                 onClick={handleTrigger}
               >
+                <IconRocket size={16} />
                 {failed ? "Update erneut starten" : "Update jetzt starten (git pull + Rebuild)"}
               </Button>
             </>
           )}
-        </Stack>
+        </div>
       )}
 
-      <Group justify="space-between" align="center" mt="md" pt="md" className={classes.logDivider}>
-        <Group gap={6}>
-          <IconTerminal2 size={15} />
-          <Text size="sm" fw={600}>
-            Server-Log (live)
-          </Text>
-          {running && <Loader size={12} color="slate" />}
-        </Group>
-        <Button
-          variant="subtle"
-          color="slate"
-          size="xs"
-          rightSection={logOpen ? <IconChevronUp size={14} /> : <IconChevronDown size={14} />}
-          onClick={() => setLogOpen((open) => !open)}
-        >
+      <div
+        className={`mt-5 flex items-center justify-between gap-3 pt-5 ${classes.logDivider}`}
+      >
+        <span className="flex items-center gap-1.5">
+          <IconTerminal2 size={15} className="flex-none text-dim" />
+          <span className="text-sm font-semibold">Server-Log (live)</span>
+          {running && <Spinner size={12} label="Update läuft" className="text-accent" />}
+        </span>
+        <Button variant="ghost" size="sm" onClick={() => setLogOpen((open) => !open)}>
           {logOpen ? "Ausblenden" : "Anzeigen"}
+          {logOpen ? <IconChevronUp size={14} /> : <IconChevronDown size={14} />}
         </Button>
-      </Group>
+      </div>
       {logOpen && <UpdateLogView logs={logs} />}
-    </Card>
+    </Panel>
   );
 }

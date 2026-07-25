@@ -2,23 +2,14 @@
 
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  Alert,
-  Badge,
-  Box,
-  Button,
-  Card,
-  FileButton,
-  Grid,
-  GridCol,
-  Group,
-  RangeSlider,
-  Stack,
-  Text,
-  Title,
-} from "@mantine/core";
+import { Badge } from "@/app/components/ui/Badge";
+import { Button } from "@/app/components/ui/Button";
+import { Panel } from "@/app/components/ui/Panel";
+import { RangeSlider } from "@/app/components/ui/RangeSlider";
+import { Alert, FilePicker, IconChip, PageHeader } from "@/app/components/ui/primitives";
 import {
   IconAlertCircle,
+  IconCheck,
   IconCrop,
   IconFileExport,
   IconFileText,
@@ -260,15 +251,20 @@ export function AnalyzerView() {
 
   if (!active) {
     return (
-      <Stack gap="lg" maw={720} mx="auto">
+      <div className="mx-auto flex w-full max-w-[720px] flex-col gap-6">
         <Header />
         {error && (
-          <Alert color="red" variant="light" icon={<IconAlertCircle size={16} />} onClose={() => setError(null)} withCloseButton>
+          <Alert
+            tone="risk"
+            role="alert"
+            icon={<IconAlertCircle size={16} />}
+            onDismiss={() => setError(null)}
+          >
             {error}
           </Alert>
         )}
         {notice && (
-          <Alert color="teal" variant="light" onClose={() => setNotice(null)} withCloseButton>
+          <Alert tone="ok" icon={<IconCheck size={16} />} onDismiss={() => setNotice(null)}>
             {notice}
           </Alert>
         )}
@@ -282,32 +278,37 @@ export function AnalyzerView() {
           onDrop={onDrop}
           data-testid="dropzone"
         >
-          <Stack gap="sm" align="center">
-            <IconUpload size={40} stroke={1.3} color="var(--mantine-color-orange-6)" />
+          <div className="flex flex-col items-center gap-3 py-4">
+            <IconChip size={56} className="rounded-panel">
+              <IconUpload size={26} stroke={1.4} />
+            </IconChip>
             <div>
-              <Text fw={600}>CSV-Logfiles hierher ziehen</Text>
-              <Text size="sm" c="dimmed">
+              <p className="font-semibold">CSV-Logfiles hierher ziehen</p>
+              <p className="mt-0.5 text-sm text-dim">
                 Mehrere Dateien auf einmal möglich – Logs werden serverseitig gespeichert.
-              </Text>
+              </p>
             </div>
-            <Group gap="sm" mt="xs">
-              <FileButton onChange={handleFiles} accept=".csv,.log,.txt,text/csv,text/plain" multiple>
-                {(props) => (
-                  <Button {...props} color="orange" leftSection={<IconFileText size={16} />} loading={uploading}>
-                    Dateien auswählen
-                  </Button>
-                )}
-              </FileButton>
-              <Button variant="light" color="slate" leftSection={<IconSparkles size={16} />} onClick={loadSample} disabled={uploading}>
+            <div className="mt-1 flex flex-wrap justify-center gap-2">
+              <FilePicker
+                accept=".csv,.log,.txt,text/csv,text/plain"
+                multiple
+                disabled={uploading}
+                className="accent-gradient border-transparent text-white"
+                onChange={(event) => handleFiles([...(event.currentTarget.files ?? [])])}
+              >
+                <IconFileText size={16} />
+                {uploading ? "Wird hochgeladen…" : "Dateien auswählen"}
+              </FilePicker>
+              <Button variant="subtle" onClick={loadSample} disabled={uploading}>
+                <IconSparkles size={16} />
                 Beispiel laden
               </Button>
-            </Group>
-          </Stack>
+            </div>
+          </div>
         </div>
-      </Stack>
+      </div>
     );
   }
-
   const { log } = active;
   const windowLabel =
     log.timeUnit === "s"
@@ -315,40 +316,30 @@ export function AnalyzerView() {
       : `#${range[0]} – #${range[1]}`;
 
   return (
-    <Stack gap="lg">
-      <Group justify="space-between" align="flex-start" wrap="wrap">
-        <div>
-          <Group gap="sm">
-            <Title order={3}>{active.name}</Title>
-            <Badge variant="light" color={active.source === "remote" ? "blue" : "orange"}>
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <h1 className="truncate text-xl font-bold tracking-tight sm:text-2xl">{active.name}</h1>
+            <Badge tone="accent">
               {active.source === "remote" ? "Remote-Import" : "Upload"}
             </Badge>
-          </Group>
+          </div>
           {active.sourceUrl && (
-            <Text size="xs" c="dimmed" style={{ wordBreak: "break-all" }}>
-              {active.sourceUrl}
-            </Text>
+            <p className="mt-1 text-xs break-all text-dim">{active.sourceUrl}</p>
           )}
         </div>
         {/* One wrapping row of compact actions rather than four full-width
             stacked buttons — at 390px the old layout pushed the metadata and the
             verdict a whole screen down before anything useful was visible. */}
-        <Group gap={6} wrap="wrap">
-          <Button
-            variant="light"
-            color="emerald"
-            size="compact-sm"
-            leftSection={<IconFileExport size={14} />}
-            onClick={() => setExportOpen(true)}
-            data-testid="open-export"
-          >
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Button variant="subtle" size="sm" onClick={() => setExportOpen(true)} data-testid="open-export">
+            <IconFileExport size={14} />
             Bericht
           </Button>
           <Button
-            variant="light"
-            color="orange"
-            size="compact-sm"
-            leftSection={<IconGauge size={14} />}
+            variant="subtle"
+            size="sm"
             onClick={() => {
               // Hand the open log over to the dyno page (one-shot, by id).
               setActiveLogId(active.id);
@@ -356,90 +347,90 @@ export function AnalyzerView() {
             }}
             data-testid="open-dyno"
           >
+            <IconGauge size={14} />
             Prüfstand
           </Button>
-          <FileButton onChange={handleFiles} accept=".csv,.log,.txt,text/csv,text/plain" multiple>
-            {(props) => (
-              <Button
-                {...props}
-                variant="light"
-                color="slate"
-                size="compact-sm"
-                leftSection={<IconRefresh size={14} />}
-                loading={uploading}
-              >
-                Hochladen
-              </Button>
-            )}
-          </FileButton>
+          <FilePicker
+            accept=".csv,.log,.txt,text/csv,text/plain"
+            multiple
+            disabled={uploading}
+            className="min-h-9 px-3 text-[13px] sm:min-h-9"
+            onChange={(event) => handleFiles([...(event.currentTarget.files ?? [])])}
+          >
+            <IconRefresh size={14} />
+            {uploading ? "Lädt…" : "Hochladen"}
+          </FilePicker>
           <Button
-            variant="subtle"
-            color="slate"
-            size="compact-sm"
-            leftSection={<IconX size={14} />}
+            variant="ghost"
+            size="sm"
             onClick={() => {
               setActive(null);
               setSelected(new Set());
               setError(null);
             }}
           >
+            <IconX size={14} />
             Schließen
           </Button>
-        </Group>
-      </Group>
+        </div>
+      </div>
+
+      {error && (
+        <Alert
+          tone="risk"
+          role="alert"
+          icon={<IconAlertCircle size={16} />}
+          onDismiss={() => setError(null)}
+        >
+          {error}
+        </Alert>
+      )}
 
       <MetadataCard meta={log.meta} rowCount={log.rowCount} skippedRows={log.skippedRows} />
 
       {evaluation && <EvaluationCard evaluation={evaluation} spec={spec} />}
 
-      <Card withBorder radius="md" p="md">
-        <Group justify="space-between" mb="xs">
-          <Text size="sm" fw={600}>
-            Zeitfenster
-          </Text>
-          <Group gap="sm">
-            <Text size="xs" c="dimmed">
-              {windowLabel}
-            </Text>
+      <Panel className="[&]:p-4">
+        <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm font-semibold">Zeitfenster</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="readout text-xs">{windowLabel}</span>
             {evaluation && evaluation.window[1] > evaluation.window[0] && (
-              <Button
-                variant="light"
-                size="compact-xs"
-                color="teal"
-                leftSection={<IconCrop size={13} />}
-                onClick={cropToPull}
-                data-testid="crop-to-pull"
-              >
+              <Button variant="subtle" size="sm" onClick={cropToPull} data-testid="crop-to-pull">
+                <IconCrop size={13} />
                 Auf Pull zuschneiden
               </Button>
             )}
             <Button
-              variant="subtle"
-              size="compact-xs"
-              color="slate"
-              leftSection={<IconZoomReset size={13} />}
+              variant="ghost"
+              size="sm"
               onClick={() => setRange([0, Math.max(0, log.time.length - 1)])}
             >
+              <IconZoomReset size={13} />
               Zoom zurücksetzen
             </Button>
-          </Group>
-        </Group>
+          </div>
+        </div>
         <RangeSlider
+          label="Zeitfenster"
           min={0}
           max={Math.max(0, log.time.length - 1)}
           value={range}
           onChange={setRange}
-          color="orange"
           minRange={1}
-          label={(v) => (log.timeUnit === "s" ? `${log.time[v]?.toFixed(1)}s` : `#${v}`)}
-          aria-label="Zeitfenster wählen"
+          formatValue={(v) => (log.timeUnit === "s" ? `${log.time[v]?.toFixed(1)} s` : `Zeile ${v}`)}
         />
-      </Card>
+      </Panel>
 
-      <Grid gutter="md">
+      {/* `min-w-0` on the grid AND on the chart column: a grid child defaults to
+          `min-width: auto` and would otherwise be sized by the chart's minimum
+          content width, widening the page past the viewport on a phone. */}
+      <div className="grid min-w-0 gap-4 md:grid-cols-12">
         {/* The parameter sidebar is a tablet/desktop affordance — at 390px it
-            would eat the entire viewport before a single chart appeared. */}
-        <GridCol span={{ base: 12, md: 3 }} visibleFrom="md">
+            would eat the entire viewport before a single chart appeared. The
+            switch is a media query, never a hook: `useMediaQuery` resolves after
+            mount and would reflow the page in front of the user. */}
+        <div className="hidden min-w-0 md:col-span-3 md:block">
           <ParameterPanel
             series={log.series}
             selected={selected}
@@ -450,9 +441,9 @@ export function AnalyzerView() {
             onAxis={setAxis}
             onColor={setColor}
           />
-        </GridCol>
-        <GridCol span={{ base: 12, md: 9 }}>
-          <Box hiddenFrom="md" mb="xs">
+        </div>
+        <div className="min-w-0 md:col-span-9">
+          <div className="mb-2 md:hidden">
             <ChannelChips
               series={log.series}
               selected={selected}
@@ -460,7 +451,7 @@ export function AnalyzerView() {
               onToggle={toggle}
               onOpenAll={() => setChannelSheetOpen(true)}
             />
-          </Box>
+          </div>
           {/* The placeholder is sized from the same grouping the stack uses, so
               the chunk arriving swaps content into a box that is already the
               right height. */}
@@ -478,8 +469,8 @@ export function AnalyzerView() {
               exclusionRanges={evaluation?.exclusionRanges ?? []}
             />
           </Suspense>
-        </GridCol>
-      </Grid>
+        </div>
+      </div>
 
       {/* Full channel panel for phones. Mounted only while open, so it costs
           nothing on the desktop path where the sidebar already shows it. */}
@@ -501,8 +492,8 @@ export function AnalyzerView() {
         />
       </ResponsiveDialog>
 
-      {/* An unopened Mantine Modal renders nothing, so there is no geometry to
-          reserve and no fallback to show. */}
+      {/* A closed dialog renders nothing, so there is no geometry to reserve and
+          no fallback to show. */}
       {exportOpen && (
         <Suspense fallback={null}>
           <ExportModal
@@ -514,21 +505,19 @@ export function AnalyzerView() {
           />
         </Suspense>
       )}
-    </Stack>
+    </div>
   );
 }
 
 function Header() {
   return (
-    <Group gap="md">
+    <div className="flex items-center gap-3">
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/icon-log-analyzer.svg" alt="" width={48} height={48} />
-      <div>
-        <Title order={2}>MGflasher Log Analyzer</Title>
-        <Text c="dimmed" size="sm">
-          ECU/TCU-Datenlogs importieren, visualisieren und analysieren.
-        </Text>
-      </div>
-    </Group>
+      <img src="/icon-log-analyzer.svg" alt="" width={48} height={48} className="flex-none" />
+      <PageHeader
+        title="Log Analyzer"
+        description="ECU/TCU-Datenlogs importieren, visualisieren und analysieren."
+      />
+    </div>
   );
 }

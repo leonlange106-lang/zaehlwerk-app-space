@@ -8,6 +8,11 @@ const DATABASE_URL = `file:${DB_PATH}`;
 
 export default defineConfig({
   testDir: "./e2e",
+  // The screenshot sweep lives in the same folder but is not a regression test —
+  // it asserts nothing and only exists to produce review images. It runs under
+  // its own config (`playwright test -c e2e/shots.config.ts`), which adds the
+  // desktop viewport and the light/dark pass this suite has no use for.
+  testIgnore: /shots\.spec\.ts/,
   globalSetup: "./e2e/global-setup.ts",
   timeout: 45_000,
   expect: { timeout: 10_000 },

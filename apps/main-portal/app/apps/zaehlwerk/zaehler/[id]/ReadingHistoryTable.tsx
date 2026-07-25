@@ -2,32 +2,15 @@
 
 import { useActionState, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import {
-  ActionIcon,
-  Alert,
-  Badge,
-  Button,
-  Checkbox,
-  Collapse,
-  Group,
-  NumberInput,
-  Stack,
-  Table,
-  TableScrollContainer,
-  TableTbody,
-  TableTd,
-  TableTh,
-  TableThead,
-  TableTr,
-  Text,
-  TextInput,
-  Tooltip,
-  UnstyledButton,
-} from "@mantine/core";
-import { notifications } from "@mantine/notifications";
+import { Badge } from "@/app/components/ui/Badge";
+import { Button } from "@/app/components/ui/Button";
+import { Checkbox as UiCheckbox } from "@/app/components/ui/primitives";
+import { Field, NumberInput, TextInput } from "@/app/components/ui/Field";
+import { Tooltip } from "@/app/components/ui/Tooltip";
+import { useToast } from "@/app/components/ui/Toast";
+import { Alert, Table, TableScroll, Td, Th } from "@/app/components/ui/primitives";
 import {
   IconAlertCircle,
-  IconCheck,
   IconChevronDown,
   IconPencil,
   IconTrash,
@@ -96,78 +79,69 @@ function RowCells({
 }) {
   return (
     <>
-      <TableTd>{row.datum}</TableTd>
-      <TableTd>
+      <Td className="whitespace-nowrap">{row.datum}</Td>
+      <Td className="readout whitespace-nowrap">
         {row.wert}
-        {row.getauscht && (
-          <Badge ml="xs" size="xs" variant="light" color="orange">
-            Zähler getauscht
-          </Badge>
-        )}
-      </TableTd>
-      <TableTd>
+        {row.getauscht && <Badge className="ml-2">Zähler getauscht</Badge>}
+      </Td>
+      <Td className="whitespace-nowrap">
         {row.consumption.kind === "none" ? (
           "–"
         ) : row.consumption.kind === "implausible" ? (
-          <Text component="span" size="sm" c="orange">
-            unplausibel
-          </Text>
+          <span className="text-watch">unplausibel</span>
         ) : (
-          row.consumption.text
+          <span className="readout">{row.consumption.text}</span>
         )}
-      </TableTd>
-      <TableTd>{row.kosten}</TableTd>
+      </Td>
+      <Td className="readout whitespace-nowrap">{row.kosten}</Td>
       {hasTarife && (
-        <TableTd>
-          {row.tariffCost !== null ? (
-            <Text component="span" size="sm" c="dimmed">
-              {row.tariffCost}
-            </Text>
-          ) : (
-            "–"
-          )}
-        </TableTd>
+        <Td className="whitespace-nowrap text-dim">
+          {row.tariffCost !== null ? <span className="readout">{row.tariffCost}</span> : "–"}
+        </Td>
       )}
-      <TableTd>
-        <Badge size="xs" variant="outline" color="slate">
-          {row.quelle}
-        </Badge>
-      </TableTd>
-      <TableTd>
-        <Group gap={4} wrap="nowrap" justify="flex-end">
+      <Td>
+        <Badge>{row.quelle}</Badge>
+      </Td>
+      <Td>
+        <span className="flex justify-end gap-1">
           <Tooltip label="Bearbeiten">
-            <ActionIcon variant="subtle" color="slate" onClick={() => actions.onEdit(row)} aria-label="Ablesung bearbeiten">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => actions.onEdit(row)}
+              aria-label="Ablesung bearbeiten"
+            >
               <IconPencil size={16} />
-            </ActionIcon>
+            </Button>
           </Tooltip>
           <Tooltip label="Löschen">
-            <ActionIcon
-              variant="subtle"
-              color="red"
-              loading={actions.deleting}
+            <Button
+              variant="danger"
+              size="sm"
+              disabled={actions.deleting}
               onClick={() => actions.onDelete(row)}
               aria-label="Ablesung löschen"
             >
               <IconTrash size={16} />
-            </ActionIcon>
+            </Button>
           </Tooltip>
-        </Group>
-      </TableTd>
+        </span>
+      </Td>
     </>
   );
 }
 
 function HeaderRow({ hasTarife }: { hasTarife: boolean }) {
   return (
-    <TableTr>
-      <TableTh>Datum</TableTh>
-      <TableTh>Zählerstand</TableTh>
-      <TableTh>Verbrauch</TableTh>
-      <TableTh>Kosten</TableTh>
-      {hasTarife && <TableTh>Kosten (Tarif)</TableTh>}
-      <TableTh>Quelle</TableTh>
-      <TableTh />
-    </TableTr>
+    <tr>
+      <Th>Datum</Th>
+      <Th>Zählerstand</Th>
+      <Th>Verbrauch</Th>
+      <Th>Kosten</Th>
+      {hasTarife && <Th>Kosten (Tarif)</Th>}
+      <Th>Quelle</Th>
+      <Th className="text-right">Aktionen</Th>
+    </tr>
   );
 }
 
@@ -183,6 +157,7 @@ export function ReadingHistoryTable({
   einheit: string;
 }) {
   const router = useRouter();
+  const toast = useToast();
   const [deleting, startDelete] = useTransition();
   const [editRow, setEditRow] = useState<ReadingRow | null>(null);
 
@@ -193,10 +168,10 @@ export function ReadingHistoryTable({
       fd.set("id", row.id);
       fd.set("zaehlerId", zaehlerId);
       const result = await deleteAblesungAction(initialActionState, fd);
-      notifications.show({
-        color: result.success ? "green" : "red",
-        icon: result.success ? <IconCheck size={16} /> : <IconAlertCircle size={16} />,
-        message: result.success ? "Ablesung gelöscht." : result.error ?? "Fehler.",
+      toast.show({
+        tone: result.success ? "ok" : "risk",
+        title: result.success ? "Ablesung gelöscht" : "Löschen fehlgeschlagen",
+        message: result.success ? undefined : (result.error ?? undefined),
       });
       if (result.success) router.refresh();
     });
@@ -212,20 +187,20 @@ export function ReadingHistoryTable({
 
       <div className={cardClasses.tableView}>
         {rows.length <= VIRTUALIZE_THRESHOLD ? (
-          <TableScrollContainer minWidth={MIN_TABLE_WIDTH}>
-            <Table verticalSpacing="xs" fz="sm">
-              <TableThead>
+          <TableScroll>
+            <Table style={{ minWidth: MIN_TABLE_WIDTH }}>
+              <thead>
                 <HeaderRow hasTarife={hasTarife} />
-              </TableThead>
-              <TableTbody>
+              </thead>
+              <tbody>
                 {rows.map((row) => (
-                  <TableTr key={row.id}>
+                  <tr key={row.id}>
                     <RowCells row={row} hasTarife={hasTarife} actions={actions} />
-                  </TableTr>
+                  </tr>
                 ))}
-              </TableTbody>
+              </tbody>
             </Table>
-          </TableScrollContainer>
+          </TableScroll>
         ) : (
           <VirtualizedReadingTable rows={rows} hasTarife={hasTarife} actions={actions} />
         )}
@@ -294,60 +269,52 @@ function ReadingCardList({
                 <div className={cardClasses.date}>{row.datum}</div>
                 <div className={cardClasses.value}>{row.wert}</div>
               </div>
-              {row.getauscht && (
-                <Badge size="xs" variant="light" color="amber">
-                  Zähler getauscht
-                </Badge>
-              )}
+              {row.getauscht && <Badge>Zähler getauscht</Badge>}
             </div>
 
             <div className={cardClasses.actions}>
-              <UnstyledButton
+              <button
+                type="button"
                 onClick={() => toggle(row.id)}
                 aria-expanded={open}
                 aria-controls={panelId}
-                px={4}
-                h={44}
+                className="flex h-11 items-center gap-1 px-1 text-xs text-dim"
               >
-                <Group gap={4} wrap="nowrap">
-                  <Text size="xs" c="dimmed">
-                    {/* Constant label: swapping the wording on expand would
-                        change the row's width and nudge the icons beside it. */}
-                    Details
-                  </Text>
-                  <IconChevronDown
-                    size={14}
-                    stroke={1.75}
-                    style={{
-                      transform: open ? "rotate(180deg)" : undefined,
-                      transition: "transform 150ms ease",
-                    }}
-                  />
-                </Group>
-              </UnstyledButton>
+                {/* Constant label: swapping the wording on expand would change
+                    the row's width and nudge the icons beside it. */}
+                Details
+                <IconChevronDown
+                  size={14}
+                  stroke={1.9}
+                  style={{
+                    transform: open ? "rotate(180deg)" : undefined,
+                    transition: "transform 150ms ease",
+                  }}
+                />
+              </button>
 
-              <Group gap={4} wrap="nowrap">
-                <ActionIcon
-                  variant="subtle"
-                  color="slate"
+              <span className="flex gap-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
                   onClick={() => actions.onEdit(row)}
                   aria-label="Ablesung bearbeiten"
                 >
-                  <IconPencil size={17} stroke={1.75} />
-                </ActionIcon>
-                <ActionIcon
-                  variant="subtle"
-                  color="red"
-                  loading={actions.deleting}
+                  <IconPencil size={17} stroke={1.9} />
+                </Button>
+                <Button
+                  variant="danger"
+                  size="sm"
+                  disabled={actions.deleting}
                   onClick={() => actions.onDelete(row)}
                   aria-label="Ablesung löschen"
                 >
-                  <IconTrash size={17} stroke={1.75} />
-                </ActionIcon>
-              </Group>
+                  <IconTrash size={17} stroke={1.9} />
+                </Button>
+              </span>
             </div>
 
-            <Collapse in={open} id={panelId}>
+            <div id={panelId} hidden={!open}>
               <dl className={cardClasses.detailGrid}>
                 <dt className={cardClasses.detailKey}>Verbrauch</dt>
                 <dd className={cardClasses.detailValue}>
@@ -368,17 +335,13 @@ function ReadingCardList({
                 <dt className={cardClasses.detailKey}>Quelle</dt>
                 <dd className={cardClasses.detailValue}>{row.quelle}</dd>
               </dl>
-            </Collapse>
+            </div>
           </div>
         );
       })}
 
       {rows.length > limit && (
-        <Button
-          variant="default"
-          size="sm"
-          onClick={() => setLimit((n) => n + MOBILE_PAGE_SIZE)}
-        >
+        <Button size="sm" onClick={() => setLimit((n) => n + MOBILE_PAGE_SIZE)}>
           Weitere anzeigen ({rows.length - limit})
         </Button>
       )}
@@ -405,59 +368,77 @@ function EditReadingForm({
   }, [state.success, onDone]);
 
   return (
-    <form action={formAction} key={row.id}>
+    <form action={formAction} key={row.id} className="flex flex-col gap-4">
       <input type="hidden" name="id" value={row.id} />
       <input type="hidden" name="zaehlerId" value={zaehlerId} />
-      <Stack gap="sm">
-        <TextInput name="datum" label="Ablesedatum" type="date" defaultValue={row.raw.datum} required />
-        <NumberInput
-          name="wert"
-          label={`Zählerstand (${einheit})`}
-          defaultValue={row.raw.wert}
-          min={0}
-          inputMode="decimal"
-          required
-        />
-        <NumberInput
-          name="kosten"
-          label="Kosten (optional)"
-          defaultValue={row.raw.kosten ?? undefined}
-          min={0}
-          decimalScale={2}
-          inputMode="decimal"
-        />
-        <Checkbox
-          name="zaehlerGetauscht"
-          label="Zähler wurde bei dieser Ablesung getauscht"
-          checked={getauscht}
-          onChange={(event) => setGetauscht(event.currentTarget.checked)}
-        />
-        {getauscht && (
+      <Field label="Ablesedatum" required>
+        {({ id }) => (
+          <TextInput id={id} name="datum" type="date" defaultValue={row.raw.datum} required />
+        )}
+      </Field>
+      {/* The unit is part of the label on purpose — the mobile spec fills this
+          field by its accessible name, and a bare "Zählerstand" would not say
+          which unit the number is in. */}
+      <Field label={`Zählerstand (${einheit})`} required>
+        {({ id }) => (
           <NumberInput
-            name="startwertNeu"
-            label="Startwert neuer Zähler"
-            defaultValue={row.raw.startwertNeu ?? undefined}
+            id={id}
+            name="wert"
+            defaultValue={row.raw.wert}
             min={0}
-            inputMode="decimal"
+            step="any"
+            required
           />
         )}
-        <TextInput name="notiz" label="Notiz (optional)" defaultValue={row.raw.notiz} />
-
-        {state.error && (
-          <Alert color="red" icon={<IconAlertCircle size={16} />} variant="light">
-            {state.error}
-          </Alert>
+      </Field>
+      <Field label="Kosten (optional)">
+        {({ id }) => (
+          <NumberInput
+            id={id}
+            name="kosten"
+            defaultValue={row.raw.kosten ?? undefined}
+            min={0}
+            step="0.01"
+          />
         )}
+      </Field>
+      <UiCheckbox
+        name="zaehlerGetauscht"
+        label="Zähler wurde bei dieser Ablesung getauscht"
+        checked={getauscht}
+        onChange={(event) => setGetauscht(event.currentTarget.checked)}
+      />
+      {getauscht && (
+        <Field label="Startwert neuer Zähler">
+          {({ id }) => (
+            <NumberInput
+              id={id}
+              name="startwertNeu"
+              defaultValue={row.raw.startwertNeu ?? undefined}
+              min={0}
+              step="any"
+            />
+          )}
+        </Field>
+      )}
+      <Field label="Notiz (optional)">
+        {({ id }) => <TextInput id={id} name="notiz" defaultValue={row.raw.notiz} />}
+      </Field>
 
-        <Group justify="flex-end" mt="sm">
-          <Button variant="default" onClick={onDone} disabled={pending}>
-            Abbrechen
-          </Button>
-          <Button type="submit" color="slate" loading={pending}>
-            Speichern
-          </Button>
-        </Group>
-      </Stack>
+      {state.error && (
+        <Alert tone="risk" role="alert" icon={<IconAlertCircle size={16} />}>
+          {state.error}
+        </Alert>
+      )}
+
+      <div className="mt-1 flex justify-end gap-2">
+        <Button type="button" onClick={onDone} disabled={pending}>
+          Abbrechen
+        </Button>
+        <Button type="submit" variant="primary" disabled={pending}>
+          {pending ? "Wird gespeichert…" : "Speichern"}
+        </Button>
+      </div>
     </form>
   );
 }
@@ -499,30 +480,30 @@ function VirtualizedReadingTable({
       aria-label="Ablesungshistorie"
       tabIndex={0}
     >
-      <Table verticalSpacing="xs" fz="sm" stickyHeader style={{ minWidth: MIN_TABLE_WIDTH }}>
-        <TableThead>
+      <Table style={{ minWidth: MIN_TABLE_WIDTH }}>
+        <thead className="sticky top-0 z-10 bg-surface">
           <HeaderRow hasTarife={hasTarife} />
-        </TableThead>
-        <TableTbody>
+        </thead>
+        <tbody>
           {paddingTop > 0 && (
-            <TableTr aria-hidden style={{ height: paddingTop, border: 0 }}>
-              <TableTd colSpan={colSpan} style={{ padding: 0, border: 0 }} />
-            </TableTr>
+            <tr aria-hidden style={{ height: paddingTop }}>
+              <td colSpan={colSpan} style={{ padding: 0, border: 0 }} />
+            </tr>
           )}
           {virtualRows.map((virtualRow) => {
             const row = rows[virtualRow.index]!;
             return (
-              <TableTr key={row.id} data-index={virtualRow.index} ref={virtualizer.measureElement}>
+              <tr key={row.id} data-index={virtualRow.index} ref={virtualizer.measureElement}>
                 <RowCells row={row} hasTarife={hasTarife} actions={actions} />
-              </TableTr>
+              </tr>
             );
           })}
           {paddingBottom > 0 && (
-            <TableTr aria-hidden style={{ height: paddingBottom, border: 0 }}>
-              <TableTd colSpan={colSpan} style={{ padding: 0, border: 0 }} />
-            </TableTr>
+            <tr aria-hidden style={{ height: paddingBottom }}>
+              <td colSpan={colSpan} style={{ padding: 0, border: 0 }} />
+            </tr>
           )}
-        </TableTbody>
+        </tbody>
       </Table>
     </div>
   );

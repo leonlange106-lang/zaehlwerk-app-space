@@ -1,17 +1,15 @@
 // Browser-safe auth primitives (no Prisma import), so client components can use
 // the role type/labels + validation schemas without pulling in the server-only
 // Prisma client. Role string values mirror the Prisma `Role` enum.
+//
+// The role constants themselves now live in `roles.ts` and are re-exported here
+// for compatibility: they are zod-free, and keeping them in this module meant a
+// client importing only `USER_ROLE_LABELS` also got the Zod runtime. Client
+// components should import from `@zaehlwerk/database/client` instead.
 
 import { z } from "zod";
 
-export const USER_ROLES = ["ADMIN", "USER"] as const;
-
-export type UserRole = (typeof USER_ROLES)[number];
-
-export const USER_ROLE_LABELS: Record<UserRole, string> = {
-  ADMIN: "Administrator",
-  USER: "Benutzer",
-};
+export { USER_ROLES, USER_ROLE_LABELS, type UserRole } from "./roles";
 
 const emailSchema = z.string().trim().min(1, "E-Mail ist erforderlich.").email("Bitte eine gültige E-Mail angeben.");
 const passwordSchema = z.string().min(8, "Das Passwort muss mindestens 8 Zeichen haben.");

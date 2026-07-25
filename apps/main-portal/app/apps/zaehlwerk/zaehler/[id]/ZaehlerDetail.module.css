@@ -12,7 +12,7 @@
  * sets `data-active`, and only below `sm` does that hide a pane. Tablet and
  * desktop keep every panel on screen in the two-column grid.
  */
-@media (max-width: $mantine-breakpoint-sm) {
+@media (max-width: 48em) {
   .pane[data-active="false"] {
     display: none;
   }
@@ -23,5 +23,5 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
-  margin-bottom: var(--mantine-spacing-sm);
+  margin-bottom: 12px;
 }

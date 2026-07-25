@@ -19,6 +19,8 @@ const eslintConfig = defineConfig([
     "e2e/.test-results/**",
     "e2e/.data/**",
     "e2e/.auth/**",
+    "e2e/.shots/**",
+    "e2e/.shots-results/**",
   ]),
 ]);
 

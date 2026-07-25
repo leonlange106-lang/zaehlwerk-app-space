@@ -1,19 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import {
-  Button,
-  Card,
-  Group,
-  MultiSelect,
-  Select,
-  SimpleGrid,
-  Stack,
-  Text,
-  TextInput,
-  Title,
-} from "@mantine/core";
 import { IconDownload, IconFileTypeCsv, IconFileTypePdf } from "@tabler/icons-react";
+import { ButtonLink } from "@/app/components/ui/Button";
+import { Field, Select, SelectShell, TextInput } from "@/app/components/ui/Field";
+import { Panel } from "@/app/components/ui/Panel";
+import { cn } from "@/app/lib/cn";
 
 type Period = "all" | "current" | "last" | "custom";
 type Delimiter = "semicolon" | "comma";
@@ -78,89 +70,121 @@ export function ExportPanel({ meters }: { meters: { id: string; name: string }[]
     return query ? `/api/export/pdf?${query}` : "/api/export/pdf";
   }
 
+  const toggleMeter = (id: string) => {
+    setSelected((current) =>
+      current.includes(id) ? current.filter((candidate) => candidate !== id) : [...current, id],
+    );
+  };
+
   return (
-    <Card withBorder radius="md" p="lg">
-      <Group gap="xs" mb="xs">
-        <IconDownload size={18} stroke={1.6} />
-        <Title order={4}>Export</Title>
-      </Group>
-      <Text size="sm" c="dimmed" mb="md">
-        Zählerstände, Verbräuche und Kosten nach Zeitraum und Zähler gefiltert als CSV oder PDF
-        exportieren.
-      </Text>
+    <Panel
+      title="Export"
+      description="Zählerstände, Verbräuche und Kosten nach Zeitraum und Zähler gefiltert als CSV oder PDF exportieren."
+      icon={<IconDownload size={17} stroke={1.7} />}
+    >
+      <div className="flex flex-col gap-5">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <Field label="Zeitraum">
+            {({ id }) => (
+              <SelectShell>
+                <Select
+                  id={id}
+                  value={period}
+                  onChange={(event) => setPeriod(event.currentTarget.value as Period)}
+                >
+                  <option value="all">Alles</option>
+                  <option value="current">Dieses Jahr</option>
+                  <option value="last">Letztes Jahr</option>
+                  <option value="custom">Benutzerdefiniert</option>
+                </Select>
+              </SelectShell>
+            )}
+          </Field>
+          <Field label="Von">
+            {({ id }) => (
+              <TextInput
+                id={id}
+                type="date"
+                value={customFrom}
+                onChange={(event) => setCustomFrom(event.currentTarget.value)}
+                disabled={period !== "custom"}
+              />
+            )}
+          </Field>
+          <Field label="Bis">
+            {({ id }) => (
+              <TextInput
+                id={id}
+                type="date"
+                value={customTo}
+                onChange={(event) => setCustomTo(event.currentTarget.value)}
+                disabled={period !== "custom"}
+              />
+            )}
+          </Field>
+          <Field label="CSV-Trennzeichen">
+            {({ id }) => (
+              <SelectShell>
+                <Select
+                  id={id}
+                  value={delimiter}
+                  onChange={(event) => setDelimiter(event.currentTarget.value as Delimiter)}
+                >
+                  <option value="semicolon">Semikolon (;) – Excel DE</option>
+                  <option value="comma">Komma (,) – international</option>
+                </Select>
+              </SelectShell>
+            )}
+          </Field>
+        </div>
 
-      <Stack gap="md">
-        <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }} spacing="sm">
-          <Select
-            label="Zeitraum"
-            data={[
-              { value: "all", label: "Alles" },
-              { value: "current", label: "Dieses Jahr" },
-              { value: "last", label: "Letztes Jahr" },
-              { value: "custom", label: "Benutzerdefiniert" },
-            ]}
-            value={period}
-            onChange={(value) => setPeriod((value as Period) ?? "all")}
-            allowDeselect={false}
-          />
-          <TextInput
-            label="Von"
-            type="date"
-            value={customFrom}
-            onChange={(event) => setCustomFrom(event.currentTarget.value)}
-            disabled={period !== "custom"}
-          />
-          <TextInput
-            label="Bis"
-            type="date"
-            value={customTo}
-            onChange={(event) => setCustomTo(event.currentTarget.value)}
-            disabled={period !== "custom"}
-          />
-          <Select
-            label="CSV-Trennzeichen"
-            data={[
-              { value: "semicolon", label: "Semikolon (;) – Excel DE" },
-              { value: "comma", label: "Komma (,) – international" },
-            ]}
-            value={delimiter}
-            onChange={(value) => setDelimiter((value as Delimiter) ?? "semicolon")}
-            allowDeselect={false}
-          />
-        </SimpleGrid>
+        {/* Toggle chips rather than a combobox: the list is short, every option
+            fits on screen, and "none selected = all" is far easier to see when
+            the alternative is an empty field claiming "Alle Zähler". */}
+        <fieldset className="min-w-0">
+          <legend className="mb-2 text-[13px] font-medium">
+            Zähler{" "}
+            <span className="font-normal text-dim">
+              {selected.length === 0 ? "— alle" : `— ${selected.length} ausgewählt`}
+            </span>
+          </legend>
+          <div className="flex flex-wrap gap-2">
+            {meters.map((meter) => {
+              const active = selected.includes(meter.id);
+              return (
+                <label
+                  key={meter.id}
+                  className={cn(
+                    "inline-flex min-h-9 cursor-pointer items-center rounded-full border px-3.5 text-[13px] transition-colors",
+                    active
+                      ? "border-transparent bg-[color-mix(in_srgb,var(--zw-accent)_18%,transparent)] font-semibold text-accent"
+                      : "border-line text-dim hover:border-line-strong hover:text-ink",
+                  )}
+                >
+                  <input
+                    type="checkbox"
+                    className="sr-only"
+                    checked={active}
+                    onChange={() => toggleMeter(meter.id)}
+                  />
+                  {meter.name}
+                </label>
+              );
+            })}
+          </div>
+        </fieldset>
 
-        <MultiSelect
-          label="Zähler"
-          placeholder={selected.length === 0 ? "Alle Zähler" : undefined}
-          data={meters.map((meter) => ({ value: meter.id, label: meter.name }))}
-          value={selected}
-          onChange={setSelected}
-          clearable
-          searchable
-        />
-
-        <Group gap="sm">
-          <Button
-            component="a"
-            href={buildCsvHref()}
-            download
-            color="slate"
-            leftSection={<IconFileTypeCsv size={16} />}
-          >
+        <div className="flex flex-wrap gap-2">
+          <ButtonLink href={buildCsvHref()} download variant="primary">
+            <IconFileTypeCsv size={16} />
             CSV exportieren
-          </Button>
-          <Button
-            component="a"
-            href={buildPdfHref()}
-            download
-            variant="light"
-            color="slate"
-            leftSection={<IconFileTypePdf size={16} />}
-          >
+          </ButtonLink>
+          <ButtonLink href={buildPdfHref()} download>
+            <IconFileTypePdf size={16} />
             PDF-Bericht{range.year ? ` ${range.year}` : period === "all" ? " (Alles)" : ""}
-          </Button>
-        </Group>
-      </Stack>
-    </Card>
+          </ButtonLink>
+        </div>
+      </div>
+    </Panel>
   );
 }

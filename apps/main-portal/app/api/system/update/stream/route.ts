@@ -1,5 +1,6 @@
 import { readUpdateState, subscribeUpdateState } from "@/app/lib/update-state";
 import { updateStateKey, type UpdateState } from "@/app/lib/update-status";
+import { denyUnlessAdmin } from "@/app/lib/api-guards";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,6 +19,10 @@ export const dynamic = "force-dynamic";
 const HEARTBEAT_MS = 15_000;
 
 export async function GET(request: Request) {
+  // Update logs echo build output and host paths — admin-only, like the trigger.
+  const denied = await denyUnlessAdmin();
+  if (denied) return denied;
+
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream<Uint8Array>({

@@ -2,34 +2,23 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import {
-  ActionIcon,
-  Alert,
-  Button,
-  Card,
-  Code,
-  CopyButton,
-  Group,
-  Modal,
-  Select,
-  Stack,
-  Table,
-  TableTbody,
-  TableTd,
-  TableTh,
-  TableThead,
-  TableTr,
-  Text,
-  TextInput,
-  Title,
-  Tooltip,
-} from "@mantine/core";
-import { notifications } from "@mantine/notifications";
-import { IconAlertCircle, IconCheck, IconCopy, IconKey, IconPlus, IconTrash } from "@tabler/icons-react";
+import { IconAlertCircle, IconKey, IconPlus, IconTrash } from "@tabler/icons-react";
 import type { ApiTokenSummary } from "@/app/lib/api-token-actions";
 import { createApiToken, deleteApiToken } from "@/app/lib/api-token-actions";
+import { Button } from "@/app/components/ui/Button";
+import { CopyButton } from "@/app/components/ui/CopyButton";
+import { Field, Select, SelectShell, TextInput } from "@/app/components/ui/Field";
+import { Panel } from "@/app/components/ui/Panel";
+import { ResponsiveDialog } from "@/app/components/ui/ResponsiveDialog";
+import { Tooltip } from "@/app/components/ui/Tooltip";
+import { useToast } from "@/app/components/ui/Toast";
+import { Alert, Code, CodeBlock, Table, TableScroll, Td, Th } from "@/app/components/ui/primitives";
 
-const dateFormatter = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
+const dateFormatter = new Intl.DateTimeFormat("de-DE", {
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+});
 
 const expiryOptions = [
   { value: "0", label: "Läuft nie ab" },
@@ -40,6 +29,7 @@ const expiryOptions = [
 
 export function ApiTokenCard({ tokens }: { tokens: ApiTokenSummary[] }) {
   const router = useRouter();
+  const toast = useToast();
   const [isPending, startTransition] = useTransition();
 
   const [name, setName] = useState("");
@@ -65,135 +55,155 @@ export function ApiTokenCard({ tokens }: { tokens: ApiTokenSummary[] }) {
   }
 
   function remove(id: string, tokenName: string) {
-    if (!window.confirm(`Token „${tokenName}" wirklich löschen? Skripte, die ihn nutzen, verlieren den Zugriff.`)) {
+    if (
+      !window.confirm(
+        `Token „${tokenName}" wirklich löschen? Skripte, die ihn nutzen, verlieren den Zugriff.`,
+      )
+    ) {
       return;
     }
     startTransition(async () => {
       const result = await deleteApiToken(id);
-      if (result.success) {
-        notifications.show({ color: "green", icon: <IconCheck size={16} />, message: "Token gelöscht." });
-        router.refresh();
-      } else {
-        notifications.show({ color: "red", icon: <IconAlertCircle size={16} />, message: result.error ?? "Fehler." });
-      }
+      toast.show({
+        tone: result.success ? "ok" : "risk",
+        title: result.success ? "Token gelöscht" : "Löschen fehlgeschlagen",
+        message: result.success ? undefined : (result.error ?? undefined),
+      });
+      if (result.success) router.refresh();
     });
   }
 
   return (
-    <Card withBorder radius="md" p="lg">
-      <Group gap="xs" mb="sm">
-        <IconKey size={18} stroke={1.6} />
-        <Title order={4}>API-Zugriff · Personal Access Tokens</Title>
-      </Group>
-      <Text size="sm" c="dimmed" mb="md">
-        Tokens erlauben externen Skripten / Smart-Home-Geräten (Home Assistant, ESP32) den Zugriff auf die
-        Export- und Backup-Endpunkte per <Code>Authorization: Bearer zw_pat_…</Code> — ohne Web-Login.
-      </Text>
-
+    <Panel
+      title="API-Zugriff · Personal Access Tokens"
+      icon={<IconKey size={17} stroke={1.7} />}
+      description={
+        <>
+          Tokens erlauben externen Skripten / Smart-Home-Geräten (Home Assistant, ESP32) den Zugriff
+          auf die Export- und Backup-Endpunkte per <Code>Authorization: Bearer zw_pat_…</Code> — ohne
+          Web-Login.
+        </>
+      }
+    >
       {tokens.length > 0 && (
-        <Table verticalSpacing="xs" fz="sm" mb="md">
-          <TableThead>
-            <TableTr>
-              <TableTh>Name</TableTh>
-              <TableTh>Erstellt</TableTh>
-              <TableTh>Zuletzt genutzt</TableTh>
-              <TableTh>Läuft ab</TableTh>
-              <TableTh />
-            </TableTr>
-          </TableThead>
-          <TableTbody>
-            {tokens.map((token) => {
-              const expired = token.expiresAt && token.expiresAt.getTime() < now;
-              return (
-                <TableTr key={token.id}>
-                  <TableTd>{token.name}</TableTd>
-                  <TableTd>{dateFormatter.format(token.createdAt)}</TableTd>
-                  <TableTd>{token.lastUsedAt ? dateFormatter.format(token.lastUsedAt) : "—"}</TableTd>
-                  <TableTd>
-                    {token.expiresAt ? (
-                      <Text span size="sm" c={expired ? "red" : undefined}>
-                        {dateFormatter.format(token.expiresAt)}
-                        {expired ? " (abgelaufen)" : ""}
-                      </Text>
-                    ) : (
-                      "—"
-                    )}
-                  </TableTd>
-                  <TableTd>
-                    <Tooltip label="Löschen / Widerrufen">
-                      <ActionIcon variant="subtle" color="red" onClick={() => remove(token.id, token.name)}>
-                        <IconTrash size={16} />
-                      </ActionIcon>
-                    </Tooltip>
-                  </TableTd>
-                </TableTr>
-              );
-            })}
-          </TableTbody>
-        </Table>
+        <TableScroll className="mb-6">
+          <Table>
+            <thead>
+              <tr>
+                <Th>Name</Th>
+                <Th>Erstellt</Th>
+                <Th>Zuletzt genutzt</Th>
+                <Th>Läuft ab</Th>
+                <Th className="text-right">Aktion</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {tokens.map((token) => {
+                const expired = token.expiresAt !== null && token.expiresAt.getTime() < now;
+                return (
+                  <tr key={token.id} className="last:[&>td]:border-0">
+                    <Td className="font-medium">{token.name}</Td>
+                    <Td className="whitespace-nowrap text-dim">
+                      {dateFormatter.format(token.createdAt)}
+                    </Td>
+                    <Td className="whitespace-nowrap text-dim">
+                      {token.lastUsedAt ? dateFormatter.format(token.lastUsedAt) : "—"}
+                    </Td>
+                    <Td className="whitespace-nowrap">
+                      {token.expiresAt ? (
+                        <span className={expired ? "text-risk" : "text-dim"}>
+                          {dateFormatter.format(token.expiresAt)}
+                          {expired ? " (abgelaufen)" : ""}
+                        </span>
+                      ) : (
+                        <span className="text-dim">—</span>
+                      )}
+                    </Td>
+                    <Td>
+                      <span className="flex justify-end">
+                        <Tooltip label="Löschen / Widerrufen">
+                          <Button
+                            variant="danger"
+                            size="sm"
+                            aria-label={`Token „${token.name}" löschen`}
+                            onClick={() => remove(token.id, token.name)}
+                          >
+                            <IconTrash size={16} />
+                          </Button>
+                        </Tooltip>
+                      </span>
+                    </Td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </Table>
+        </TableScroll>
       )}
 
-      <Title order={6} mb="xs">
-        Neuen Token erstellen
-      </Title>
-      <Group align="flex-end" gap="sm" wrap="wrap">
-        <TextInput
-          label="Name"
-          placeholder="z. B. Home Assistant"
-          value={name}
-          onChange={(event) => setName(event.currentTarget.value)}
-          style={{ flex: 1, minWidth: 200 }}
-        />
-        <Select label="Gültigkeit" data={expiryOptions} value={expiry} onChange={(value) => setExpiry(value ?? "0")} allowDeselect={false} w={150} />
-        <Button color="slate" leftSection={<IconPlus size={16} />} loading={isPending} disabled={!name.trim()} onClick={create}>
-          Erstellen
+      <h3 className="mb-3 text-[13px] font-semibold">Neuen Token erstellen</h3>
+      <div className="flex flex-wrap items-end gap-3">
+        <Field label="Name" className="min-w-50 flex-1">
+          {({ id }) => (
+            <TextInput
+              id={id}
+              placeholder="z. B. Home Assistant"
+              value={name}
+              onChange={(event) => setName(event.currentTarget.value)}
+            />
+          )}
+        </Field>
+        <Field label="Gültigkeit" className="w-40">
+          {({ id }) => (
+            <SelectShell>
+              <Select
+                id={id}
+                value={expiry}
+                onChange={(event) => setExpiry(event.currentTarget.value)}
+              >
+                {expiryOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </Select>
+            </SelectShell>
+          )}
+        </Field>
+        <Button variant="primary" disabled={isPending || !name.trim()} onClick={create}>
+          <IconPlus size={16} />
+          {isPending ? "Wird erstellt…" : "Erstellen"}
         </Button>
-      </Group>
+      </div>
       {error && (
-        <Alert color="red" icon={<IconAlertCircle size={16} />} variant="light" mt="sm">
+        <Alert tone="risk" role="alert" icon={<IconAlertCircle size={16} />} className="mt-4">
           {error}
         </Alert>
       )}
 
-      {/* Show the plaintext token exactly once */}
-      <Modal
+      {/* The plaintext token exists exactly once, here. */}
+      <ResponsiveDialog
         opened={createdToken !== null}
         onClose={() => setCreatedToken(null)}
         title="Token erstellt"
-        centered
-        size="lg"
+        footer={
+          <Button type="button" onClick={() => setCreatedToken(null)}>
+            Fertig
+          </Button>
+        }
       >
-        <Stack gap="sm">
-          <Alert color="yellow" icon={<IconAlertCircle size={16} />} variant="light">
-            Kopiere den Token jetzt — er wird <strong>nur dieses eine Mal</strong> angezeigt und kann danach nicht
-            mehr eingesehen werden.
+        <div className="flex flex-col gap-4">
+          <Alert tone="watch" icon={<IconAlertCircle size={16} />}>
+            Kopiere den Token jetzt — er wird <strong>nur dieses eine Mal</strong> angezeigt und kann
+            danach nicht mehr eingesehen werden.
           </Alert>
-          <Group gap="xs" wrap="nowrap">
-            <Code block style={{ flex: 1, wordBreak: "break-all" }}>
-              {createdToken}
-            </Code>
-            <CopyButton value={createdToken ?? ""}>
-              {({ copied, copy }) => (
-                <Button
-                  color={copied ? "green" : "slate"}
-                  leftSection={copied ? <IconCheck size={16} /> : <IconCopy size={16} />}
-                  onClick={copy}
-                >
-                  {copied ? "Kopiert" : "Kopieren"}
-                </Button>
-              )}
-            </CopyButton>
-          </Group>
-          <Text size="xs" c="dimmed">
+          <CodeBlock className="whitespace-pre-wrap break-all">{createdToken}</CodeBlock>
+          <CopyButton value={createdToken ?? ""} full />
+          <p className="text-xs text-dim">
             Verwendung: <Code>Authorization: Bearer {"<token>"}</Code>
-          </Text>
-          <Group justify="flex-end">
-            <Button variant="default" onClick={() => setCreatedToken(null)}>
-              Fertig
-            </Button>
-          </Group>
-        </Stack>
-      </Modal>
-    </Card>
+          </p>
+        </div>
+      </ResponsiveDialog>
+    </Panel>
   );
 }
