@@ -237,6 +237,68 @@ export function FilePicker({
 }
 
 /**
+ * On/off control with its label and explanation attached.
+ *
+ * A checkbox under the hood, restyled: the role is the same, so it needs none of
+ * the ARIA a hand-built div-switch would, and it works inside a form without
+ * extra wiring. The knob moves on a transform, which the reduced-motion block in
+ * globals.css already neutralises.
+ */
+export function Switch({
+  checked,
+  onChange,
+  label,
+  description,
+  disabled,
+  className,
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  label: ReactNode;
+  description?: ReactNode;
+  disabled?: boolean;
+  className?: string;
+}) {
+  return (
+    <label
+      className={cn(
+        "flex cursor-pointer items-start gap-3",
+        disabled && "cursor-default opacity-55",
+        className,
+      )}
+    >
+      <input
+        type="checkbox"
+        role="switch"
+        checked={checked}
+        disabled={disabled}
+        onChange={(event) => onChange(event.currentTarget.checked)}
+        className="peer sr-only"
+      />
+      <span
+        aria-hidden
+        className={cn(
+          "mt-0.5 flex h-6 w-11 flex-none items-center rounded-full border p-0.5 transition-colors",
+          "peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent",
+          checked ? "accent-gradient border-transparent" : "border-line bg-inset",
+        )}
+      >
+        <span
+          className={cn(
+            "size-4.5 rounded-full bg-white shadow-panel transition-transform",
+            checked ? "translate-x-5" : "translate-x-0",
+          )}
+        />
+      </span>
+      <span className="min-w-0">
+        <span className="block text-[13px] font-medium">{label}</span>
+        {description && <span className="mt-0.5 block text-xs text-dim">{description}</span>}
+      </span>
+    </label>
+  );
+}
+
+/**
  * Pill bar for switching between mutually exclusive views. Radio inputs rather
  * than buttons, so it is one tab stop with arrow-key movement and announces as a
  * group — the mobile specs locate it by `role="radiogroup"`.
