@@ -2,39 +2,10 @@
 
 import { useActionState, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import {
-  ActionIcon,
-  Alert,
-  Badge,
-  Button,
-  Card,
-  Checkbox,
-  Group,
-  Menu,
-  MenuDropdown,
-  MenuItem,
-  MenuTarget,
-  Modal,
-  PasswordInput,
-  Popover,
-  PopoverDropdown,
-  PopoverTarget,
-  Select,
-  Stack,
-  Table,
-  TableTbody,
-  TableTd,
-  TableTh,
-  TableThead,
-  TableTr,
-  Text,
-  TextInput,
-  Title,
-} from "@mantine/core";
-import { notifications } from "@mantine/notifications";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import * as Popover from "@radix-ui/react-popover";
 import {
   IconAlertCircle,
-  IconCheck,
   IconDotsVertical,
   IconKey,
   IconTrash,
@@ -53,10 +24,27 @@ import {
 } from "@/app/lib/user-actions";
 import { initialActionState } from "@/app/lib/action-state";
 import { APPS } from "@/app/lib/apps";
+import { Badge } from "@/app/components/ui/Badge";
+import { Button } from "@/app/components/ui/Button";
+import { Field, PasswordInput, Select, SelectShell, TextInput } from "@/app/components/ui/Field";
+import { Panel } from "@/app/components/ui/Panel";
+import { ResponsiveDialog } from "@/app/components/ui/ResponsiveDialog";
+import { useToast } from "@/app/components/ui/Toast";
+import { Alert, Checkbox, Table, TableScroll, Td, Th } from "@/app/components/ui/primitives";
+import { cn } from "@/app/lib/cn";
 
-const dateFormatter = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
+const dateFormatter = new Intl.DateTimeFormat("de-DE", {
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+});
 
-const roleOptions = USER_ROLES.map((role) => ({ value: role, label: USER_ROLE_LABELS[role] }));
+const menuPanel =
+  "z-50 overflow-hidden rounded-panel border border-line bg-elevated/95 p-1.5 shadow-panel-lg backdrop-blur-xl";
+const menuItem =
+  "flex w-full cursor-pointer select-none items-center gap-2.5 rounded-control px-2.5 text-[13px] " +
+  "outline-none min-h-11 sm:min-h-9 transition-colors data-[highlighted]:bg-canvas " +
+  "data-[disabled]:cursor-default data-[disabled]:opacity-45";
 
 // Per-user app-assignment control. Admins implicitly have every app, so their
 // cell is read-only; regular users get a checklist of the registered apps.
@@ -69,73 +57,74 @@ function AppAssignment({
   disabled: boolean;
   onSave: (appIds: string[]) => void;
 }) {
-  const [opened, setOpened] = useState(false);
+  const [open, setOpen] = useState(false);
   // Seeded from the current assignment; the caller remounts (via `key`) when the
   // saved assignment changes, so no effect is needed to resync.
   const [selected, setSelected] = useState<string[]>(user.allowedApps);
 
   if (user.role === "ADMIN") {
-    return (
-      <Badge variant="light" color="slate" size="sm">
-        Alle (Admin)
-      </Badge>
-    );
+    return <Badge>Alle (Admin)</Badge>;
   }
 
   const count = user.allowedApps.length;
   return (
-    <Popover opened={opened} onChange={setOpened} position="bottom-start" withinPortal trapFocus shadow="md">
-      <PopoverTarget>
-        <Button
-          size="compact-xs"
-          variant="light"
-          color={count === 0 ? "gray" : "slate"}
-          disabled={disabled}
-          onClick={() => setOpened((o) => !o)}
-        >
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Trigger asChild>
+        <Button variant={count === 0 ? "ghost" : "subtle"} size="sm" disabled={disabled}>
           {count === 0 ? "Keine" : `${count} App${count > 1 ? "s" : ""}`}
         </Button>
-      </PopoverTarget>
-      <PopoverDropdown>
-        <Stack gap="xs">
-          <Text size="xs" c="dimmed">
-            Freigegebene Apps für {user.email}
-          </Text>
-          {APPS.map((app) => (
-            <Checkbox
-              key={app.id}
-              size="sm"
-              label={app.name}
-              checked={selected.includes(app.id)}
-              onChange={(event) =>
-                setSelected((prev) =>
-                  event.currentTarget.checked
-                    ? [...prev, app.id]
-                    : prev.filter((id) => id !== app.id),
-                )
-              }
-            />
-          ))}
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content align="start" sideOffset={6} className={cn(menuPanel, "w-64 p-3")}>
+          <p className="mb-2 text-xs text-dim">Freigegebene Apps für {user.email}</p>
+          <div className="flex flex-col">
+            {APPS.map((app) => (
+              <Checkbox
+                key={app.id}
+                label={app.name}
+                checked={selected.includes(app.id)}
+                onChange={(event) =>
+                  setSelected((prev) =>
+                    event.currentTarget.checked
+                      ? [...prev, app.id]
+                      : prev.filter((id) => id !== app.id),
+                  )
+                }
+              />
+            ))}
+          </div>
           <Button
-            size="xs"
-            color="slate"
+            variant="primary"
+            size="sm"
+            full
+            className="mt-2"
             onClick={() => {
               onSave(selected);
-              setOpened(false);
+              setOpen(false);
             }}
           >
             Speichern
           </Button>
-        </Stack>
-      </PopoverDropdown>
-    </Popover>
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
   );
 }
 
-export function UserManagementCard({ users, currentUserId }: { users: AppUser[]; currentUserId: string }) {
-  const [createState, createFormAction, creating] = useActionState(createUserAction, initialActionState);
+export function UserManagementCard({
+  users,
+  currentUserId,
+}: {
+  users: AppUser[];
+  currentUserId: string;
+}) {
+  const [createState, createFormAction, creating] = useActionState(
+    createUserAction,
+    initialActionState,
+  );
   const formRef = useRef<HTMLFormElement>(null);
   const router = useRouter();
+  const toast = useToast();
   const [isPending, startTransition] = useTransition();
 
   const [resetTarget, setResetTarget] = useState<AppUser | null>(null);
@@ -145,19 +134,22 @@ export function UserManagementCard({ users, currentUserId }: { users: AppUser[];
     if (createState.success) {
       formRef.current?.reset();
       router.refresh();
-      notifications.show({ color: "green", icon: <IconCheck size={16} />, message: "Benutzer angelegt." });
+      toast.show({ tone: "ok", title: "Benutzer angelegt" });
     }
+    // `toast` is stable (memoised in its provider); listing it would re-fire this
+    // on every render of the provider's tree.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [createState.success, router]);
 
   function run(action: () => Promise<{ success: boolean; error?: string }>, okMessage: string) {
     startTransition(async () => {
       const result = await action();
-      if (result.success) {
-        notifications.show({ color: "green", icon: <IconCheck size={16} />, message: okMessage });
-        router.refresh();
-      } else {
-        notifications.show({ color: "red", icon: <IconAlertCircle size={16} />, message: result.error ?? "Fehler." });
-      }
+      toast.show({
+        tone: result.success ? "ok" : "risk",
+        title: result.success ? okMessage : "Fehlgeschlagen",
+        message: result.success ? undefined : (result.error ?? undefined),
+      });
+      if (result.success) router.refresh();
     });
   }
 
@@ -165,166 +157,209 @@ export function UserManagementCard({ users, currentUserId }: { users: AppUser[];
     if (!resetTarget) return;
     const target = resetTarget;
     const password = newPassword;
-    run(() => resetPassword(target.id, password), `Passwort für ${target.email} zurückgesetzt.`);
+    run(() => resetPassword(target.id, password), `Passwort für ${target.email} zurückgesetzt`);
     setResetTarget(null);
     setNewPassword("");
   }
 
   return (
-    <Card withBorder radius="md" p="lg">
-      <Group gap="xs" mb="sm">
-        <IconUsersGroup size={18} stroke={1.6} />
-        <Title order={4}>Benutzer & Rechte</Title>
-      </Group>
-
-      <Table verticalSpacing="xs" fz="sm" mb="md">
-        <TableThead>
-          <TableTr>
-            <TableTh>E-Mail</TableTh>
-            <TableTh>Name</TableTh>
-            <TableTh>Rolle</TableTh>
-            <TableTh>Apps</TableTh>
-            <TableTh>Angelegt</TableTh>
-            <TableTh />
-          </TableTr>
-        </TableThead>
-        <TableTbody>
-          {users.map((user) => {
-            const isSelf = user.id === currentUserId;
-            return (
-              <TableTr key={user.id}>
-                <TableTd>
-                  {user.email}
-                  {isSelf && (
-                    <Badge ml="xs" size="xs" variant="light" color="slate">
-                      Du
-                    </Badge>
-                  )}
-                </TableTd>
-                <TableTd>{user.name ?? "—"}</TableTd>
-                <TableTd>
-                  <Select
-                    size="xs"
-                    variant="unstyled"
-                    allowDeselect={false}
-                    data={roleOptions}
-                    value={user.role}
-                    disabled={isPending}
-                    onChange={(value) => {
-                      if (value && value !== user.role) {
-                        run(() => changeRole(user.id, value as UserRole), "Rolle geändert.");
-                      }
-                    }}
-                    w={140}
-                  />
-                </TableTd>
-                <TableTd>
-                  <AppAssignment
-                    key={`${user.id}:${user.allowedApps.join(",")}`}
-                    user={user}
-                    disabled={isPending}
-                    onSave={(appIds) =>
-                      run(() => setUserAppsAction(user.id, appIds), "App-Freigaben gespeichert.")
-                    }
-                  />
-                </TableTd>
-                <TableTd>{dateFormatter.format(user.createdAt)}</TableTd>
-                <TableTd>
-                  <Menu position="bottom-end" withinPortal>
-                    <MenuTarget>
-                      <ActionIcon variant="subtle" color="slate" aria-label="Aktionen">
-                        <IconDotsVertical size={16} />
-                      </ActionIcon>
-                    </MenuTarget>
-                    <MenuDropdown>
-                      <MenuItem
-                        leftSection={<IconKey size={14} />}
-                        onClick={() => {
-                          setResetTarget(user);
-                          setNewPassword("");
-                        }}
-                      >
-                        Passwort zurücksetzen
-                      </MenuItem>
-                      <MenuItem
-                        color="red"
-                        leftSection={<IconTrash size={14} />}
-                        disabled={isSelf}
-                        onClick={() => {
-                          if (window.confirm(`Benutzer ${user.email} wirklich löschen?`)) {
-                            run(() => deleteUser(user.id), "Benutzer gelöscht.");
+    <Panel title="Benutzer & Rechte" icon={<IconUsersGroup size={17} stroke={1.7} />}>
+      <TableScroll className="mb-6">
+        <Table>
+          <thead>
+            <tr>
+              <Th>E-Mail</Th>
+              <Th>Name</Th>
+              <Th>Rolle</Th>
+              <Th>Apps</Th>
+              <Th>Angelegt</Th>
+              <Th className="text-right">Aktionen</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {users.map((user) => {
+              const isSelf = user.id === currentUserId;
+              return (
+                <tr key={user.id} className="last:[&>td]:border-0">
+                  <Td className="whitespace-nowrap">
+                    {user.email}
+                    {isSelf && <Badge className="ml-2">Du</Badge>}
+                  </Td>
+                  <Td>{user.name ?? "—"}</Td>
+                  <Td>
+                    <SelectShell>
+                      <Select
+                        aria-label={`Rolle von ${user.email}`}
+                        className="h-9 w-36 text-[13px]"
+                        value={user.role}
+                        disabled={isPending}
+                        onChange={(event) => {
+                          const value = event.currentTarget.value as UserRole;
+                          if (value !== user.role) {
+                            run(() => changeRole(user.id, value), "Rolle geändert");
                           }
                         }}
                       >
-                        Löschen
-                      </MenuItem>
-                    </MenuDropdown>
-                  </Menu>
-                </TableTd>
-              </TableTr>
-            );
-          })}
-        </TableTbody>
-      </Table>
+                        {USER_ROLES.map((role) => (
+                          <option key={role} value={role}>
+                            {USER_ROLE_LABELS[role]}
+                          </option>
+                        ))}
+                      </Select>
+                    </SelectShell>
+                  </Td>
+                  <Td>
+                    <AppAssignment
+                      key={`${user.id}:${user.allowedApps.join(",")}`}
+                      user={user}
+                      disabled={isPending}
+                      onSave={(appIds) =>
+                        run(() => setUserAppsAction(user.id, appIds), "App-Freigaben gespeichert")
+                      }
+                    />
+                  </Td>
+                  <Td className="whitespace-nowrap text-dim">
+                    {dateFormatter.format(user.createdAt)}
+                  </Td>
+                  <Td>
+                    <span className="flex justify-end">
+                      <DropdownMenu.Root>
+                        <DropdownMenu.Trigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            aria-label={`Aktionen für ${user.email}`}
+                          >
+                            <IconDotsVertical size={16} />
+                          </Button>
+                        </DropdownMenu.Trigger>
+                        <DropdownMenu.Portal>
+                          <DropdownMenu.Content
+                            align="end"
+                            sideOffset={6}
+                            className={cn(menuPanel, "w-56")}
+                          >
+                            <DropdownMenu.Item
+                              className={menuItem}
+                              onSelect={() => {
+                                setResetTarget(user);
+                                setNewPassword("");
+                              }}
+                            >
+                              <IconKey size={15} className="flex-none" />
+                              Passwort zurücksetzen
+                            </DropdownMenu.Item>
+                            <DropdownMenu.Item
+                              className={cn(menuItem, "text-risk")}
+                              disabled={isSelf}
+                              onSelect={() => {
+                                if (window.confirm(`Benutzer ${user.email} wirklich löschen?`)) {
+                                  run(() => deleteUser(user.id), "Benutzer gelöscht");
+                                }
+                              }}
+                            >
+                              <IconTrash size={15} className="flex-none" />
+                              Löschen
+                            </DropdownMenu.Item>
+                          </DropdownMenu.Content>
+                        </DropdownMenu.Portal>
+                      </DropdownMenu.Root>
+                    </span>
+                  </Td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </Table>
+      </TableScroll>
 
-      <Title order={6} mb="xs">
-        Neuen Benutzer anlegen
-      </Title>
-      <Text size="xs" c="dimmed" mb="sm">
+      <h3 className="mb-1 text-[13px] font-semibold">Neuen Benutzer anlegen</h3>
+      <p className="mb-4 text-xs text-dim">
         Kein Passwort nötig: Der Account wird mit einem Temp-Passwort angelegt. Beim ersten Login
         (nur mit E-Mail) vergibt der Benutzer selbst ein Passwort, bevor er die App nutzen kann.
-      </Text>
-      <form action={createFormAction} ref={formRef}>
-        <Stack gap="sm">
-          <Group grow align="flex-start">
-            <TextInput name="email" label="E-Mail" type="email" placeholder="user@example.com" required />
-            <TextInput name="name" label="Name (optional)" placeholder="Vor- und Nachname" />
-          </Group>
-          <Group grow align="flex-start">
-            <Select
-              name="role"
-              label="Rolle"
-              data={roleOptions}
-              defaultValue="USER"
-              allowDeselect={false}
-              required
-            />
-          </Group>
-
-          {createState.error && (
-            <Alert color="red" icon={<IconAlertCircle size={16} />} variant="light">
-              {createState.error}
-            </Alert>
+      </p>
+      <form action={createFormAction} ref={formRef} className="flex flex-col gap-4">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="E-Mail" required>
+            {({ id }) => (
+              <TextInput
+                id={id}
+                name="email"
+                type="email"
+                placeholder="user@example.com"
+                required
+              />
+            )}
+          </Field>
+          <Field label="Name (optional)">
+            {({ id }) => <TextInput id={id} name="name" placeholder="Vor- und Nachname" />}
+          </Field>
+        </div>
+        <Field label="Rolle" required className="sm:max-w-xs">
+          {({ id }) => (
+            <SelectShell>
+              <Select id={id} name="role" defaultValue="USER" required>
+                {USER_ROLES.map((role) => (
+                  <option key={role} value={role}>
+                    {USER_ROLE_LABELS[role]}
+                  </option>
+                ))}
+              </Select>
+            </SelectShell>
           )}
+        </Field>
 
-          <Button type="submit" color="slate" leftSection={<IconUserPlus size={16} />} loading={creating} w="fit-content">
-            Benutzer anlegen
-          </Button>
-        </Stack>
+        {createState.error && (
+          <Alert tone="risk" role="alert" icon={<IconAlertCircle size={16} />}>
+            {createState.error}
+          </Alert>
+        )}
+
+        <Button type="submit" variant="primary" className="w-fit" disabled={creating}>
+          <IconUserPlus size={16} />
+          {creating ? "Wird angelegt…" : "Benutzer anlegen"}
+        </Button>
       </form>
 
-      <Modal opened={resetTarget !== null} onClose={() => setResetTarget(null)} title="Passwort zurücksetzen" centered>
-        <Stack gap="sm">
-          <Text size="sm" c="dimmed">
-            Neues Passwort für <strong>{resetTarget?.email}</strong> festlegen.
-          </Text>
-          <PasswordInput
-            label="Neues Passwort"
-            description="Mind. 8 Zeichen"
-            value={newPassword}
-            onChange={(event) => setNewPassword(event.currentTarget.value)}
-            data-autofocus
-          />
-          <Group justify="flex-end">
-            <Button variant="default" onClick={() => setResetTarget(null)}>
+      <ResponsiveDialog
+        opened={resetTarget !== null}
+        onClose={() => setResetTarget(null)}
+        title="Passwort zurücksetzen"
+        size="sm"
+        footer={
+          <>
+            <Button type="button" onClick={() => setResetTarget(null)}>
               Abbrechen
             </Button>
-            <Button color="slate" onClick={submitReset} disabled={newPassword.length < 8}>
+            <Button
+              type="button"
+              variant="primary"
+              onClick={submitReset}
+              disabled={newPassword.length < 8}
+            >
               Zurücksetzen
             </Button>
-          </Group>
-        </Stack>
-      </Modal>
-    </Card>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-4">
+          <p className="text-sm text-dim">
+            Neues Passwort für <strong className="text-ink">{resetTarget?.email}</strong> festlegen.
+          </p>
+          <Field label="Neues Passwort" description="Mind. 8 Zeichen">
+            {({ id, describedBy }) => (
+              <PasswordInput
+                id={id}
+                aria-describedby={describedBy}
+                autoComplete="new-password"
+                value={newPassword}
+                onChange={(event) => setNewPassword(event.currentTarget.value)}
+                autoFocus
+              />
+            )}
+          </Field>
+        </div>
+      </ResponsiveDialog>
+    </Panel>
   );
 }
