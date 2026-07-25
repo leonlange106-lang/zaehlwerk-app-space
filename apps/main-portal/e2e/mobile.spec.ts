@@ -26,15 +26,22 @@ async function waitForLayout(page: Page) {
 const MIN_TAP = 44;
 const TAP_EPS = 0.5; // sub-pixel tolerance for boundingBox rounding
 
+/**
+ * Measured against `documentElement.clientWidth`, NOT `window.innerWidth`: when
+ * a mobile page overflows, Chrome widens the layout viewport and `innerWidth`
+ * grows with it, so the comparison stayed true while the page really did scroll
+ * sideways. `clientWidth` stays at the device width.
+ */
 async function expectNoHorizontalScroll(page: Page) {
-  const { scrollWidth, innerWidth } = await page.evaluate(() => ({
+  const { scrollWidth, clientWidth } = await page.evaluate(() => ({
     scrollWidth: document.documentElement.scrollWidth,
-    innerWidth: window.innerWidth,
+    clientWidth: document.documentElement.clientWidth,
   }));
   // +1 tolerates sub-pixel rounding; anything more is a real overflow.
-  expect(scrollWidth, `viewport must not scroll horizontally (sw ${scrollWidth} vs iw ${innerWidth})`).toBeLessThanOrEqual(
-    innerWidth + 1,
-  );
+  expect(
+    scrollWidth,
+    `viewport must not scroll horizontally (sw ${scrollWidth} vs client ${clientWidth})`,
+  ).toBeLessThanOrEqual(clientWidth + 1);
 }
 
 async function expectTapTarget(locator: Locator, label: string) {

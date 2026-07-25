@@ -5,9 +5,13 @@ import { E2E_FIRSTLOGIN_PASSWORD, firstLoginEmail } from "./fixtures";
 // temp-password first-login + forced password-setup flow end to end.
 test.use({ storageState: { cookies: [], origins: [] } });
 
-// Mantine inputs are controlled; WebKit can drop a fast fill(), so type + assert.
+// The inputs are controlled; WebKit can drop a fast fill(), so type + assert.
+//
+// By ROLE rather than by label — see the note in helpers.ts: the label's text
+// carries the required marker ("E-Mail*") and a password field's reveal toggle
+// is itself labelled "Passwort anzeigen".
 async function type(page: Page, label: string, value: string) {
-  const field = page.getByLabel(label);
+  const field = page.getByRole("textbox", { name: label, exact: true });
   await field.click();
   await field.pressSequentially(value, { delay: 8 });
   await expect(field).toHaveValue(value);

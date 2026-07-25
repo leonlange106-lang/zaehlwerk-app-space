@@ -110,12 +110,18 @@ async function main() {
  * log-analyzer specs upload. VACUUM rewrites it compactly; the WAL checkpoint
  * then truncates the -wal sidecar, which grows the same way.
  *
+ * Both statements go through `$queryRawUnsafe`, not `$executeRawUnsafe`:
+ * `execute` rejects anything that hands back rows ("Execute returned results,
+ * which is not allowed in SQLite"), and both of these do. With `execute` the
+ * VACUUM threw on every single run, was swallowed by the catch below, and the
+ * file this function exists to shrink grew anyway.
+ *
  * Best-effort: a locked database is not a reason to fail the whole suite.
  */
 async function reclaimSpace(): Promise<void> {
   try {
-    await prisma.$executeRawUnsafe("VACUUM");
-    await prisma.$executeRawUnsafe("PRAGMA wal_checkpoint(TRUNCATE)");
+    await prisma.$queryRawUnsafe("VACUUM");
+    await prisma.$queryRawUnsafe("PRAGMA wal_checkpoint(TRUNCATE)");
   } catch (error) {
     console.warn("[e2e-seed] could not reclaim space (continuing):", error);
   }
