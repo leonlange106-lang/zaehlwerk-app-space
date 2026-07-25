@@ -98,6 +98,74 @@ export function IconChip({
   );
 }
 
+/**
+ * Indeterminate activity indicator.
+ *
+ * `role="status"` with a visually hidden label, so a screen reader is told
+ * something is running — a bare spinning box announces nothing at all. The
+ * animation is already neutralised by the reduced-motion block in globals.css.
+ */
+export function Spinner({
+  size = 16,
+  label = "Wird geladen",
+  className,
+}: {
+  size?: number;
+  label?: string;
+  className?: string;
+}) {
+  return (
+    <span role="status" className={cn("inline-flex flex-none", className)}>
+      <span
+        aria-hidden
+        className="block animate-spin rounded-full border-2 border-current border-t-transparent opacity-70"
+        style={{ width: size, height: size }}
+      />
+      <span className="sr-only">{label}</span>
+    </span>
+  );
+}
+
+/** Determinate progress bar. The percentage must also exist as text nearby. */
+export function Progress({
+  value,
+  label,
+  tone = "accent",
+  className,
+  "data-testid": testId,
+}: {
+  value: number;
+  label: string;
+  tone?: "accent" | "ok" | "risk";
+  className?: string;
+  /** Declared explicitly: TypeScript does not flag unknown hyphenated props on a
+   *  component, so an undeclared data-* silently vanishes instead of erroring. */
+  "data-testid"?: string;
+}) {
+  const pct = Math.min(100, Math.max(0, value));
+  return (
+    <span
+      role="progressbar"
+      aria-valuenow={Math.round(pct)}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-label={label}
+      data-testid={testId}
+      className={cn("block h-1.5 overflow-hidden rounded-full bg-inset", className)}
+    >
+      <span
+        className={cn(
+          "block h-full rounded-full transition-[width] duration-300",
+          tone === "accent" && "accent-gradient",
+          tone === "ok" && "bg-ok",
+          tone === "risk" && "bg-risk",
+        )}
+        style={{ width: `${pct}%` }}
+      />
+    </span>
+  );
+}
+
 /* ------------------------------------------------------------------ *
  * Alert
  * ------------------------------------------------------------------ */
