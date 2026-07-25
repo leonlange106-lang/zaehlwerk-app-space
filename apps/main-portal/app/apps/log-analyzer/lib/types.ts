@@ -1,4 +1,4 @@
-// Shared, framework-free types for the MGflasher Log Analyzer. Kept in their own
+// Shared, framework-free types for the Log Analyzer. Kept in their own
 // module so both the pure parser (unit-tested), the API route (server) and the
 // React views (client) can import them without pulling in any runtime deps.
 

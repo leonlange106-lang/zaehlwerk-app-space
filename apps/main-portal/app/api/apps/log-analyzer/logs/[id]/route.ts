@@ -32,8 +32,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   } catch {
     return NextResponse.json({ error: "Ungültiger Request-Body." }, { status: 400 });
   }
-  const b = body as { octane?: unknown; tags?: unknown };
-  const patch: { octane?: string | null; tags?: string[] } = {};
+  const b = body as { label?: unknown; octane?: unknown; tags?: unknown };
+  const patch: { label?: string | null; octane?: string | null; tags?: string[] } = {};
+  if (b.label !== undefined) patch.label = b.label === null ? null : String(b.label);
   if (b.octane !== undefined) patch.octane = b.octane === null ? null : String(b.octane);
   if (b.tags !== undefined) {
     if (!Array.isArray(b.tags)) {

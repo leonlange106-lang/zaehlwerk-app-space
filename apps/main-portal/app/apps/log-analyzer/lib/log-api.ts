@@ -16,6 +16,9 @@ export interface LogSummaryDTO {
   health: PullHealth;
   notes: string | null;
   recordedAt: string | null;
+  /** Name the user gave this log, or null if never named. Distinct from `name`,
+   *  which stays the imported filename. Only named logs reach the nav menu. */
+  label: string | null;
   octane: string | null;
   tags: string[];
   createdAt: string;
@@ -69,7 +72,7 @@ export async function fetchLog(id: string): Promise<LogRecordDTO | null> {
 /** Update the octane / free tags on a log. */
 export async function patchLogTags(
   id: string,
-  patch: { octane?: string | null; tags?: string[] },
+  patch: { label?: string | null; octane?: string | null; tags?: string[] },
 ): Promise<LogSummaryDTO | null> {
   const response = await fetch(`${BASE}/${id}`, {
     method: "PATCH",
@@ -77,7 +80,7 @@ export async function patchLogTags(
     body: JSON.stringify(patch),
   });
   if (response.status === 404) return null;
-  if (!response.ok) throw new Error("Tags konnten nicht gespeichert werden.");
+  if (!response.ok) throw new Error("Änderungen konnten nicht gespeichert werden.");
   const data = await response.json();
   return data.log as LogSummaryDTO;
 }

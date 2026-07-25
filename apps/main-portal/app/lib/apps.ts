@@ -29,8 +29,12 @@ export const APPS: AppDefinition[] = [
   },
   {
     id: "log-analyzer",
-    name: "MGflasher Log Analyzer",
-    tagline: "Fahrzeug-Datenlogs auswerten & visualisieren",
+    // Named for what it does, not for one tool that produces its input: MGflasher
+    // CSVs are the best-supported format, but any datalog CSV with recognisable
+    // channels is parsed. The id stays "log-analyzer" — it is in URLs and in the
+    // allowedApps JSON on every user row.
+    name: "Log Analyzer",
+    tagline: "Datenlogs auswerten, vergleichen & Leistung schätzen",
     href: "/apps/log-analyzer",
     icon: "/icon-log-analyzer.svg",
     // Automotive accent — high-octane orange.

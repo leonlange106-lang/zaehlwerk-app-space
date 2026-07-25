@@ -238,6 +238,11 @@ model LogFile {
   notes       String?
   /// Aus dem Dateinamen geparster Fahr-Zeitpunkt (für chronologische Sortierung).
   recordedAt DateTime?
+  /// Frei vergebene Bezeichnung ("Stage 2 Referenzlauf"). Unterscheidet sich
+  /// bewusst von `name`, das der Dateiname bleibt: NULL heißt „nie benannt".
+  /// Nur benannte Logs erscheinen im Navigationsmenü — ein Menü mit jedem
+  /// automatisch importierten Dateinamen wäre kein Menü mehr.
+  label      String?
   /// Real gefahrene Oktanzahl / Kraftstoff (frei, z.B. "100 RON", "E85").
   octane     String?
   /// Weitere frei gesetzte Tags, kommagetrennt.

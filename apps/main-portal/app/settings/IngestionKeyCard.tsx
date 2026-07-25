@@ -25,6 +25,7 @@ import {
   Title,
   Tooltip,
 } from "@mantine/core";
+import { BetaBadge } from "@/app/components/ui/Badge";
 import { notifications } from "@mantine/notifications";
 import { IconAlertCircle, IconCheck, IconCopy, IconRobot, IconPlus, IconTrash } from "@tabler/icons-react";
 import type { IngestionKeySummary } from "@/app/lib/ingestion-key-actions";
@@ -81,7 +82,10 @@ export function IngestionKeyCard({ keys }: { keys: IngestionKeySummary[] }) {
     <Card withBorder radius="md" p="lg">
       <Group gap="xs" mb="sm">
         <IconRobot size={18} stroke={1.6} />
-        <Title order={4}>Automatische Log-Ingestion · API-Keys</Title>
+        <Group gap="sm" align="center">
+          <Title order={4}>Automatische Log-Ingestion · API-Keys</Title>
+          <BetaBadge />
+        </Group>
       </Group>
       <Text size="sm" c="dimmed" mb="md">
         Keys erlauben Home Assistant, cURL oder Sync-Skripten den automatischen Log-Upload an{" "}

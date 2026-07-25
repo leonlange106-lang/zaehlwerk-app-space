@@ -95,9 +95,14 @@
 }
 
 /* The colour scheme is driven by an attribute on <html>, not by the media query,
-   because the header toggle has to win over the OS preference. Mantine sets the
-   attribute today; keep this variant in sync if that ever changes. */
-@custom-variant dark (&:where([data-mantine-color-scheme="dark"], [data-mantine-color-scheme="dark"] *));
+   because the header toggle has to win over the OS preference. The attribute is
+   set before first paint by `themeScript` in components/shell/ThemeProvider.
+ *
+ * BOTH attributes are honoured for as long as Mantine is still mounted: it sets
+ * `data-mantine-color-scheme` from its own provider, and dropping that selector
+ * before the last Mantine screen is migrated would leave those screens stuck in
+ * one scheme. Delete the Mantine half together with the dependency. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *, [data-mantine-color-scheme="dark"], [data-mantine-color-scheme="dark"] *));
 
 :root {
   /* Deck → panel → raised panel, plus a recessed well for inputs and plot beds. */
@@ -143,6 +148,7 @@
   --zw-radius-control: 10px;
 }
 
+[data-theme="dark"],
 [data-mantine-color-scheme="dark"] {
   /* Deep navy, not black: the glass panels and gradient accents need something
      to sit *on*, and pure black flattens both. */
@@ -179,6 +185,8 @@
   --zw-accent-2: #2563eb;
 }
 
+[data-theme="dark"][data-app="zaehlwerk"],
+[data-theme="dark"] [data-app="zaehlwerk"],
 [data-mantine-color-scheme="dark"][data-app="zaehlwerk"],
 [data-mantine-color-scheme="dark"] [data-app="zaehlwerk"] {
   --zw-accent: #22d3ee;
@@ -191,6 +199,8 @@
   --zw-accent-2: #d97706;
 }
 
+[data-theme="dark"][data-app="log-analyzer"],
+[data-theme="dark"] [data-app="log-analyzer"],
 [data-mantine-color-scheme="dark"][data-app="log-analyzer"],
 [data-mantine-color-scheme="dark"] [data-app="log-analyzer"] {
   --zw-accent: #fb923c;

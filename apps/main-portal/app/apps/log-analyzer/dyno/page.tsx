@@ -1,7 +1,7 @@
 import { DynoView } from "../DynoView";
 
 export const metadata = {
-  title: "Virtueller Prüfstand – MGflasher Log Analyzer",
+  title: "Virtueller Prüfstand – Log Analyzer",
 };
 
 export default function LogAnalyzerDynoPage() {

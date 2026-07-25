@@ -23,7 +23,9 @@ import {
 import { APPS } from "@/app/lib/apps";
 import { cn } from "@/app/lib/cn";
 import { Skeleton } from "@/app/components/ui/Skeleton";
+import { BetaBadge } from "@/app/components/ui/Badge";
 import type { MenuMeter } from "@/app/api/apps/zaehlwerk/meters/route";
+import type { MenuLog } from "@/app/api/apps/log-analyzer/named-logs/route";
 
 // The single navigation surface of the App Space.
 //
@@ -39,10 +41,17 @@ import type { MenuMeter } from "@/app/api/apps/zaehlwerk/meters/route";
 // being fixed. The panel keeps `role="menu"`, so keyboard and screen-reader
 // semantics come from Radix either way.
 //
-// Meters are fetched the first time the Zähler level is opened, then cached for
-// the session — see api/apps/zaehlwerk/meters.
+// The two deepest levels are live data and are fetched the first time they are
+// opened, then cached for the session — see api/apps/zaehlwerk/meters and
+// api/apps/log-analyzer/named-logs. Logs are deliberately filtered to the ones
+// the user named: the corpus grows unattended via the watch-folder and the
+// ingestion API, and a menu listing every imported filename would stop being one.
 
-type Level = { kind: "root" } | { kind: "app"; appId: string } | { kind: "meters" };
+type Level =
+  | { kind: "root" }
+  | { kind: "app"; appId: string }
+  | { kind: "meters" }
+  | { kind: "logs" };
 
 interface Entry {
   label: string;
@@ -54,6 +63,8 @@ interface Entry {
   /** Colour dot instead of an icon — used for meters, whose colour is data. */
   dot?: string;
   hint?: string;
+  /** Marks a section that works but may still change shape. */
+  beta?: boolean;
 }
 
 const APP_SECTIONS: Record<string, Entry[]> = {
@@ -67,11 +78,22 @@ const APP_SECTIONS: Record<string, Entry[]> = {
     { label: "Analyzer", href: "/apps/log-analyzer", icon: IconChartHistogram, exact: true },
     { label: "Log-Vergleich", href: "/apps/log-analyzer/compare", icon: IconArrowsDiff },
     { label: "Virtueller Prüfstand", href: "/apps/log-analyzer/dyno", icon: IconGauge },
-    { label: "Remote-Import", href: "/apps/log-analyzer/remote", icon: IconWorldDownload },
+    { label: "Remote-Import", href: "/apps/log-analyzer/remote", icon: IconWorldDownload, beta: true },
     { label: "Fahrzeug-Profil", href: "/apps/log-analyzer/specs", icon: IconEngine },
-    { label: "Log-Übersicht", href: "/apps/log-analyzer/history", icon: IconClockHour4 },
+    { label: "Log-Übersicht", icon: IconClockHour4, into: { kind: "logs" } },
   ],
 };
+
+// The dot repeats the log's hardware-health verdict. It is a second channel next
+// to the name, never the only one — the full verdict with its icon lives in the
+// overview (components/ui/StatusBadge).
+const HEALTH_DOT: Record<string, string> = {
+  safe: "var(--zw-ok)",
+  caution: "var(--zw-watch)",
+  danger: "var(--zw-risk)",
+};
+
+const logDateFormatter = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit" });
 
 const row =
   "flex w-full cursor-pointer select-none items-center gap-3 rounded-control px-3 text-[13.5px] " +
@@ -89,9 +111,12 @@ export function AppMenu({ allowedAppIds }: { allowedAppIds: string[] }) {
   const [level, setLevel] = useState<Level>({ kind: "root" });
   const [meters, setMeters] = useState<MenuMeter[] | null>(null);
   const [metersFailed, setMetersFailed] = useState(false);
-  // Survives close/reopen within the session; a nav menu that re-fetches on every
-  // open would show a spinner for a list that almost never changes.
+  const [logs, setLogs] = useState<MenuLog[] | null>(null);
+  const [logsFailed, setLogsFailed] = useState(false);
+  // Survive close/reopen within the session; a nav menu that re-fetches on every
+  // open would show a spinner for lists that barely change.
   const metersRequested = useRef(false);
+  const logsRequested = useRef(false);
 
   const apps = APPS.filter((app) => allowedAppIds.includes(app.id));
 
@@ -110,12 +135,27 @@ export function AppMenu({ allowedAppIds }: { allowedAppIds: string[] }) {
     }
   }, []);
 
+  const loadLogs = useCallback(async () => {
+    if (logsRequested.current) return;
+    logsRequested.current = true;
+    try {
+      const res = await fetch("/api/apps/log-analyzer/named-logs");
+      if (!res.ok) throw new Error(String(res.status));
+      const body = (await res.json()) as { logs: MenuLog[] };
+      setLogs(body.logs);
+    } catch {
+      logsRequested.current = false;
+      setLogsFailed(true);
+    }
+  }, []);
+
   const goInto = useCallback(
     (next: Level) => {
       setLevel(next);
       if (next.kind === "meters") void loadMeters();
+      if (next.kind === "logs") void loadLogs();
     },
-    [loadMeters],
+    [loadMeters, loadLogs],
   );
 
   return (
@@ -173,6 +213,15 @@ export function AppMenu({ allowedAppIds }: { allowedAppIds: string[] }) {
               failed={metersFailed}
               pathname={pathname}
               onBack={() => setLevel({ kind: "app", appId: "zaehlwerk" })}
+            />
+          )}
+
+          {level.kind === "logs" && (
+            <LogsLevel
+              logs={logs}
+              failed={logsFailed}
+              pathname={pathname}
+              onBack={() => setLevel({ kind: "app", appId: "log-analyzer" })}
             />
           )}
         </DropdownMenu.Content>
@@ -233,6 +282,7 @@ function LinkRow({
   icon: Icon,
   dot,
   hint,
+  beta,
   active,
 }: {
   href: string;
@@ -240,6 +290,7 @@ function LinkRow({
   icon?: typeof IconStack2;
   dot?: string;
   hint?: string;
+  beta?: boolean;
   active: boolean;
 }) {
   return (
@@ -258,6 +309,7 @@ function LinkRow({
           Icon && <Icon size={17} stroke={1.7} className={cn("flex-none", !active && "text-dim")} />
         )}
         <span className="truncate">{label}</span>
+        {beta && <BetaBadge className="ml-auto" />}
         {hint && (
           <span className={cn("ml-auto flex-none text-[11px]", active ? "text-white/75" : "text-dim")}>
             {hint}
@@ -364,6 +416,7 @@ function AppLevel({
             href={entry.href!}
             label={entry.label}
             icon={entry.icon}
+            beta={entry.beta}
             active={isActiveHref(pathname, entry.href!, entry.exact)}
           />
         ),
@@ -394,17 +447,7 @@ function MetersLevel({
       />
       <DropdownMenu.Separator className="my-1 h-px bg-line" />
 
-      {meters === null && !failed && (
-        // Same row height as a real entry, so the list doesn't jump when it lands.
-        <div className="flex flex-col gap-1 px-3 py-1" aria-live="polite">
-          {[0, 1, 2].map((i) => (
-            <div key={i} className="flex min-h-11 items-center gap-3">
-              <Skeleton height={10} width={10} className="rounded-full" />
-              <Skeleton height={11} width={i === 1 ? 96 : 132} />
-            </div>
-          ))}
-        </div>
-      )}
+      {meters === null && !failed && <LoadingRows />}
 
       {failed && (
         <p className="px-3 py-3 text-[13px] text-dim">
@@ -424,6 +467,71 @@ function MetersLevel({
           dot={meter.farbe}
           hint={meter.einheit}
           active={pathname === `/apps/zaehlwerk/zaehler/${meter.id}`}
+        />
+      ))}
+    </>
+  );
+}
+
+/** Placeholder rows at the real row height, so a landing list doesn't jump. */
+function LoadingRows() {
+  return (
+    <div className="flex flex-col gap-1 px-3 py-1" aria-live="polite">
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="flex min-h-11 items-center gap-3">
+          <Skeleton height={10} width={10} className="rounded-full" />
+          <Skeleton height={11} width={i === 1 ? 96 : 132} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function LogsLevel({
+  logs,
+  failed,
+  pathname,
+  onBack,
+}: {
+  logs: MenuLog[] | null;
+  failed: boolean;
+  pathname: string;
+  onBack: () => void;
+}) {
+  return (
+    <>
+      <BackRow label="Log-Übersicht" onBack={onBack} />
+      <LinkRow
+        href="/apps/log-analyzer/history"
+        label="Alle Logs"
+        icon={IconClockHour4}
+        active={pathname === "/apps/log-analyzer/history"}
+      />
+      <DropdownMenu.Separator className="my-1 h-px bg-line" />
+
+      {logs === null && !failed && <LoadingRows />}
+
+      {failed && (
+        <p className="px-3 py-3 text-[13px] text-dim">
+          Logs konnten nicht geladen werden. Menü schließen und erneut öffnen.
+        </p>
+      )}
+
+      {logs?.length === 0 && (
+        <p className="px-3 py-3 text-[13px] leading-relaxed text-dim">
+          Noch kein Log benannt. In der Log-Übersicht eine Bezeichnung vergeben —
+          benannte Logs erscheinen hier.
+        </p>
+      )}
+
+      {logs?.map((log) => (
+        <LinkRow
+          key={log.id}
+          href={`/apps/log-analyzer/history?log=${log.id}`}
+          label={log.label}
+          dot={HEALTH_DOT[log.health] ?? "var(--zw-neutral)"}
+          hint={log.recordedAt ? logDateFormatter.format(new Date(log.recordedAt)) : undefined}
+          active={pathname === "/apps/log-analyzer/history"}
         />
       ))}
     </>

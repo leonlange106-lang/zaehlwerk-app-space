@@ -524,7 +524,7 @@ function Header() {
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src="/icon-log-analyzer.svg" alt="" width={48} height={48} />
       <div>
-        <Title order={2}>MGflasher Log Analyzer</Title>
+        <Title order={2}>Log Analyzer</Title>
         <Text c="dimmed" size="sm">
           ECU/TCU-Datenlogs importieren, visualisieren und analysieren.
         </Text>

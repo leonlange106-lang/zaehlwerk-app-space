@@ -22,6 +22,7 @@ import {
   IconChartHistogram,
   IconClockHour4,
   IconGasStation,
+  IconTag,
   IconTrash,
 } from "@tabler/icons-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -202,7 +203,7 @@ export function HistoryView() {
   }, []);
 
   const saveTags = useCallback(
-    async (id: string, patch: { octane?: string | null; tags?: string[] }) => {
+    async (id: string, patch: { label?: string | null; octane?: string | null; tags?: string[] }) => {
       const updated = await patchLogTags(id, patch);
       if (updated) setItems((prev) => (prev ? prev.map((l) => (l.id === id ? updated : l)) : prev));
     },
@@ -215,6 +216,7 @@ export function HistoryView() {
     () => ({
       onOpen: open,
       onRemove: (id) => void remove(id),
+      onSaveLabel: (id, label) => void saveTags(id, { label }),
       onSaveOctane: (id, octane) => void saveTags(id, { octane }),
       onSaveTags: (id, tags) => void saveTags(id, { tags }),
     }),
@@ -283,6 +285,7 @@ export function HistoryView() {
 type RowHandlers = {
   onOpen: (id: string) => void;
   onRemove: (id: string) => void;
+  onSaveLabel: (id: string, label: string) => void;
   onSaveOctane: (id: string, octane: string) => void;
   onSaveTags: (id: string, tags: string[]) => void;
 };
@@ -299,6 +302,7 @@ const LogRow = memo(function LogRow({
 }) {
   const status = STATUS_META[log.status];
   const health = HEALTH_META[log.health];
+  const [label, setLabel] = useState(log.label ?? "");
   const [octane, setOctane] = useState(log.octane ?? "");
 
   return (
@@ -307,7 +311,7 @@ const LogRow = memo(function LogRow({
         <div style={{ minWidth: 0, flex: 1 }}>
           <Group gap="xs" wrap="wrap">
             <Text fw={600} style={{ wordBreak: "break-all" }}>
-              {log.name}
+              {log.label ?? log.name}
             </Text>
             <StatusBadge
               tone={health.tone}
@@ -328,6 +332,7 @@ const LogRow = memo(function LogRow({
           </Group>
           <Text size="xs" c="dimmed" mt={2}>
             {[
+              log.label ? log.name : null,
               log.recordedAt ? `gefahren ${timeFormatter.format(new Date(log.recordedAt))} Uhr` : null,
               log.vehicle,
               log.vin,
@@ -339,6 +344,20 @@ const LogRow = memo(function LogRow({
           </Text>
 
           <Group gap="sm" mt="sm" align="flex-end" wrap="wrap">
+            <TextInput
+              label="Bezeichnung"
+              description="Benannte Logs erscheinen im Navigationsmenü"
+              size="xs"
+              w={230}
+              leftSection={<IconTag size={14} />}
+              placeholder="z. B. Stage 2 Referenzlauf"
+              value={label}
+              onChange={(e) => setLabel(e.currentTarget.value)}
+              onBlur={() => {
+                if ((log.label ?? "") !== label) handlers.onSaveLabel(log.id, label);
+              }}
+              data-testid="log-label"
+            />
             <TextInput
               label="Oktan / Kraftstoff"
               size="xs"

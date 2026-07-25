@@ -15,6 +15,7 @@ import {
   ThemeIcon,
   Title,
 } from "@mantine/core";
+import { BetaBadge } from "@/app/components/ui/Badge";
 import { IconAlertCircle, IconCloudDownload, IconLink, IconWorldDownload } from "@tabler/icons-react";
 import { parseShareLink } from "./lib/mgflasher";
 import { setActiveLogId } from "./lib/log-store";
@@ -88,9 +89,12 @@ export function RemoteImportView() {
           <IconWorldDownload size={24} stroke={1.5} />
         </ThemeIcon>
         <div>
-          <Title order={2}>Remote-Import</Title>
+          <Group gap="sm" align="center">
+            <Title order={2}>Remote-Import</Title>
+            <BetaBadge />
+          </Group>
           <Text c="dimmed" size="sm">
-            Ein Log direkt über einen MGflasher-Share-Link laden.
+            Ein Log direkt über einen Share-Link laden — bisher nur MGflasher-Links.
           </Text>
         </div>
       </Group>

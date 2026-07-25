@@ -293,7 +293,7 @@ export function LogAnalyzerReport({ payload }: { payload: ReportPayload }) {
     <Document
       title={`Logbericht – ${payload.title}`}
       author="Zählwerk App-Space"
-      subject="MGflasher Log Analyzer – Auswertungsbericht"
+      subject="Log Analyzer – Auswertungsbericht"
     >
       <Page size="A4" style={styles.page}>
         {/* ── Header ── */}

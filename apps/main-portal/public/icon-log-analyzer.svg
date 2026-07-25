@@ -1,18 +1,26 @@
 <svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="MGflasher Log Analyzer">
+  <!--
+    Log Analyzer: a datalog trace with its peak marked — one pull, and the point
+    the evaluation cares about.
+
+    Carries its own tile for the same reason as the Zählwerk mark, in that app's
+    accent (amber → orange). The magnifier the old mark had is gone: at the 18px
+    a menu row renders this, a 3px ring over a 2.6px trace is illegible mush.
+    The peak dot survives that size and says the same thing.
+  -->
   <defs>
     <linearGradient id="la-bg" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#1f293d"/>
-      <stop offset="1" stop-color="#080c14"/>
+      <stop stop-color="#fbbf24"/>
+      <stop offset="1" stop-color="#f97316"/>
     </linearGradient>
   </defs>
-  <rect width="64" height="64" rx="6" fill="url(#la-bg)"/>
-  <rect x="0.75" y="0.75" width="62.5" height="62.5" rx="5.25" fill="none" stroke="#374151" stroke-width="1.5"/>
-  <!-- log signal / waveform baseline -->
-  <line x1="12" y1="38" x2="52" y2="38" stroke="#374151" stroke-width="1.5"/>
-  <!-- datalog trace -->
-  <polyline points="12,38 18,38 22,24 27,44 32,30 37,38 42,20 47,38 52,38"
-    fill="none" stroke="#f97316" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round"/>
-  <!-- magnifier analysing the trace -->
-  <circle cx="41" cy="41" r="11" fill="none" stroke="#e5e9f0" stroke-width="3"/>
-  <line x1="49" y1="49" x2="55" y2="55" stroke="#e5e9f0" stroke-width="3.4" stroke-linecap="round"/>
+  <rect width="64" height="64" rx="15" fill="url(#la-bg)"/>
+  <!-- baseline the trace rides on -->
+  <rect x="12" y="45" width="40" height="1.8" rx="0.9" fill="#2a1206" opacity="0.35"/>
+  <!-- the pull -->
+  <polyline points="12,44 19,43 25,34 31,37 38,20 45,27 52,25"
+    fill="none" stroke="#ffffff" stroke-width="3.6" stroke-linejoin="round" stroke-linecap="round"/>
+  <!-- peak -->
+  <circle cx="38" cy="20" r="4.6" fill="#ffffff"/>
+  <circle cx="38" cy="20" r="2" fill="#f97316"/>
 </svg>

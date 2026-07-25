@@ -5,7 +5,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { useMantineColorScheme } from "@mantine/core";
 import {
   IconBell,
   IconLogout,
@@ -13,11 +12,13 @@ import {
   IconSearch,
   IconSettings,
   IconSun,
+  IconSunMoon,
 } from "@tabler/icons-react";
 import { USER_ROLE_LABELS } from "@zaehlwerk/database/client";
 import type { UserRole } from "@zaehlwerk/database/client";
 import { activeAppFor } from "./lib/apps";
 import { AppMenu } from "./components/shell/AppMenu";
+import { useColorScheme } from "./components/shell/ThemeProvider";
 import { cn } from "./lib/cn";
 
 // The app shell: a translucent header bar over the deck. That is the whole thing.
@@ -81,6 +82,12 @@ function initialsFor(name: string | null | undefined, email: string | null | und
   return (parts[0]?.[0] ?? "").concat(parts[1]?.[0] ?? "").toUpperCase() || source[0]!.toUpperCase();
 }
 
+const THEME_LABEL = {
+  auto: "automatisch (Systemeinstellung)",
+  light: "hell",
+  dark: "dunkel",
+} as const;
+
 /** Round control in the header bar. 44px thumb area on phones, compact above. */
 const controlBox =
   "flex flex-none items-center justify-center rounded-full text-dim transition-colors " +
@@ -106,7 +113,7 @@ export function PortalShell({
 }) {
   const pathname = usePathname();
   const [query, setQuery] = useState("");
-  const { colorScheme, toggleColorScheme } = useMantineColorScheme();
+  const { mode, cycleMode } = useColorScheme();
   const { data: session } = useSession();
   const embedded = useEmbedded();
 
@@ -170,13 +177,20 @@ export function PortalShell({
             />
           </label>
 
+          {/* Three states, so "follow the system" is expressible. The icon names
+              the CURRENT mode rather than the next one — a control that shows
+              where you are is readable; one that shows where you would go is a
+              riddle. The label spells it out for screen readers either way. */}
           <button
             type="button"
-            onClick={() => toggleColorScheme()}
+            onClick={cycleMode}
             className={controlBox}
-            aria-label="Theme wechseln"
+            aria-label={`Theme wechseln – aktuell ${THEME_LABEL[mode]}`}
+            title={`Theme: ${THEME_LABEL[mode]}`}
           >
-            {colorScheme === "dark" ? (
+            {mode === "auto" ? (
+              <IconSunMoon size={18} stroke={1.6} />
+            ) : mode === "light" ? (
               <IconSun size={18} stroke={1.6} />
             ) : (
               <IconMoon size={18} stroke={1.6} />

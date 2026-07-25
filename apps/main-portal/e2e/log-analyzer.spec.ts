@@ -177,19 +177,26 @@ test.describe("Log Analyzer: remote import", () => {
 
 test.describe("Log Analyzer: sub-navigation", () => {
   test("menu exposes Analyzer, Remote-Import and Log-Übersicht", async ({ page }) => {
-    const openSection = async (name: string) => {
+    /** Open the menu and drill into the Log Analyzer's section list. */
+    const openAppLevel = async () => {
       await page.getByRole("button", { name: "Navigation öffnen" }).click();
       const menu = page.getByRole("menu");
-      await menu.getByRole("menuitem", { name: "MGflasher Log Analyzer" }).click();
-      await menu.getByRole("menuitem", { name, exact: true }).click();
+      await menu.getByRole("menuitem", { name: "Log Analyzer" }).click();
+      return menu;
     };
 
     await page.goto("/apps/log-analyzer");
-    await openSection("Remote-Import");
+    let menu = await openAppLevel();
+    // Not `exact`: the row carries a Beta badge, which is part of its name.
+    await menu.getByRole("menuitem", { name: "Remote-Import" }).click();
     await page.waitForURL(/\/apps\/log-analyzer\/remote$/);
     await expect(page.getByRole("heading", { name: "Remote-Import" })).toBeVisible();
 
-    await openSection("Log-Übersicht");
+    // Log-Übersicht is not a link but a level: it lists the logs the user named,
+    // and "Alle Logs" is the row that opens the page itself.
+    menu = await openAppLevel();
+    await menu.getByRole("menuitem", { name: "Log-Übersicht", exact: true }).click();
+    await menu.getByRole("menuitem", { name: "Alle Logs", exact: true }).click();
     await page.waitForURL(/\/apps\/log-analyzer\/history$/);
     await expect(page.getByRole("heading", { name: "Log-Übersicht" })).toBeVisible();
   });
