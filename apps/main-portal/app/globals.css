@@ -82,6 +82,29 @@
     -webkit-appearance: none;
     appearance: none;
   }
+
+  /* Date and time inputs, on iOS Safari specifically, size themselves from their
+     own content and refuse to go below it — `width: 100%` sets the width and the
+     intrinsic minimum then overrides it, so the field ends up wider than every
+     sibling in the same form and hangs over the panel's padding.
+     `appearance: none` drops that intrinsic sizing; `min-width: 0` lets the box
+     actually shrink to its container. The native picker is unaffected — it is
+     the control's behaviour, not its box model. */
+  input[type="date"],
+  input[type="datetime-local"],
+  input[type="month"],
+  input[type="week"],
+  input[type="time"] {
+    -webkit-appearance: none;
+    appearance: none;
+    min-width: 0;
+  }
+
+  /* Without this iOS centres the value inside the field while every other input
+     in the form is left-aligned. */
+  ::-webkit-date-and-time-value {
+    text-align: left;
+  }
 }
 
 /* The colour scheme is driven by an attribute on <html>, not by the media query,
