@@ -1,0 +1,26 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Administration">
+  <!--
+    App-Kachel der Administration. Bewusst SCHIEFER statt eines bunten Akzents:
+    dies ist keine dritte gleichrangige Fach-App, sondern der Blick auf die
+    Plattform selbst — ein eigener Produktakzent wuerde das Gegenteil behaupten.
+
+    Wie die anderen App-Icons ein eigenes Dokument: Seiten-CSS erreicht es nicht,
+    die Farben sind also handgepflegte Literale. Siehe die Notiz in CLAUDE.md.
+
+    Aus Flaechen, nicht aus Linien — bei 18px im Menue ist eine Haarlinie
+    sub-pixel. Dieselbe Regel wie bei der Wortmarke.
+  -->
+  <defs>
+    <linearGradient id="adm-bg" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#94a3b8"/>
+      <stop offset="1" stop-color="#475569"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="15" fill="url(#adm-bg)"/>
+  <!-- Schild: die Plattform, die beobachtet und geschuetzt wird. -->
+  <path d="M32 13l14 5v13c0 9.5-6 16.6-14 19.4C24 47.6 18 40.5 18 31V18l14-5z" fill="#ffffff" opacity="0.95"/>
+  <!-- Drei Balken darin: die datenreiche Seite, in Kategorien getrennt. -->
+  <rect x="25" y="26" width="14" height="3.4" rx="1.7" fill="#475569"/>
+  <rect x="25" y="33" width="14" height="3.4" rx="1.7" fill="#475569" opacity="0.75"/>
+  <rect x="25" y="40" width="9" height="3.4" rx="1.7" fill="#475569" opacity="0.5"/>
+</svg>

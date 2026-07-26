@@ -11,6 +11,20 @@ import { getSessionUser, type SessionUser } from "./auth-helpers";
 
 export const ALL_APP_IDS = APPS.map((app) => app.id);
 
+/**
+ * Apps, die an der ROLLE haengen statt an einer Freigabe.
+ *
+ * Der Admin-Bereich zeigt den Zustand der Plattform. Ihn ueber `allowedApps` zu
+ * verteilen hiesse, dass ein Admin ihn erst zugewiesen bekommen muss — und dass
+ * man ihn versehentlich einem Nicht-Admin zuweisen KANN. Beides falsch herum.
+ */
+const ADMIN_ONLY_APP_IDS = APPS.filter((app) => app.adminOnly).map((app) => app.id);
+
+/** Freigaben, die ueberhaupt vergeben werden koennen — ohne die rollengebundenen. */
+export const ASSIGNABLE_APP_IDS = ALL_APP_IDS.filter(
+  (id) => !ADMIN_ONLY_APP_IDS.includes(id),
+);
+
 export function parseAllowedApps(raw: string | null | undefined): string[] {
   if (!raw) return [];
   try {
@@ -44,7 +58,11 @@ export async function allowedAppIdsFor(
 ): Promise<string[]> {
   if (!user) return [];
   if (user.role === "ADMIN") return [...ALL_APP_IDS];
-  return cachedAllowedAppIds(user.id);
+  // Eine gespeicherte Zuweisung darf eine rollengebundene App nicht oeffnen —
+  // sonst waere eine alte oder manipulierte allowedApps-Zeile ein Weg in den
+  // Admin-Bereich.
+  const assigned = await cachedAllowedAppIds(user.id);
+  return assigned.filter((id) => !ADMIN_ONLY_APP_IDS.includes(id as (typeof ALL_APP_IDS)[number]));
 }
 
 /** App ids the current session may see/use. */

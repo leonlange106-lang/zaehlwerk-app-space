@@ -169,11 +169,33 @@ describe("the shipped target list", () => {
   it("tags every app section with the app it belongs to", () => {
     // An app section without `appId` is visible to everyone — the exact leak the
     // access filter exists to prevent, and easy to introduce by adding a row.
+    //
+    // `adminOnly` is the other legitimate gate: the admin area lives under
+    // /apps/ but hangs off the ROLE, not off an assignment. Ungated is what must
+    // not happen; which of the two gates applies is the target's business.
     for (const target of STATIC_SEARCH_TARGETS) {
       if (target.href.startsWith("/apps/")) {
-        expect(target.appId, `${target.href} must name its app`).toBeTruthy();
+        expect(
+          Boolean(target.appId) || Boolean(target.adminOnly),
+          `${target.href} must be gated by an app or by the admin role`,
+        ).toBe(true);
       }
     }
+  });
+
+  it("keeps the admin area out of a non-admin's results entirely", () => {
+    // Ein Treffer wuerde verraten, dass es diesen Bereich gibt.
+    const hits = matchStaticTargets(STATIC_SEARCH_TARGETS, "Administration", {
+      allowedAppIds: ALL_APPS,
+      isAdmin: false,
+    });
+    expect(hits).toEqual([]);
+    expect(
+      matchStaticTargets(STATIC_SEARCH_TARGETS, "Administration", {
+        allowedAppIds: ALL_APPS,
+        isAdmin: true,
+      }).length,
+    ).toBeGreaterThan(0);
   });
 
   it("offers every settings group", () => {

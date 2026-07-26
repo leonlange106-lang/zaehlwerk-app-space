@@ -2,8 +2,6 @@ import Link from "next/link";
 import { IconInfoCircle, IconPlus } from "@tabler/icons-react";
 import { APPS } from "./lib/apps";
 import { getAllowedAppIds } from "./lib/app-access";
-import { getSessionUser } from "./lib/auth-helpers";
-import { AdminPanel } from "./AdminPanel";
 import { BrandLogo } from "./components/BrandLogo";
 import { Badge } from "./components/ui/Badge";
 import { Alert } from "./components/ui/primitives";
@@ -22,9 +20,11 @@ const tile =
   "panel group relative flex flex-col overflow-hidden p-5 transition-[transform,box-shadow] duration-200";
 
 export default async function LauncherPage() {
-  const [allowedAppIds, user] = await Promise.all([getAllowedAppIds(), getSessionUser()]);
+  // `getAllowedAppIds()` traegt die Rolle bereits: fuer Admins liefert es alle
+  // App-Ids inklusive der rollengebundenen. Ein zweiter Blick auf die Sitzung
+  // waere eine zweite Wahrheit ueber dieselbe Frage.
+  const allowedAppIds = await getAllowedAppIds();
   const apps = APPS.filter((app) => allowedAppIds.includes(app.id));
-  const isAdmin = user?.role === "ADMIN";
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-7">
@@ -110,7 +110,6 @@ export default async function LauncherPage() {
         </div>
       </div>
 
-      {isAdmin && <AdminPanel />}
     </div>
   );
 }

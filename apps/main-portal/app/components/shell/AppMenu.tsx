@@ -9,6 +9,7 @@ import {
   IconArrowsDiff,
   IconChartBar,
   IconChartHistogram,
+  IconActivity,
   IconChevronLeft,
   IconChevronRight,
   IconClockHour4,
@@ -20,14 +21,18 @@ import {
   IconListTree,
   IconPlug,
   IconRefresh,
+  IconServerBolt,
   IconSettings,
+  IconShieldCog,
   IconShieldLock,
   IconStack2,
   IconUsers,
+  IconWorld,
   IconWorldDownload,
 } from "@tabler/icons-react";
 import { activeAppFor, APPS } from "@/app/lib/apps";
 import { settingsGroupHref, visibleSettingsGroups } from "@/app/settings/groups";
+import { ADMIN_SECTIONS, adminSectionHref } from "@/app/apps/admin/sections";
 import { cn } from "@/app/lib/cn";
 import { Skeleton } from "@/app/components/ui/Skeleton";
 import { BetaBadge } from "@/app/components/ui/Badge";
@@ -60,7 +65,8 @@ type Level =
   | { kind: "app"; appId: string }
   | { kind: "meters" }
   | { kind: "logs" }
-  | { kind: "settings" };
+  | { kind: "settings" }
+  | { kind: "admin" };
 
 interface Entry {
   label: string;
@@ -282,6 +288,10 @@ export function AppMenu({ allowedAppIds }: { allowedAppIds: string[] }) {
             />
           )}
 
+          {level.kind === "admin" && (
+            <AdminLevel pathname={pathname} onBack={() => goBack({ kind: "root" })} />
+          )}
+
           {level.kind === "settings" && (
             <SettingsLevel
               pathname={pathname}
@@ -457,7 +467,10 @@ function RootLevel({
               )}
               onSelect={(event) => {
                 event.preventDefault();
-                onInto({ kind: "app", appId: app.id });
+                // Die Admin-App hat keine APP_SECTIONS, sondern eine eigene
+                // Ebene aus sections.ts — ohne diese Weiche liefe sie in eine
+                // leere Liste.
+                onInto(app.id === "admin" ? { kind: "admin" } : { kind: "app", appId: app.id });
               }}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -700,4 +713,37 @@ const SETTINGS_GROUP_ICON = {
   plug: IconPlug,
   database: IconDatabase,
   refresh: IconRefresh,
+} as const;
+
+/** Die Bereiche der Admin-App. Nur fuer Admins sichtbar — die Rolle entscheidet,
+ *  nicht eine Freigabe, und die Route prueft sie serverseitig erneut. */
+function AdminLevel({ pathname, onBack }: { pathname: string; onBack: () => void }) {
+  return (
+    <>
+      <BackRow label="Administration" onBack={onBack} />
+      <LinkRow
+        href="/apps/admin"
+        label="Übersicht"
+        icon={IconShieldCog}
+        active={pathname === "/apps/admin"}
+      />
+      <DropdownMenu.Separator className="my-1 h-px bg-line" />
+      {ADMIN_SECTIONS.map((section) => (
+        <LinkRow
+          key={section.id}
+          href={adminSectionHref(section)}
+          label={section.title}
+          icon={ADMIN_SECTION_ICON[section.icon]}
+          active={pathname === adminSectionHref(section)}
+        />
+      ))}
+    </>
+  );
+}
+
+const ADMIN_SECTION_ICON = {
+  "server-bolt": IconServerBolt,
+  world: IconWorld,
+  database: IconDatabase,
+  activity: IconActivity,
 } as const;
