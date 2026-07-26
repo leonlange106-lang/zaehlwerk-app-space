@@ -500,6 +500,21 @@ mehrere Update-Runden für eine Sache.
   Entwickler-Modus über eine Env-Variable
 - Gilt genauso für `beta` — auch dort darf der Branch-Head nicht zählen
 
+Dazu, weil klein und im selben Branch gut aufgehoben:
+
+- **Benannte Logs im Menü führen auf die Übersicht statt ins Log.** Der
+  Menüeintrag verlinkt `/apps/log-analyzer/history?log=<id>`, aber **`?log=`
+  liest niemand** — `HistoryView` hat kein `useSearchParams`, der Parameter ist
+  tot. Der funktionierende Weg existiert bereits: der „Öffnen"-Knopf der
+  Übersicht ruft `setActiveLogId(id)` und navigiert zum Analyzer, der ihn per
+  `takeActiveLogId()` abholt.
+  **Besser als diesen Mechanismus im Menü nachzubauen:** `/apps/log-analyzer`
+  ein `?log=<id>` verstehen lassen und den Menüeintrag darauf zeigen. Ein
+  Navigationseintrag sollte ein echter Link sein — Mittelklick, neuer Tab und
+  Zurück-Knopf funktionieren nicht, wenn das Ziel nur über einen
+  localStorage-Seiteneffekt erreichbar ist. Die localStorage-Übergabe bleibt für
+  den Weg Analyzer → Prüfstand.
+
 *Zusammen, weil es eine Ursache mit zwei Symptomen ist (Erkennung **und**
 Installation). Getrennt behoben bliebe die Hälfte stehen.*
 **Risiko:** mittel — betrifft den Deploy-Pfad, und `update.sh` lässt sich lokal
