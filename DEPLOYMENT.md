@@ -125,9 +125,9 @@ UPDATE_TRIGGER_TOKEN=REPLACE_ME
 # openssl rand -base64 32
 AUTH_SECRET=REPLACE_ME
 
-# The LAN hostname Caddy answers to — see section 7. Must resolve in your
-# network. Required as soon as the caddy service runs.
-ZW_HOSTNAME=zaehlwerk.fritz.box
+# What Caddy answers to — a hostname that resolves on your LAN, or simply the
+# LXC's IP address (Caddy issues internal certificates for IPs too). See § 7.
+ZW_HOSTNAME=192.168.1.50
 EOF
 chmod 600 .env
 ```
@@ -200,9 +200,21 @@ app has to change.
 have to be in `.env`:
 
 ```env
-# The name the app answers to on the LAN. It MUST resolve in your network —
-# a router DNS entry (Fritz!Box: "zaehlwerk.fritz.box") or a hosts entry.
-ZW_HOSTNAME=zaehlwerk.fritz.box
+# What the app answers to. Whatever you put here must be what you TYPE in the
+# browser, or the certificate will not match. Three workable choices:
+#
+#   a) The LXC's IP address — ZW_HOSTNAME=192.168.1.50
+#      Needs no DNS at all, and Caddy's internal CA issues for IPs happily.
+#      The pragmatic choice on a home LAN. Requires a static lease, though:
+#      if DHCP moves the LXC, both the URL and the certificate stop matching.
+#
+#   b) A name your router hands out. The suffix differs per vendor
+#      (.fritz.box, .lan, .home, .local) — check what your own resolves as
+#      before picking one; a name that does not resolve locks everyone out.
+#
+#   c) A name you add to each device's hosts file. Works everywhere, but has
+#      to be repeated per device, so it suits a single-machine setup.
+ZW_HOSTNAME=192.168.1.50
 
 # Leave this UNSET for now. It is step 7.2.
 # APP_BIND=127.0.0.1
