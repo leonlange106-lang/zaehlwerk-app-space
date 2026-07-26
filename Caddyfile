@@ -1,0 +1,68 @@
+# TLS-Terminierung vor dem App-Container.
+#
+# Warum überhaupt: ohne HTTPS läuft das Session-Cookie im Klartext durchs LAN —
+# wer mitliest, hat die Sitzung. Derselbe Umstand hat den 2FA-Login lahmgelegt,
+# weil ein `secure`-Cookie über HTTP vom Browser kommentarlos verworfen wird.
+# Hinter TLS erkennt `isSecureConnection()` die Verbindung von selbst; an der
+# App ist dafür nichts zu ändern.
+#
+# Das `caddy_data`-Volume enthält die lokale CA. Geht es verloren, erzeugt Caddy
+# eine neue und JEDES Gerät muss erneut vertrauen — es gehört ins Backup.
+
+# Eine Definition, die sich beide Zugangswege teilen. Damit ist der zweite
+# Hostname später vier Zeilen und keine Kopie.
+(app) {
+	# Über das Compose-Netz an den Dienstnamen, nicht an einen veröffentlichten
+	# Port: so erreicht Caddy die App auch dann noch, wenn Port 3000 gar nicht
+	# mehr im LAN hängt (APP_BIND=127.0.0.1).
+	reverse_proxy main-portal:3000
+
+	# Caddy setzt X-Forwarded-Proto/-Host bei reverse_proxy selbst — genau die
+	# Header, aus denen die App ableitet, ob die Verbindung sicher war.
+
+	encode gzip
+
+	log {
+		output stdout
+		format console
+	}
+}
+
+# --- LAN -------------------------------------------------------------------
+#
+# `tls internal` statt Let's Encrypt, weil dieser Name nur im Heimnetz existiert:
+# Let's Encrypt muss ihn öffentlich auflösen und erreichen können, und beides
+# trifft nicht zu. Caddy betreibt stattdessen eine eigene lokale CA. Die
+# Verschlüsselung auf der Leitung ist dieselbe — der Unterschied ist nur, WER
+# dem Zertifikat vertraut.
+#
+# Damit Geräte es ohne Warnung akzeptieren, muss Caddys Root-CA einmal pro Gerät
+# installiert werden (siehe DEPLOYMENT.md). Das lohnt sich: ohne vertrautes
+# Zertifikat bleibt die Seite dauerhaft als „nicht sicher" markiert, und die
+# PWA-Installation („Zum Startbildschirm") verweigert der Browser ganz.
+{$ZW_HOSTNAME:zaehlwerk.local} {
+	tls internal
+	import app
+}
+
+# --- Cloudflare (später, NACH dem Hardening) --------------------------------
+#
+# Erst freischalten, wenn die Punkte aus DEPLOYMENT.md § 7.3 stehen — vor allem
+# Cloudflare Access vor der GESAMTEN Origin. Ohne Access steht jeder, der den
+# Hostname kennt, direkt am Login.
+#
+# Zwei Bauformen, und die Wahl hängt daran, ob cloudflared auf dieser LXC läuft:
+#
+#   a) cloudflared HIER, Ziel `http://main-portal:3000` (im Compose-Netz).
+#      Dann braucht es diesen Block gar nicht: die Strecke verlässt die Maschine
+#      nie, und Cloudflare terminiert TLS. Der einfachste Weg.
+#
+#   b) cloudflared woanders, Ziel dieser Caddy. Dann diesen Block aktivieren und
+#      ein Cloudflare-Origin-Zertifikat hinterlegen — `tls internal` kennt
+#      Cloudflare nicht und die Verbindung schlüge fehl (oder liefe mit
+#      `noTLSVerify: true` ungeprüft, was den Zweck aufhebt).
+#
+# {$ZW_PUBLIC_HOSTNAME} {
+# 	tls /etc/caddy/origin.pem /etc/caddy/origin-key.pem
+# 	import app
+# }

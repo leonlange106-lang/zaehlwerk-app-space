@@ -112,15 +112,22 @@ cat > .env <<'EOF'
 # private and /api/update/check hits GitHub's API.
 GITHUB_TOKEN=github_pat_xxxxxxxxxxxxxxxxxxxxxxxx
 
-# OPTIONAL shared secret for POST /api/update/trigger. If set, the in-app
-# update button requires it (and remembers it in the browser). Leave it out
-# to update without a token — the app now has login auth as the primary gate.
-# Generate one with: openssl rand -hex 32
+# Shared secret for POST /api/update/trigger. Technically optional, and worth
+# setting anyway: this container mounts /var/run/docker.sock, so whatever can
+# start a deploy is root-equivalent ON THE HOST. Login auth is the primary gate;
+# this is the second one in front of the single most powerful endpoint.
+# Generate with: openssl rand -hex 32
 UPDATE_TRIGGER_TOKEN=REPLACE_ME
 
 # REQUIRED for login/sessions (Auth.js). Must be a STABLE random value —
-# changing it logs everyone out. Generate with: openssl rand -base64 32
+# changing it logs everyone out AND makes stored 2FA secrets unreadable
+# (they are encrypted with a key derived from it). Generate with:
+# openssl rand -base64 32
 AUTH_SECRET=REPLACE_ME
+
+# The LAN hostname Caddy answers to — see section 7. Must resolve in your
+# network. Required as soon as the caddy service runs.
+ZW_HOSTNAME=zaehlwerk.fritz.box
 EOF
 chmod 600 .env
 ```
@@ -178,12 +185,114 @@ docker run --rm \
   sh -c "cd packages/database && pnpm db:seed"
 ```
 
-## 7. Put it behind a reverse proxy (recommended)
+## 7. Put it behind TLS (do this — it is not optional in practice)
 
-Don't expose port 3000 directly to the internet. Put a reverse proxy in
-front (Caddy, Traefik, nginx, or a Cloudflare Tunnel — on the Proxmox host, in
-another LXC, or on your existing edge router) that terminates TLS and forwards
-to `http://<lxc-ip>:3000`. Pick **one** of the following.
+**Without TLS the session cookie travels the LAN in clear text.** Anyone on the
+same network who reads it has the session. The same fact broke 2FA login for a
+whole release: a `secure` cookie over HTTP is discarded by the browser with no
+error at all, so the second factor had nothing to identify the user by. Behind
+TLS `isSecureConnection()` recognises the connection by itself — nothing in the
+app has to change.
+
+### 7.1 The bundled setup (Caddy in the same compose)
+
+`docker-compose.prod.yml` ships a `caddy` service and a `Caddyfile`. Two things
+have to be in `.env`:
+
+```env
+# The name the app answers to on the LAN. It MUST resolve in your network —
+# a router DNS entry (Fritz!Box: "zaehlwerk.fritz.box") or a hosts entry.
+ZW_HOSTNAME=zaehlwerk.fritz.box
+
+# Leave this UNSET for now. It is step 7.2.
+# APP_BIND=127.0.0.1
+```
+
+Then:
+
+```bash
+cd /opt/zaehlwerk
+git pull
+docker compose -f docker-compose.prod.yml up -d
+```
+
+Port 3000 is still open at this point — deliberately. Verify HTTPS works
+*before* closing it:
+
+```bash
+curl -kI https://zaehlwerk.fritz.box/api/health    # expect: HTTP/2 200
+```
+
+**Certificate trust.** The LAN name is not publicly resolvable, so Let's Encrypt
+cannot validate it; Caddy issues from its own local CA instead. The encryption
+on the wire is identical — the only difference is who trusts the certificate.
+Install Caddy's root CA once per device to get rid of the warning:
+
+```bash
+docker cp zaehlwerk-caddy:/data/caddy/pki/authorities/local/root.crt ./caddy-root.crt
+```
+
+Import that file as a trusted root (Windows: *Trusted Root Certification
+Authorities*; Android: *Settings → Security → Encryption & credentials*; iOS:
+install the profile, then enable it under *About → Certificate Trust Settings*).
+Worth doing rather than clicking through the warning: without a trusted
+certificate the browser refuses the PWA install ("Add to Home Screen").
+
+The CA lives in the `caddy-data` volume. **Back it up** — if it is lost, Caddy
+generates a new one and every device has to trust it again.
+
+### 7.2 Take port 3000 out of the LAN
+
+Only after 7.1 verifies. Add to `.env`:
+
+```env
+APP_BIND=127.0.0.1
+```
+
+```bash
+docker compose -f docker-compose.prod.yml up -d
+```
+
+Caddy still reaches the app — it goes through the compose network to
+`main-portal:3000`, not through the published port. From another machine
+`http://<lxc-ip>:3000` is now refused, and HTTPS is the only way in.
+
+**Rollback is one line:** remove `APP_BIND` from `.env` and `up -d` again. That
+is why the bind address is a variable instead of an edit to the compose file.
+
+### 7.3 Cloudflare, afterwards
+
+Reaching the instance from outside is a separate decision, and the ordering
+matters: **harden first, expose second.** Without Cloudflare Access in front of
+the *entire* origin, anyone who learns the hostname stands at your login form.
+
+Checklist before switching the public hostname on:
+
+1. **Cloudflare Access in front of the whole origin**, not just single paths.
+2. **Service tokens** for `/api/v1/*` (ingestion) — an interactive Access login
+   would break the Home Assistant push and any sync script. *The Docker
+   healthcheck needs no exception: it runs inside the container against
+   `localhost:3000` and never passes through Cloudflare.*
+3. **WAF**: rate limit `/api/auth/*` and `/login`, bot-fight mode.
+4. **`--no-autoupdate`**, `cloudflared` as a systemd service under its own user.
+5. **Turn on instance-wide 2FA** (Settings → Security & access) so Access and the
+   app are two independent barriers rather than one.
+
+Then pick the shape:
+
+- **`cloudflared` on this LXC** pointing at `http://main-portal:3000` over the
+  compose network. Simplest, and the hop never leaves the machine. The commented
+  block in `Caddyfile` stays commented.
+- **`cloudflared` elsewhere** pointing at this Caddy. Then enable that block and
+  install a Cloudflare **origin certificate** — `tls internal` is unknown to
+  Cloudflare, so the connection would either fail or need `noTLSVerify: true`,
+  which defeats the purpose.
+
+### 7.4 Other proxies
+
+If you would rather terminate TLS somewhere else entirely, the following still
+apply. In that case do **not** set `APP_BIND=127.0.0.1` — bind to the LXC's LAN
+address instead, or the external proxy cannot reach the app.
 
 ### Caddy (simplest — automatic HTTPS)
 
