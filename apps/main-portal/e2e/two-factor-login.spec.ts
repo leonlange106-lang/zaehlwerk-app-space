@@ -64,11 +64,32 @@ async function sessionUser(page: Page): Promise<unknown> {
   return body?.user ?? null;
 }
 
-/** Type a code into the per-digit inputs the way a person does. */
+/**
+ * Type a code into the per-digit inputs the way a person does.
+ *
+ * Each digit is re-filled until it sticks. WebKit drops a `fill()` issued
+ * before React has hydrated the controlled input — after `page.reload()` the
+ * first box is the one that loses it — and the result is a five-digit entry the
+ * app then rightly refuses to submit, so the test hangs waiting for a
+ * navigation that must not happen. Same lesson as `helpers.ts`, which types the
+ * login fields and asserts they landed before pressing anything.
+ *
+ * The LAST digit is filled without verification on purpose: it completes the
+ * code, which submits it, and the error path clears the field — so asserting
+ * its value is a race against the app doing its job.
+ */
 async function typeCode(page: Page, code: string) {
   const digits = page.getByRole("textbox", { name: /Ziffer/ });
   for (let index = 0; index < code.length; index += 1) {
-    await digits.nth(index).fill(code[index]);
+    const box = digits.nth(index);
+    if (index === code.length - 1) {
+      await box.fill(code[index]);
+      return;
+    }
+    await expect(async () => {
+      await box.fill(code[index]);
+      await expect(box).toHaveValue(code[index], { timeout: 500 });
+    }).toPass({ timeout: 5_000 });
   }
 }
 
@@ -185,6 +206,18 @@ test.describe("2FA login", () => {
     // were always right; only the gap made them look wrong.
     await digits.nth(0).fill(code[0]);
     await page.waitForURL((url) => url.pathname === "/", { timeout: 20_000 });
+  });
+
+  test("the second-factor screen offers no app chrome", async ({ page }) => {
+    await submitPassword(page);
+    await page.waitForURL((url) => url.pathname === "/login/2fa", { timeout: 15_000 });
+
+    // This screen used to draw the full shell: a navigation menu, a search field
+    // and a notification bell for a visitor with no session — navigation offered
+    // to someone who cannot use it, and a bell polling an API that turns it away.
+    await expect(page.getByRole("button", { name: "Navigation öffnen" })).toHaveCount(0);
+    await expect(page.getByTestId("notification-bell")).toHaveCount(0);
+    await expect(page.getByTestId("global-search")).toHaveCount(0);
   });
 
   test("the challenge is spent once it has been accepted", async ({ page }) => {

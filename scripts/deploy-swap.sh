@@ -30,9 +30,15 @@ exec >>"$LOG_FILE" 2>&1
 #               concludes the server's clock is wrong when it is not.
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 log_now() { date +'%Y-%m-%d %H:%M:%S %Z'; }
+# Same shape as update.sh's, including `mode` and `startedAt` — this process
+# writes the FINAL status, and dropping either here would make the run lose its
+# identity and its duration at exactly the moment they are reported. Both are
+# handed over as environment variables because this container is a new process:
+# it is deliberately outside the compose project so recreating main-portal does
+# not kill it, so it inherits nothing.
 write_status() {
-  printf '{"stage":"%s","ok":%s,"done":%s,"message":"%s","error":"%s","targetSha":"%s","updatedAt":"%s"}\n' \
-    "$1" "$2" "$3" "$4" "${5:-}" "${6:-}" "$(now)" >"$STATUS_FILE" 2>/dev/null || true
+  printf '{"stage":"%s","ok":%s,"done":%s,"message":"%s","error":"%s","targetSha":"%s","mode":"%s","startedAt":"%s","updatedAt":"%s"}\n' \
+    "$1" "$2" "$3" "$4" "${5:-}" "${6:-}" "${UPDATE_MODE:-update}" "${UPDATE_STARTED_AT:-}" "$(now)" >"$STATUS_FILE" 2>/dev/null || true
 }
 
 # Append one JSON Lines record of what just went live. This is the list the

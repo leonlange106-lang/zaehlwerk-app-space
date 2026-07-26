@@ -6,7 +6,6 @@ import { usePathname } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import {
-  IconBell,
   IconLogout,
   IconMoon,
   IconSettings,
@@ -18,6 +17,7 @@ import type { UserRole } from "@zaehlwerk/database/client";
 import { activeAppFor } from "./lib/apps";
 import { AppMenu } from "./components/shell/AppMenu";
 import { GlobalSearch } from "./components/shell/GlobalSearch";
+import { NotificationBell } from "./components/shell/NotificationBell";
 import { useColorScheme } from "./components/shell/ThemeProvider";
 import { OVERLAY_MOTION } from "./components/ui/primitives";
 import { cn } from "./lib/cn";
@@ -38,7 +38,15 @@ import { cn } from "./lib/cn";
 // globals.css.
 
 // Auth screens render standalone (no nav/header chrome).
-const BARE_PATHS = ["/login", "/setup"];
+//
+// `/login/2fa` belongs here as much as `/login` does, and its absence was
+// visible: the second-factor screen drew the burger menu, the search field, the
+// bell and an avatar for someone who has no session yet — navigation offered to
+// a visitor who cannot use it. It also cost real work on that page, since the
+// bell polls /api/notifications and the search mounts, both only to be turned
+// away. Fewer moving parts there is worth having on the one screen whose input
+// must not be disturbed.
+const BARE_PATHS = ["/login", "/login/2fa", "/setup"];
 
 // Detect "embedded" mode: the app is shown inside another frame — chiefly Home
 // Assistant Ingress, which renders the add-on in an iframe under the HA panel
@@ -188,9 +196,7 @@ export function PortalShell({
             )}
           </button>
 
-          <button type="button" className={controlBox} aria-label="Benachrichtigungen">
-            <IconBell size={18} stroke={1.6} />
-          </button>
+          <NotificationBell />
 
           <DropdownMenu.Root>
             <DropdownMenu.Trigger asChild>

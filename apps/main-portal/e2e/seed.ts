@@ -38,6 +38,20 @@ async function main() {
   // so the reset lives here rather than only in that spec's cleanup.
   await prisma.setting.deleteMany({ where: { key: "security.enforceTwoFactor" } });
 
+  // Same reasoning for the notification bell's inputs and its read markers: a
+  // crash in the middle of the notification spec would leave an overdue backup
+  // configured, and every later spec that opens the bell would then see an item
+  // it did not create. Read markers are keyed by user id, and the seed hands out
+  // NEW ids on every run, so stale ones would also accumulate forever.
+  await prisma.setting.deleteMany({
+    where: {
+      OR: [
+        { key: { in: ["backup.autoEnabled", "backup.intervalHours", "backup.lastRunAt"] } },
+        { key: { startsWith: "notifications.read." } },
+      ],
+    },
+  });
+
   await prisma.user.create({
     data: {
       email: E2E_ADMIN.email,
