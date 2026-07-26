@@ -46,7 +46,7 @@ test.describe("2FA enrolment, end to end", () => {
   });
 
   test("a valid code from the offered key activates 2FA", async ({ page }) => {
-    await page.goto("/settings");
+    await page.goto("/settings/sicherheit");
     await page.getByRole("button", { name: "2FA einrichten" }).click();
 
     const secret = (await page.getByTestId("totp-secret").textContent())?.trim() ?? "";
@@ -74,7 +74,7 @@ test.describe("2FA enrolment, end to end", () => {
   });
 
   test("a wrong code is rejected and says so", async ({ page }) => {
-    await page.goto("/settings");
+    await page.goto("/settings/sicherheit");
     await page.getByRole("button", { name: "2FA einrichten" }).click();
     await expect(page.getByTestId("totp-secret")).toBeVisible();
 

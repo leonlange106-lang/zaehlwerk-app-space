@@ -10,14 +10,14 @@ import { test, expect } from "@playwright/test";
 
 test.describe("Update cancel", () => {
   test("refuses when no update is running", async ({ page }) => {
-    await page.goto("/settings");
+    await page.goto("/settings/system");
     const response = await page.request.post("/api/update/cancel");
     expect(response.status()).toBe(409);
     expect((await response.json()).error).toContain("kein Update");
   });
 
   test("the stop button is absent while nothing runs", async ({ page }) => {
-    await page.goto("/settings");
+    await page.goto("/settings/system");
     await expect(page.getByTestId("update-cancel")).toHaveCount(0);
   });
 });

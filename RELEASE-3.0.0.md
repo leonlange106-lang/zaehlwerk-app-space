@@ -509,6 +509,9 @@ mehrere Update-Runden für eine Sache.
 
 **Reihenfolge:** A → B → C → D → 🏁 **v3.0.0** → E → F → G → H → I → J
 
+**Stand 2026-07-26:** B und D sind ausgeklammert (reine Betriebsarbeit bzw. Folge
+von C). E ist umgesetzt; F–J stehen aus.
+
 ---
 
 ### Vor v3.0.0
@@ -579,15 +582,42 @@ Erst hier hat der Stable-Channel überhaupt einen Stand anzubieten.
 
 ### Nach v3.0.0
 
-#### Paket E — Navigation & Auffindbarkeit
+#### Paket E — Navigation & Auffindbarkeit ✅ v3.1.0-beta.1
 
 - § 7.3 Suchfunktion (das Headerfeld ist heute Dekoration)
 - § 7.4 Einstellungen in Gruppen (13 629 px hoch auf dem Handy)
 
 *Zusammen, weil beide Shell und Routing anfassen und die Einstellungsgruppen
 sowohl als Menüebene als auch als Suchtreffer gebraucht werden — getrennt baut
-man dieselbe Struktur zweimal.*
+man dieselbe Struktur zweimal.* Das hat sich bestätigt: `settings/groups.ts` ist
+**eine** Liste, aus der Index-Seite, Route, Menüebene und Suchindex leben.
 **Achtung:** Suche muss App-Freigaben respektieren, sonst Informationsleck.
+
+**Wie umgesetzt.** `api/search` leitet `allowedAppIdsFor(user)` pro Request neu
+ab, und `matchStaticTargets()` filtert **selbst** nach App-Freigabe und
+Admin-Rolle, statt sich auf den Aufrufer zu verlassen — es gibt damit keinen Pfad,
+der Treffer erzeugt und das Filtern vergisst. Die Einstellungen liegen jetzt auf
+`/settings/<gruppe>` (eine dynamische Route, fünf Gruppen), jede Gruppe lädt
+**nur ihre eigenen** Daten; vorher liefen alle neun Abfragen bei jedem Aufruf.
+Das Suchfeld ist auf dem Handy ein Icon, das ein volles Feld öffnet — vorher war
+es `hidden sm:block`, das Gerät mit dem größten Bedarf hatte also gar keine Suche.
+
+**Zwei Fallstricke, die dabei aufgefallen sind:**
+
+- **SQLite faltet Groß-/Kleinschreibung nur für ASCII**, und `mode:
+  "insensitive"` gibt es bei diesem Provider nicht. `contains: "zahler"` findet
+  „Zähler", `contains: "zähler"` findet es **nicht** — in einer deutschen
+  Oberfläche fällt damit der Normalfall aus, nicht der Sonderfall.
+  `caseVariants()` erzeugt für nicht-ASCII-Begriffe explizite Varianten.
+- **Was das SQL matcht und was der Ranker liest, müssen dieselben Felder sein.**
+  Die Log-Abfrage sucht auch in `tags` und `vehicle`, der Ranker sah aber nur
+  Titel und Untertitel — ein Treffer allein über ein Tag wurde geladen und dann
+  stillschweigend verworfen. Zeilen tragen deshalb die gematchten Spalten mit.
+
+**Bewusst nicht enthalten:** Changelog-*Einträge* werden nicht indiziert. Sie
+kommen aus einem Live-Aufruf der GitHub-API — pro Tastendruck ein
+Netzwerk-Roundtrip, und eine Suche, die ausfällt, wenn GitHub langsam ist. Die
+Changelog-Seite hat ihre eigene Suche; der Index verweist nur auf sie.
 
 #### Paket F — Zustand sichtbar machen
 
@@ -677,6 +707,8 @@ decken den Fall möglicherweise schon ab.*
 | Rollback auf frühere Version | ✅ v3.0.0-beta.4 |
 | Channel-Defekt § 3.1 + `?log=`-Deeplink (Paket A) | ✅ v3.0.0-beta.5 |
 | Scrubben auf dem Handy (§ 2.1 ff.) | ✅ v3.0.0-beta.3 |
+| 2FA-Login-Hotfix (Cookie-Flag + PIN-Vollständigkeit) | ✅ v3.0.0-beta.12 |
+| Navigation & Auffindbarkeit (Paket E) | ✅ v3.1.0-beta.1 |
 | Animationen (§ 8) | ✅ v3.0.0-beta.3 |
 
 **Offen aus § 3, aber nicht paketiert:** der GitHub-Aufbau mit `next` als

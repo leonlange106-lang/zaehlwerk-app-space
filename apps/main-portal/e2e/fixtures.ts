@@ -36,5 +36,12 @@ export const CORE_ROUTES = [
   "/apps/log-analyzer/specs",
   "/apps/log-analyzer/history",
   "/settings",
+  // Each settings group is its own route since the stack was split — and each is
+  // a page a phone has to render without scrolling sideways.
+  "/settings/sicherheit",
+  "/settings/benutzer",
+  "/settings/integrationen",
+  "/settings/daten",
+  "/settings/system",
   "/changelog",
 ];

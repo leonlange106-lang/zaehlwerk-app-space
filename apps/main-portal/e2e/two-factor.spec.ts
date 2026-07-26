@@ -10,7 +10,7 @@ import { test, expect } from "@playwright/test";
 // mobile flow, not an edge case.
 
 async function openEnrolment(page: import("@playwright/test").Page) {
-  await page.goto("/settings");
+  await page.goto("/settings/sicherheit");
   await page.getByRole("button", { name: "2FA einrichten" }).click();
   const secret = page.getByTestId("totp-secret");
   await expect(secret).toBeVisible();

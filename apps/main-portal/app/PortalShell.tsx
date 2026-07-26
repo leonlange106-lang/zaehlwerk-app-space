@@ -9,7 +9,6 @@ import {
   IconBell,
   IconLogout,
   IconMoon,
-  IconSearch,
   IconSettings,
   IconSun,
   IconSunMoon,
@@ -18,6 +17,7 @@ import { USER_ROLE_LABELS } from "@zaehlwerk/database/client";
 import type { UserRole } from "@zaehlwerk/database/client";
 import { activeAppFor } from "./lib/apps";
 import { AppMenu } from "./components/shell/AppMenu";
+import { GlobalSearch } from "./components/shell/GlobalSearch";
 import { useColorScheme } from "./components/shell/ThemeProvider";
 import { OVERLAY_MOTION } from "./components/ui/primitives";
 import { cn } from "./lib/cn";
@@ -114,7 +114,6 @@ export function PortalShell({
   allowedAppIds: string[];
 }) {
   const pathname = usePathname();
-  const [query, setQuery] = useState("");
   const { mode, cycleMode } = useColorScheme();
   const { data: session } = useSession();
   const embedded = useEmbedded();
@@ -163,21 +162,11 @@ export function PortalShell({
           </Link>
         )}
 
-        <div className="ml-auto flex flex-none items-center gap-1.5">
-          <label className="relative hidden sm:block">
-            <span className="sr-only">Suchen</span>
-            <IconSearch
-              size={15}
-              className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-dim"
-            />
-            <input
-              type="search"
-              placeholder="Suchen…"
-              value={query}
-              onChange={(event) => setQuery(event.currentTarget.value)}
-              className="well h-9 w-[min(340px,26vw)] rounded-full pl-9 pr-3.5 text-[13px] outline-none placeholder:text-dim focus:border-accent"
-            />
-          </label>
+        {/* `min-w-0` and not `flex-none`: on a phone the search field expands to
+            fill the header, and a flex child that refuses to shrink would push
+            the rest of the row off-screen instead. */}
+        <div className="ml-auto flex min-w-0 items-center gap-1.5">
+          <GlobalSearch />
 
           {/* Three states, so "follow the system" is expressible. The icon names
               the CURRENT mode rather than the next one — a control that shows

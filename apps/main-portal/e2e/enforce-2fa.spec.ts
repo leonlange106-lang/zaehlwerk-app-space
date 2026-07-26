@@ -41,8 +41,9 @@ test.describe("2FA enforcement", () => {
 
   test("the switch is off by default and the app is reachable", async ({ page }) => {
     await setEnforcement(false);
-    await page.goto("/settings");
-    await expect(page.getByRole("heading", { name: "Plattform-Einstellungen" })).toBeVisible();
+    // The switch lives on the security group's page since the settings were split.
+    await page.goto("/settings/sicherheit");
+    await expect(page.getByRole("heading", { name: "Sicherheit & Zugriff" })).toBeVisible();
     await expect(page.getByTestId("enforce-2fa")).not.toBeChecked();
   });
 
@@ -51,7 +52,7 @@ test.describe("2FA enforcement", () => {
 
     // Not one route: the gate replaces the page content wherever you are, which
     // is the property that makes it not bypassable by picking another URL.
-    for (const route of ["/", "/settings", "/apps/log-analyzer"]) {
+    for (const route of ["/", "/settings", "/settings/sicherheit", "/apps/log-analyzer"]) {
       await page.goto(route);
       await expect(
         page.getByRole("heading", { name: "Zwei-Faktor-Authentifizierung erforderlich" }),

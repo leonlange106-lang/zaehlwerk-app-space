@@ -106,7 +106,7 @@ const SHOTS: Shot[] = [
   },
   {
     slug: "16-version-rollback",
-    url: "/settings",
+    url: "/settings/system",
     element: "version-history",
     // Wait for the LIST, not the card. The card paints immediately with skeleton
     // rows (it reserves its geometry), so anything that also matches the loading
@@ -115,7 +115,7 @@ const SHOTS: Shot[] = [
   },
   {
     slug: "17-version-rollback-dialog",
-    url: "/settings",
+    url: "/settings/system",
     element: "rollback-confirm",
     ready: (page) => expect(page.getByTestId("version-list")).toBeVisible({ timeout: 30_000 }),
     setup: async (page) => {

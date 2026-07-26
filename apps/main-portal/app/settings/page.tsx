@@ -1,73 +1,16 @@
-import { prisma } from "@zaehlwerk/database";
-import { getCurrentVersionInfo } from "@/app/lib/version";
 import { getSessionUser } from "@/app/lib/auth-helpers";
-import { listUsers } from "@/app/lib/user-actions";
-import { listApiTokens } from "@/app/lib/api-token-actions";
-import { listIngestionKeys } from "@/app/lib/ingestion-key-actions";
-import { listAuditEvents } from "@/app/lib/audit";
-import { listSnapshots } from "@/app/lib/backup-engine";
-import { getDatabaseStats } from "@/app/lib/db-maintenance";
-import {
-  getBackupPolicy,
-  getEnforceTwoFactor,
-  getLogRetentionPolicy,
-  getUpdateChannel,
-} from "@/app/lib/settings";
-import { updateTokenRequired } from "@/app/lib/update-run";
 import { SettingsView } from "./SettingsView";
 
 export const dynamic = "force-dynamic";
 
+// The index now needs ONE thing — the role, to decide which groups to offer.
+//
+// It used to load the version info, the user list, the API tokens, the ingestion
+// keys, the backup policy, the snapshot list, the database stats and 100 audit
+// events, on every visit, because every card lived on this route. Each of those
+// reads moved to the sub-page that renders it, so opening the settings no longer
+// pays for the eight cards you did not come for.
 export default async function SettingsPage() {
-  const [versionInfo, currentUser, updateChannel, enforceTwoFactor] = await Promise.all([
-    getCurrentVersionInfo(),
-    getSessionUser(),
-    getUpdateChannel(),
-    getEnforceTwoFactor(),
-  ]);
-
-  const isAdmin = currentUser?.role === "ADMIN";
-
-  const [users, twoFactorEnabled, apiTokens, ingestionKeys, governance] = await Promise.all([
-    isAdmin ? listUsers() : Promise.resolve([]),
-    currentUser
-      ? prisma.user
-          .findUnique({ where: { id: currentUser.id }, select: { twoFactorEnabled: true } })
-          .then((u) => u?.twoFactorEnabled ?? false)
-      : Promise.resolve(false),
-    currentUser ? listApiTokens() : Promise.resolve([]),
-    isAdmin ? listIngestionKeys() : Promise.resolve([]),
-    isAdmin
-      ? Promise.all([
-          getBackupPolicy(),
-          listSnapshots(),
-          getDatabaseStats(),
-          listAuditEvents(100),
-          getLogRetentionPolicy(),
-        ]).then(([policy, snapshots, dbStats, auditEvents, logRetention]) => ({
-          policy,
-          snapshots,
-          dbStats,
-          auditEvents,
-          logRetention,
-        }))
-      : Promise.resolve(null),
-  ]);
-
-  return (
-    <SettingsView
-      versionInfo={versionInfo}
-      updateChannel={updateChannel}
-      enforceTwoFactor={enforceTwoFactor}
-      currentUser={currentUser}
-      users={users}
-      twoFactorEnabled={twoFactorEnabled}
-      apiTokens={apiTokens}
-      ingestionKeys={ingestionKeys}
-      governance={governance}
-      // Read on the server: this is an env var, so asking the client to fetch it
-      // would be a round-trip for something already known at render time.
-      updateTokenRequired={updateTokenRequired()}
-    />
-  );
+  const user = await getSessionUser();
+  return <SettingsView isAdmin={user?.role === "ADMIN"} />;
 }

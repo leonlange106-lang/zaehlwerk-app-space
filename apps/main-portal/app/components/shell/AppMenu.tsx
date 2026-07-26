@@ -3,6 +3,7 @@
 import { useCallback, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useSession } from "next-auth/react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import {
   IconArrowsDiff,
@@ -11,16 +12,22 @@ import {
   IconChevronLeft,
   IconChevronRight,
   IconClockHour4,
+  IconDatabase,
   IconEngine,
   IconGauge,
   IconGitCommit,
   IconLayoutDashboard,
   IconListTree,
+  IconPlug,
+  IconRefresh,
   IconSettings,
+  IconShieldLock,
   IconStack2,
+  IconUsers,
   IconWorldDownload,
 } from "@tabler/icons-react";
 import { activeAppFor, APPS } from "@/app/lib/apps";
+import { settingsGroupHref, visibleSettingsGroups } from "@/app/settings/groups";
 import { cn } from "@/app/lib/cn";
 import { Skeleton } from "@/app/components/ui/Skeleton";
 import { BetaBadge } from "@/app/components/ui/Badge";
@@ -52,7 +59,8 @@ type Level =
   | { kind: "root" }
   | { kind: "app"; appId: string }
   | { kind: "meters" }
-  | { kind: "logs" };
+  | { kind: "logs" }
+  | { kind: "settings" };
 
 interface Entry {
   label: string;
@@ -108,6 +116,12 @@ function isActiveHref(pathname: string, href: string, exact?: boolean): boolean 
 
 export function AppMenu({ allowedAppIds }: { allowedAppIds: string[] }) {
   const pathname = usePathname();
+  // Read here rather than drilled through PortalShell: the role decides only
+  // which settings groups this menu offers, and the session is already in
+  // context. Hiding a group is convenience, never a control — /settings/<group>
+  // re-checks the role on the server.
+  const { data: session } = useSession();
+  const isAdmin = session?.user?.role === "ADMIN";
   const [open, setOpen] = useState(false);
   const [level, setLevel] = useState<Level>({ kind: "root" });
   // Which way the last level change went, so the incoming panel slides in from
@@ -267,6 +281,14 @@ export function AppMenu({ allowedAppIds }: { allowedAppIds: string[] }) {
               onBack={() => goBack({ kind: "app", appId: "log-analyzer" })}
             />
           )}
+
+          {level.kind === "settings" && (
+            <SettingsLevel
+              pathname={pathname}
+              isAdmin={isAdmin}
+              onBack={() => goBack({ kind: "root" })}
+            />
+          )}
           </div>
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
@@ -414,11 +436,14 @@ function RootLevel({
         )
       )}
       <DropdownMenu.Separator className="my-1 h-px bg-line" />
-      <LinkRow
-        href="/settings"
+      {/* Drills in rather than navigating: the settings are five groups now, and
+          the menu carries them as its own level exactly as it does meters and
+          logs — so a specific page is one tap away instead of a page-load plus a
+          scroll. "Alle Bereiche" inside is the way to the index itself. */}
+      <IntoRow
         label="Plattform-Einstellungen"
         icon={IconSettings}
-        active={isActiveHref(pathname, "/settings")}
+        onInto={() => onInto({ kind: "settings" })}
       />
       <LinkRow
         href="/changelog"
@@ -584,3 +609,45 @@ function LogsLevel({
     </>
   );
 }
+
+function SettingsLevel({
+  pathname,
+  isAdmin,
+  onBack,
+}: {
+  pathname: string;
+  isAdmin: boolean;
+  onBack: () => void;
+}) {
+  return (
+    <>
+      <BackRow label="Plattform-Einstellungen" onBack={onBack} />
+      <LinkRow
+        href="/settings"
+        label="Alle Bereiche"
+        icon={IconSettings}
+        active={pathname === "/settings"}
+      />
+      <DropdownMenu.Separator className="my-1 h-px bg-line" />
+      {visibleSettingsGroups(isAdmin).map((group) => (
+        <LinkRow
+          key={group.id}
+          href={settingsGroupHref(group)}
+          label={group.title}
+          icon={SETTINGS_GROUP_ICON[group.icon]}
+          active={pathname === settingsGroupHref(group)}
+        />
+      ))}
+    </>
+  );
+}
+
+// groups.ts stays React-free so the search route and the server pages can import
+// it too; the icon name is resolved to a component here.
+const SETTINGS_GROUP_ICON = {
+  "shield-lock": IconShieldLock,
+  users: IconUsers,
+  plug: IconPlug,
+  database: IconDatabase,
+  refresh: IconRefresh,
+} as const;
