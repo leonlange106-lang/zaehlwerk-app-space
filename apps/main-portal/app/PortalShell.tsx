@@ -19,6 +19,7 @@ import type { UserRole } from "@zaehlwerk/database/client";
 import { activeAppFor } from "./lib/apps";
 import { AppMenu } from "./components/shell/AppMenu";
 import { useColorScheme } from "./components/shell/ThemeProvider";
+import { OVERLAY_MOTION } from "./components/ui/primitives";
 import { cn } from "./lib/cn";
 
 // The app shell: a translucent header bar over the deck. That is the whole thing.
@@ -95,7 +96,8 @@ const controlBox =
 
 const menuPanel =
   "z-50 overflow-hidden rounded-panel border border-line bg-elevated/95 p-1.5 " +
-  "shadow-panel-lg backdrop-blur-xl";
+  "shadow-panel-lg backdrop-blur-xl " +
+  OVERLAY_MOTION;
 
 const menuItem =
   "flex w-full cursor-pointer select-none items-center gap-2.5 rounded-control px-2.5 text-[13px] outline-none " +

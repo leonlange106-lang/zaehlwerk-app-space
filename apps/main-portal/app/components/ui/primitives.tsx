@@ -11,6 +11,34 @@ import { cn } from "@/app/lib/cn";
 // and wrapping that in a component only hides which gap a screen actually uses.
 
 /* ------------------------------------------------------------------ *
+ * Motion
+ * ------------------------------------------------------------------ */
+
+/**
+ * Enter/exit motion for anything Radix pops over the page: menus, popovers,
+ * tooltips.
+ *
+ * Radix keeps the element mounted while a CSS animation on it is running, so
+ * `data-[state=closed]` produces a real exit with no JavaScript and no
+ * unmount-timing to get wrong.
+ *
+ * The slide direction is taken from `data-side`, which Radix sets to whichever
+ * side it actually placed the panel on after collision detection. A panel that
+ * flipped above its trigger therefore grows downward from it rather than
+ * arriving from the wrong direction — the movement says where the thing came
+ * from, which is the only reason to animate it at all.
+ *
+ * A short 2-unit offset on purpose: this is a hint of origin, not a journey.
+ * The reduced-motion block in globals.css switches all of it off.
+ */
+export const OVERLAY_MOTION =
+  "duration-150 data-[state=open]:animate-in data-[state=closed]:animate-out " +
+  "data-[state=open]:fade-in data-[state=closed]:fade-out " +
+  "data-[state=open]:zoom-in-95 data-[state=closed]:zoom-out-95 " +
+  "data-[side=bottom]:slide-in-from-top-2 data-[side=top]:slide-in-from-bottom-2 " +
+  "data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2";
+
+/* ------------------------------------------------------------------ *
  * Text
  * ------------------------------------------------------------------ */
 

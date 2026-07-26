@@ -44,12 +44,26 @@ async function expectNoHorizontalScroll(page: Page) {
   ).toBeLessThanOrEqual(clientWidth + 1);
 }
 
+/**
+ * Asserts the RESTING size of a tap target.
+ *
+ * Polled rather than measured once: menus and dialogs animate in with a 95%
+ * zoom, so a single measurement taken during those ~150ms reports a target
+ * a couple of pixels short of its real size. Polling still requires the element
+ * to actually reach 44px — it only tolerates the entrance getting there.
+ */
 async function expectTapTarget(locator: Locator, label: string) {
   await expect(locator, `${label} should be visible`).toBeVisible();
-  const box = await locator.boundingBox();
-  expect(box, `${label} should have a box`).not.toBeNull();
-  expect(box!.width, `${label} width ≥ ${MIN_TAP}`).toBeGreaterThanOrEqual(MIN_TAP - TAP_EPS);
-  expect(box!.height, `${label} height ≥ ${MIN_TAP}`).toBeGreaterThanOrEqual(MIN_TAP - TAP_EPS);
+  await expect
+    .poll(async () => (await locator.boundingBox())?.width ?? 0, {
+      message: `${label} width ≥ ${MIN_TAP}`,
+    })
+    .toBeGreaterThanOrEqual(MIN_TAP - TAP_EPS);
+  await expect
+    .poll(async () => (await locator.boundingBox())?.height ?? 0, {
+      message: `${label} height ≥ ${MIN_TAP}`,
+    })
+    .toBeGreaterThanOrEqual(MIN_TAP - TAP_EPS);
 }
 
 /** Navigate to the seeded meter's detail page and return once loaded. */

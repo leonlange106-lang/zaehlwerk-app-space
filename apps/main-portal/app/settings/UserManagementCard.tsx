@@ -30,7 +30,15 @@ import { Field, PasswordInput, Select, SelectShell, TextInput } from "@/app/comp
 import { Panel } from "@/app/components/ui/Panel";
 import { ResponsiveDialog } from "@/app/components/ui/ResponsiveDialog";
 import { useToast } from "@/app/components/ui/Toast";
-import { Alert, Checkbox, Table, TableScroll, Td, Th } from "@/app/components/ui/primitives";
+import {
+  Alert,
+  Checkbox,
+  OVERLAY_MOTION,
+  Table,
+  TableScroll,
+  Td,
+  Th,
+} from "@/app/components/ui/primitives";
 import { cn } from "@/app/lib/cn";
 
 const dateFormatter = new Intl.DateTimeFormat("de-DE", {
@@ -40,7 +48,8 @@ const dateFormatter = new Intl.DateTimeFormat("de-DE", {
 });
 
 const menuPanel =
-  "z-50 overflow-hidden rounded-panel border border-line bg-elevated/95 p-1.5 shadow-panel-lg backdrop-blur-xl";
+  "z-50 overflow-hidden rounded-panel border border-line bg-elevated/95 p-1.5 shadow-panel-lg " +
+  `backdrop-blur-xl ${OVERLAY_MOTION}`;
 const menuItem =
   "flex w-full cursor-pointer select-none items-center gap-2.5 rounded-control px-2.5 text-[13px] " +
   "outline-none min-h-11 sm:min-h-9 transition-colors data-[highlighted]:bg-canvas " +

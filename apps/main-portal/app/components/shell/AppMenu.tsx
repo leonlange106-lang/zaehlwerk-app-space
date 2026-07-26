@@ -24,6 +24,7 @@ import { activeAppFor, APPS } from "@/app/lib/apps";
 import { cn } from "@/app/lib/cn";
 import { Skeleton } from "@/app/components/ui/Skeleton";
 import { BetaBadge } from "@/app/components/ui/Badge";
+import { OVERLAY_MOTION } from "@/app/components/ui/primitives";
 import type { MenuMeter } from "@/app/api/apps/zaehlwerk/meters/route";
 import type { MenuLog } from "@/app/api/apps/log-analyzer/named-logs/route";
 
@@ -109,6 +110,10 @@ export function AppMenu({ allowedAppIds }: { allowedAppIds: string[] }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [level, setLevel] = useState<Level>({ kind: "root" });
+  // Which way the last level change went, so the incoming panel slides in from
+  // the side it conceptually came from. A drill-down that arrives from the same
+  // edge as a step back tells you nothing.
+  const [direction, setDirection] = useState<"forward" | "back">("forward");
   const [meters, setMeters] = useState<MenuMeter[] | null>(null);
   const [metersFailed, setMetersFailed] = useState(false);
   const [logs, setLogs] = useState<MenuLog[] | null>(null);
@@ -156,8 +161,14 @@ export function AppMenu({ allowedAppIds }: { allowedAppIds: string[] }) {
     }
   }, []);
 
+  const goBack = useCallback((next: Level) => {
+    setDirection("back");
+    setLevel(next);
+  }, []);
+
   const goInto = useCallback(
     (next: Level) => {
+      setDirection("forward");
       setLevel(next);
       if (next.kind === "meters") void loadMeters();
       if (next.kind === "logs") void loadLogs();
@@ -210,8 +221,22 @@ export function AppMenu({ allowedAppIds }: { allowedAppIds: string[] }) {
             "z-50 w-[min(88vw,320px)] overflow-hidden rounded-panel border border-line",
             "bg-elevated/95 p-1.5 shadow-panel-lg backdrop-blur-xl",
             "max-h-[calc(100vh-5rem)] overflow-y-auto",
+            OVERLAY_MOTION,
           )}
         >
+          {/* Keyed on the level so React remounts on every change and the CSS
+              animation replays — the panel slides in from the side it came
+              from. `overflow-x` is hidden on the Content above, so the offset
+              is clipped rather than momentarily widening the menu. */}
+          <div
+            key={`${level.kind}:${level.kind === "app" ? level.appId : ""}`}
+            className={cn(
+              "motion-safe:animate-in motion-safe:fade-in motion-safe:duration-150",
+              direction === "forward"
+                ? "motion-safe:slide-in-from-right-4"
+                : "motion-safe:slide-in-from-left-4",
+            )}
+          >
           {level.kind === "root" && (
             <RootLevel apps={apps} pathname={pathname} onInto={goInto} />
           )}
@@ -220,7 +245,7 @@ export function AppMenu({ allowedAppIds }: { allowedAppIds: string[] }) {
             <AppLevel
               appId={level.appId}
               pathname={pathname}
-              onBack={() => setLevel({ kind: "root" })}
+              onBack={() => goBack({ kind: "root" })}
               onInto={goInto}
             />
           )}
@@ -230,7 +255,7 @@ export function AppMenu({ allowedAppIds }: { allowedAppIds: string[] }) {
               meters={meters}
               failed={metersFailed}
               pathname={pathname}
-              onBack={() => setLevel({ kind: "app", appId: "zaehlwerk" })}
+              onBack={() => goBack({ kind: "app", appId: "zaehlwerk" })}
             />
           )}
 
@@ -239,9 +264,10 @@ export function AppMenu({ allowedAppIds }: { allowedAppIds: string[] }) {
               logs={logs}
               failed={logsFailed}
               pathname={pathname}
-              onBack={() => setLevel({ kind: "app", appId: "log-analyzer" })}
+              onBack={() => goBack({ kind: "app", appId: "log-analyzer" })}
             />
           )}
+          </div>
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>
