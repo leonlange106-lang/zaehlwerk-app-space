@@ -110,8 +110,14 @@ export function SmartHomeCard({
       {tokens.length === 0 ? (
         <Alert tone="watch" icon={<IconInfoCircle size={16} />} className="mb-4">
           Du hast noch keinen aktiven Personal Access Token. Erstelle einen unter{" "}
-          <Link href="/settings" className="text-accent underline-offset-2 hover:underline">
-            Einstellungen → API-Zugriff
+          {/* Straight to the group that holds the token card. Since the settings
+              were split, /settings is an index — landing there would name a card
+              and then not show it. */}
+          <Link
+            href="/settings/integrationen"
+            className="text-accent underline-offset-2 hover:underline"
+          >
+            Einstellungen → Integrationen
           </Link>
           , um Zählerstände automatisch zu übertragen.
         </Alert>

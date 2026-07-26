@@ -10,7 +10,7 @@ import { test, expect } from "@playwright/test";
 
 test.describe("Version rollback", () => {
   test("the card renders with its database warning from first paint", async ({ page }) => {
-    await page.goto("/settings");
+    await page.goto("/settings/system");
 
     const card = page.getByTestId("version-history");
     await expect(card).toBeVisible();
@@ -23,7 +23,7 @@ test.describe("Version rollback", () => {
   test("an unoffered ref is refused instead of deployed", async ({ page }) => {
     // Authenticated as the seeded admin via the project's storageState, so a 400
     // here is the whitelist talking, not the auth guard.
-    await page.goto("/settings");
+    await page.goto("/settings/system");
 
     for (const ref of ["main", "refs/pull/1/merge", "HEAD", "../../etc/passwd"]) {
       const response = await page.request.post("/api/update/rollback", {
@@ -34,7 +34,7 @@ test.describe("Version rollback", () => {
   });
 
   test("a request without a ref is refused", async ({ page }) => {
-    await page.goto("/settings");
+    await page.goto("/settings/system");
     const response = await page.request.post("/api/update/rollback", { data: {} });
     expect(response.status()).toBe(400);
   });
