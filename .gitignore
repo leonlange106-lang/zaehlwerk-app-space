@@ -22,3 +22,8 @@ coverage/
 
 # Local machine-specific settings, not shared with the team
 .claude/settings.local.json
+
+# graphify knowledge-graph output. Regenerated from the source tree by
+# `/graphify`, several MB per build (graph.json + graph.html), and stale the
+# moment anything is committed — a derived artifact, not a source of truth.
+graphify-out/

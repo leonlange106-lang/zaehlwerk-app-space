@@ -1,36 +1,72 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# main-portal
 
-## Getting Started
+Die Next.js-Anwendung des App Space: der Launcher, die Plattform-Einstellungen
+und beide Apps (Zählwerk, Log Analyzer). Alles Weitere zum Gesamtprojekt steht
+im [Wurzel-README](../../README.md); Konventionen in
+[CLAUDE.md](../../CLAUDE.md), Betrieb in [DEPLOYMENT.md](../../DEPLOYMENT.md).
 
-First, run the development server:
+## Entwicklung
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+Immer aus dem **Repo-Wurzelverzeichnis** starten — die App hängt an den
+Workspace-Paketen `@zaehlwerk/database` und `@zaehlwerk/updater`, die vorher
+gebaut sein müssen. Turbo erledigt das.
+
+```sh
+pnpm install
+pnpm --filter @zaehlwerk/database db:push   # Schema anlegen
+pnpm dev                                    # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Mindestens nötig in `apps/main-portal/.env.local`:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```sh
+DATABASE_URL="file:./dev.db"
+AUTH_SECRET="…"    # openssl rand -base64 32
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Beim ersten Start führt `/setup` durch die Anlage des Admin-Kontos.
 
-## Learn More
+## Tests
 
-To learn more about Next.js, take a look at the following resources:
+Aus **diesem** Verzeichnis:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```sh
+pnpm test        # Vitest — reine Logik in lib/, colocated *.test.ts
+pnpm test:e2e    # Playwright — eigene SQLite-DB, Port 3100, zwei mobile Projekte
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Die E2E-Suite bringt ihre Datenbank selbst mit (`e2e/global-setup.ts`) und läuft
+gegen einen eigenen Dev-Server auf Port 3100, kollidiert also nicht mit einem
+laufenden `pnpm dev`.
 
-## Deploy on Vercel
+Screenshots für Review laufen unter eigener Konfiguration:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```sh
+pnpm exec playwright test -c e2e/shots.config.ts --project=mobile --grep "(dark)"
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Aufbau
+
+```
+app/
+├─ components/ui/     Das UI-Kit. Es gibt KEINE Komponentenbibliothek —
+│                     hier zuerst nachsehen, bevor Markup entsteht.
+├─ components/shell/  Kopfzeile, Navigationsmenü, Theme, 2FA-Sperre
+├─ apps/zaehlwerk/    Zähler, Ablesungen, Tarife, Berichte
+├─ apps/log-analyzer/ Auswertung, Vergleich, Prüfstand, Report-Export
+├─ api/               Route-Handler (REST + SSE)
+├─ lib/               Serverlogik, framework-freie Regeln (die Unit-Test-Fläche)
+└─ settings/          Plattform-Einstellungen
+e2e/                  Playwright
+src/components/pdf/   @react-pdf/renderer-Dokumente (serverseitig gerendert)
+```
+
+## Zwei Dinge, die überraschen
+
+**`proxy.ts` ist der globale Auth-Guard** — nicht `middleware.ts`. Er
+authentifiziert (kein Session → Redirect bzw. 401 für `/api`), **autorisiert
+aber nicht**: Rollenprüfungen gehören in die Route (`requireAdmin()`,
+`denyUnlessAdmin()`).
+
+**Turbopack ist deaktiviert.** Der Build läuft über `--webpack`, weil ein
+Prisma-Platzhalterpfad (`/ROOT/`) den Turbopack-Build bricht.

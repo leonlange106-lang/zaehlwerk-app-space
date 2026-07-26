@@ -6,12 +6,12 @@
 
 Ein Portal nach dem **Hub-and-Spoke-Prinzip**: ein zentraler App Launcher, unter
 dem eigenständige Apps laufen. Aktuell an Bord – **Zählwerk** (Verbrauchs- &
-Zähler-Management für Strom, Gas, Wasser & PV) und **MGflasher Log Analyzer**
-(in Vorbereitung).
+Zähler-Management für Strom, Gas, Wasser & PV) und der **Log Analyzer**
+(Fahrzeug-Datenlogs auswerten, vergleichen, Leistung schätzen).
 
-![Version](https://img.shields.io/badge/version-1.0.0-1f6feb)
+![Version](https://img.shields.io/badge/version-3.0.0--beta-1f6feb)
 ![Next.js](https://img.shields.io/badge/Next.js-16-black)
-![Mantine](https://img.shields.io/badge/Mantine-v7-339af0)
+![Tailwind](https://img.shields.io/badge/Tailwind-v4-38bdf8)
 ![Prisma](https://img.shields.io/badge/Prisma-6-2d3748)
 ![License](https://img.shields.io/badge/license-private-lightgrey)
 
@@ -28,7 +28,7 @@ Zähler-Management für Strom, Gas, Wasser & PV) und **MGflasher Log Analyzer**
 </tr>
 <tr>
 <td align="center"><img src="./docs/assets/icon-log-analyzer.svg" width="56" height="56" alt="MGflasher Log Analyzer" /></td>
-<td><strong>MGflasher Log Analyzer</strong> — <code>/apps/log-analyzer</code> · <em>in Vorbereitung</em><br/>Fahrzeug-Datenlogs importieren, auswerten und visualisieren.</td>
+<td><strong>Log Analyzer</strong> — <code>/apps/log-analyzer</code><br/>Datenlogs auswerten (Pull-Erkennung, Grenzwerte je Fahrzeug), zwei Logs überlagern, Leistung schätzen (virtueller Prüfstand), PDF/PNG-Report. Import per Upload, Watch-Ordner oder API.</td>
 </tr>
 </table>
 
@@ -47,8 +47,9 @@ app-spezifische Optionen jeweils in den App-Einstellungen.
 - **Authentifizierung & Rollen** – Login (Auth.js Credentials), **2FA (TOTP)**, Admin-/User-Rollen, Benutzerverwaltung.
 - **Personal Access Tokens (PAT)** – für skript-/gerätebasierten Zugriff; gespeichert wird nur der SHA-256-Hash.
 - **Data Governance** – Backups (manuell & automatisch), Import/Export, DB-Wartung, append-only **Audit-Log** kritischer Aktionen.
-- **Self-Update** – In-App-Update gegen GitHub Releases (git pull + Docker-Rebuild), mit interaktivem **Changelog** und Versions-Badge.
-- **Mobile & Dark Mode** – responsives Shell, touch-optimiert, numerisches Keypad, virtualisierte Verlaufslisten.
+- **Self-Update** – In-App-Update gegen GitHub Releases (git pull + Docker-Rebuild), mit interaktivem **Changelog** und Versions-Badge. **Release-Channel** (stable/beta), **Abbruch** bis einschließlich Migration und **Rollback** auf eine frühere Version.
+- **Mobile & Dark Mode** – responsives Shell, touch-optimiert (44 px), numerisches Keypad, virtualisierte Verlaufslisten.
+- **Sicherheit** – 2FA (TOTP) je Konto, optional **instanzweit erzwungen**; Durchsetzung serverseitig (Layout + API-Guards), nicht nur in der Oberfläche.
 
 ## Architektur
 
@@ -57,7 +58,7 @@ Monorepo (pnpm workspaces + Turborepo):
 ```
 zaehlwerk-app-space/
 ├─ apps/
-│  └─ main-portal/       Next.js 16 App Router · Mantine v7 · CSS Modules
+│  └─ main-portal/       Next.js 16 App Router · Tailwind v4 · Radix · CSS Modules
 ├─ packages/
 │  ├─ database/          Prisma-Schema, Client, Verbrauchs-/Tarif-Logik, Zod-Schemas
 │  └─ updater/           Self-Update-Engine (GitHub Releases, Changelog-Parsing)
@@ -66,7 +67,10 @@ zaehlwerk-app-space/
 ```
 
 - **Framework:** Next.js (App Router), Server Components & Server Actions.
-- **UI:** Mantine v7 + CSS Modules (kein Tailwind).
+- **UI:** Tailwind v4 + CSS Modules, eigenes Kit unter `app/components/ui/`. Radix
+  liefert nur, was wirklich schwer ist (Fokusfalle, Scroll-Lock, Escape, ARIA):
+  Dialog, DropdownMenu, Popover, Tooltip. Es gibt **keine** Komponentenbibliothek —
+  Mantine wurde in 3.0.0 vollständig entfernt.
 - **Datenbank:** Prisma ORM. SQLite (Default, null Setup) oder Postgres (`DATABASE_URL` + Provider umstellen).
 - **Validierung:** Zod für alle Formulare und API-Mutationen.
 - **Auth:** Auth.js (next-auth v5) Credentials, bcrypt-Hashes, TOTP-2FA (AES-GCM-verschlüsseltes Secret).
@@ -127,6 +131,11 @@ Traefik/Cloudflare Tunnel, Self-Update-Sicherheit, Backups) steht in
 | `GITHUB_TOKEN` | Für Self-Update/Changelog | Fine-grained PAT (Contents: Read) – nötig, weil das Repo privat ist. |
 | `UPDATE_TRIGGER_TOKEN` | Optional | Shared Secret für `POST /api/update/trigger`. Wenn gesetzt, verlangt der Update-Button ihn (timing-safe geprüft). |
 | `APP_GIT_SHA` / `GIT_SHA` | Optional | Wird beim Build eingebacken → Versions-Badge zeigt den tatsächlich laufenden Commit. |
+| `TZ` | Optional | Anzeigezeitzone des Servers (Default `Europe/Berlin`). Reine Darstellung — ohne sie rendert der Container alles in UTC. |
+| `INGESTION_API_KEY` | Optional | Bootstrap-Schlüssel für `POST /api/v1/logs/ingest`, bevor ein Schlüssel in der UI angelegt wurde. |
+| `LOG_WATCH_DIR` | Optional | Watch-Ordner für CSV-Import (Default `/data/watch`). Leer = Watcher aus. |
+| `UPDATE_ALLOW_BRANCH` | Optional | Entwicklermodus: folgt dem Branch-Head, wenn der Channel kein Release hat. Standard aus. |
+| `DISABLE_2FA_ENFORCEMENT` | Notfall | Setzt die instanzweite 2FA-Pflicht aus, ohne sie zu löschen — der Weg zurück, wenn sich ein Admin aussperrt. |
 
 ## Smart-Home-Anbindung
 

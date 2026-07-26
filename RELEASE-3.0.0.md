@@ -637,6 +637,27 @@ zur Auswahl, dann umsetzen.
 Paket mit einem Termin.*
 **Randbedingung:** `BrandLogo` bleibt inline, sonst folgt es dem Theme nicht.
 
+**Konkreter Bestand (aus dem Wissensgraphen, 2026-07-26).** Es existieren
+**zwei Generationen** derselben Marke, und die Repo-Startseite zeigt die alte:
+
+| Datei | Stand | Verwendung |
+|---|---|---|
+| `apps/main-portal/public/icon-zaehlwerk.svg` | aktuell (cyan→blau) | App, Launcher |
+| `apps/main-portal/public/icon-log-analyzer.svg` | aktuell (bernstein→orange) | App, Launcher |
+| `apps/main-portal/public/mark-appspace.svg` | aktuell (weiß, transparent) | Kopfzeile, Login |
+| `apps/main-portal/app/icon.svg` | aktuell | Favicon |
+| `docs/assets/icon-zaehlwerk.svg` | **alt** (Schiefer + Blitz) | nur `README.md` |
+| `docs/assets/icon-log-analyzer.svg` | **alt** (Schiefer + Lupe) | nur `README.md` |
+| `docs/assets/logo-appspace.svg` | **alt** — Wortmarke, existiert **nur hier** | `README.md`-Kopf |
+| `docs/assets/mark-appspace.svg` | **alt** | von nichts referenziert |
+
+Bewusst *nicht* im Vorbeigehen repariert: die Bilder einzeln umzubiegen würde
+die Gestaltungsentscheidung vorwegnehmen, die hier ansteht. Beim Umsetzen
+mitnehmen: die Wortmarke hat keine aktuelle Entsprechung, `docs/assets/` sollte
+danach entweder auf die ausgelieferten Dateien zeigen oder verschwinden, und
+Icon-Hexwerte sind Kopien (siehe CLAUDE.md — separate Dokumente sehen die Token
+nicht).
+
 #### Paket J — Automatischer CSV-Bezug
 
 § 6.4: API-Anbindung / Crawler weiter evaluieren.
