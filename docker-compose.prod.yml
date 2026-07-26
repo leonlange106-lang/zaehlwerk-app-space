@@ -169,6 +169,31 @@ services:
       - caddy-data:/data
       - caddy-config:/config
 
+  # Cloudflare Tunnel. Startet nur, wenn COMPOSE_PROFILES=tunnel in der .env
+  # steht — ohne Token waere der Container sonst eine Dauerschleife aus
+  # Neustarts auf jeder Instanz, die ihn nicht braucht.
+  #
+  # Zielt ueber das COMPOSE-NETZ auf `main-portal:3000`, nicht auf einen
+  # veroeffentlichten Port: die Strecke verlaesst die Maschine nie, und
+  # APP_BIND=127.0.0.1 kann bleiben. Ein Origin-Zertifikat braucht es damit
+  # ebenfalls nicht — es gibt keine Netzstrecke, die zu schuetzen waere.
+  #
+  # --no-autoupdate ist Absicht: ein Dienst, der sich selbst im Hintergrund
+  # ersetzt, aendert die Version unter dir, ohne dass es jemand ausgeloest hat.
+  # Aktualisiert wird ueber das Image.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: zaehlwerk-cloudflared
+    restart: unless-stopped
+    profiles: ["tunnel"]
+    depends_on:
+      - main-portal
+    command: tunnel --no-autoupdate run
+    environment:
+      # Aus dem Zero-Trust-Dashboard beim Anlegen des Tunnels. Er ist ein
+      # Geheimnis wie jedes andere und gehoert in die .env, nicht hierher.
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?set CLOUDFLARE_TUNNEL_TOKEN in .env}
+
 volumes:
   zaehlwerk-db:
   caddy-data:
