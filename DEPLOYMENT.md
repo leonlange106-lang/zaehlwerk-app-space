@@ -353,6 +353,17 @@ Caddy still reaches the app — it goes through the compose network to
 `main-portal:3000`, not through the published port. From another machine
 `http://<lxc-ip>:3000` is now refused, and HTTPS is the only way in.
 
+Verify from a **different** machine — checking from the LXC itself proves
+nothing, since `127.0.0.1` is exactly what still works there. From PowerShell:
+
+```powershell
+Invoke-WebRequest https://<host>/api/health -Method Head | Select-Object StatusCode
+Test-NetConnection <host> -Port 3000      # want: TcpTestSucceeded : False
+```
+
+`curl` in PowerShell is an alias for `Invoke-WebRequest` and rejects curl's
+flags; use `curl.exe` if you want the real one.
+
 **Rollback is one line:** remove `APP_BIND` from `.env` and `up -d` again. That
 is why the bind address is a variable instead of an edit to the compose file.
 
