@@ -510,7 +510,7 @@ mehrere Update-Runden für eine Sache.
 **Reihenfolge:** A → B → C → D → 🏁 **v3.0.0** → E → F → G → H → I → J
 
 **Stand 2026-07-26:** B und D sind ausgeklammert (reine Betriebsarbeit bzw. Folge
-von C). E, F und G sind umgesetzt; H–J stehen aus.
+von C). E–H sind umgesetzt; I und J stehen aus.
 
 ---
 
@@ -715,7 +715,7 @@ angelegter Zähler, und ihn im selben Moment anzumahnen ist der Weg, wie eine
 Glocke ihr Publikum verliert. Anders als bei den geplanten Jobs gibt es hier
 keinen Kulanzfaktor: das Intervall ist das, worum jemand gebeten hat.
 
-#### Paket H — Auswertung erklären
+#### Paket H — Auswertung erklären ✅ v3.4.0-beta.1
 
 - § 6.1 Grenzwerte je Sensor immer anzeigen, auch wenn nicht erreicht
 - § 6.2 Handlungsempfehlungen bei „Hardware-Risiko"
@@ -725,6 +725,22 @@ keine Schemaänderung brauchen.*
 **Achtung:** Ein *nicht* erreichter Grenzwert ist kein Urteil und darf nicht über
 `StatusBadge` laufen. Empfehlungen ändern das Urteil nicht — **kein**
 `EVALUATION_RULES_VERSION`-Bump.
+
+**Beides eingehalten.** Die Grenzwertübersicht in der Bewertungskarte ist bewusst
+neutral gehalten (`text-dim`, keine ok/watch/risk-Tokens, kein `StatusBadge`) —
+ein sauberer Log darf davon nicht alarmierend aussehen. Und `remediation.ts` wird
+von `evaluate-log-pull.ts` **nicht** importiert: die Empfehlungen erklären ein
+Urteil, sie ändern keins, also bleibt der Zähler stehen.
+
+**Ton der Empfehlungen.** Sortiert von naheliegend/günstig nach aufwendig, und
+durchgehend als „prüfen"/„erwägen" formuliert — das sind Eingriffe an einem
+Auto. Ein Test hält beides fest: dass der erste Schritt bei Klopfen die
+Oktanzahl ist und der Turbolader zuletzt kommt, und dass keine Zeile im
+Imperativ steht.
+
+**Teilweise offen:** Die `ReferenceLine` in `LogCharts`/`OverlayChart` und die
+Spalte im `ParameterPanel` aus § 6.1 fehlen noch — die Grenzwerte sind jetzt in
+der Bewertungskarte immer sichtbar, aber nicht im Diagramm eingezeichnet.
 
 #### Paket I — Marke
 
@@ -780,6 +796,7 @@ decken den Fall möglicherweise schon ab.*
 | Navigation & Auffindbarkeit (Paket E) | ✅ v3.1.0-beta.1 |
 | Zustand sichtbar machen (Paket F) | ✅ v3.2.0-beta.1 |
 | Fahrzeuge als echte Daten (Paket G) | ✅ v3.3.0-beta.1 |
+| Auswertung erklären (Paket H) | ✅ v3.4.0-beta.1 |
 | Animationen (§ 8) | ✅ v3.0.0-beta.3 |
 
 **Offen aus § 3, aber nicht paketiert:** der GitHub-Aufbau mit `next` als

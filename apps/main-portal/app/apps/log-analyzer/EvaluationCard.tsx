@@ -12,6 +12,7 @@ import {
 } from "@tabler/icons-react";
 import { StatusBadge, toneForCheck, type StatusTone } from "@/app/components/ui/StatusBadge";
 import { healthFromAlerts, type LogPullEvaluation, type PullStatus } from "./lib/evaluate-log-pull";
+import { remediationFor, REMEDIATION_DISCLAIMER } from "./lib/remediation";
 import { summarizeSpec, type VehicleSpec } from "./lib/vehicle-spec";
 
 // Presentational summary of an automated log-pull evaluation: the VERIFIED /
@@ -174,10 +175,39 @@ export function EvaluationCard({
                 title={a.title}
               >
                 {a.detail}
+                <Suggestions alertId={a.id} />
               </Alert>
             ))}
+            <p className="text-[11px] leading-relaxed text-dim">{REMEDIATION_DISCLAIMER}</p>
           </div>
         )}
+
+        {/* Always on screen, breached or not — § 6.1. A limit that only appears
+            when it is exceeded means the one question people actually ask
+            ("how close was I?") has no answer on a clean log. */}
+        <div className="mt-6" data-testid="limit-overview">
+          <p className="legend-label">Grenzwerte dieses Profils</p>
+          <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+            {[
+              { label: "EGT", value: `${limits.maxEgt} °C` },
+              { label: "Ladedruck", value: `${limits.maxBoost.toFixed(2)} bar` },
+              { label: "HPFP min.", value: `${limits.minHpfpPressure} bar` },
+              { label: "Ladedruck-Abw.", value: `± ${limits.boostDeviation.toFixed(2)} bar` },
+              { label: "Fuel-Trim", value: `± ${limits.fuelTrimLimit} %` },
+              { label: "HPFP-Einbruch", value: `${limits.hpfpDrop} bar` },
+              { label: "Klopfen", value: `${limits.knockCorrection}°` },
+              { label: "Lambda (WOT)", value: `≤ ${limits.maxLambdaWot.toFixed(2)}` },
+            ].map((row) => (
+              /* Deliberately NOT StatusBadge and not the ok/watch/risk tokens: an
+                 unreached limit is not a verdict, and colouring it would make a
+                 completely unremarkable log look alarming. */
+              <div key={row.label} className="min-w-0">
+                <p className="legend-label">{row.label}</p>
+                <p className="readout mt-0.5 text-sm text-dim">{row.value}</p>
+              </div>
+            ))}
+          </div>
+        </div>
 
         {missing.length > 0 && (
           <div className="mt-6 flex flex-col gap-2" data-testid="missing-params">
@@ -201,5 +231,35 @@ export function EvaluationCard({
         </p>
       </div>
     </Panel>
+  );
+}
+
+/**
+ * Where to start looking, for one alert.
+ *
+ * Collapsed by default: the verdict and its measurement come first, and a wall
+ * of suggestions under every warning would bury them. Opening it is a
+ * deliberate "what do I do about this" — which is also why the summary says so
+ * rather than just "Details".
+ *
+ * These EXPLAIN the verdict; they never change it. Nothing here feeds back into
+ * `evaluate-log-pull.ts`, and there is deliberately no EVALUATION_RULES_VERSION
+ * bump — that counter belongs to changes in how a log is judged.
+ */
+function Suggestions({ alertId }: { alertId: string }) {
+  const remediation = remediationFor(alertId);
+  if (!remediation) return null;
+  return (
+    <details className="mt-2" data-testid={`remediation-${alertId}`}>
+      <summary className="flex min-h-11 cursor-pointer items-center text-xs font-semibold sm:min-h-8">
+        Was jetzt prüfen?
+      </summary>
+      <p className="mt-1.5 text-[11px] leading-relaxed text-dim">{remediation.rationale}</p>
+      <ol className="mt-2 flex list-decimal flex-col gap-1 pl-4 text-[11px] leading-relaxed">
+        {remediation.steps.map((step) => (
+          <li key={step}>{step}</li>
+        ))}
+      </ol>
+    </details>
   );
 }
