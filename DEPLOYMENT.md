@@ -128,6 +128,14 @@ AUTH_SECRET=REPLACE_ME
 # What Caddy answers to — a hostname that resolves on your LAN, or simply the
 # LXC's IP address (Caddy issues internal certificates for IPs too). See § 7.
 ZW_HOSTNAME=192.168.1.50
+
+# Optional: request/traffic figures in the admin area, read from Cloudflare's
+# edge. Needs its OWN API token with `Analytics: Read` on the zone — the tunnel
+# token cannot do this, and anything beyond read has no business here.
+# Without them the admin area shows setup instructions instead of an error.
+CLOUDFLARE_ANALYTICS_TOKEN=
+CLOUDFLARE_ZONE_ID=
+CLOUDFLARE_ZONE_NAME=
 EOF
 chmod 600 .env
 ```
@@ -271,6 +279,14 @@ IP-address case, not a certificate problem. SNI may not carry an IP literal
 nothing to match a site block against. The `default_sni` line in the `Caddyfile`
 global block handles it — make sure your `Caddyfile` has it and that
 `ZW_HOSTNAME` matches exactly what you type in the browser.
+
+**A variable in `.env` alone does not reach the container.** Compose reads that
+file only to substitute `${...}` *inside the compose file*. A service receives
+what is listed under its own `environment:` (or `build.args`) — nothing else.
+Everything documented here is wired up already, but keep the rule in mind when
+adding your own: the failure mode is **silence**. The feature reports itself as
+unconfigured no matter what the `.env` says, which looks like a bug in the
+feature rather than a missing line in the compose file.
 
 **Certificate trust.** The LAN name is not publicly resolvable, so Let's Encrypt
 cannot validate it; Caddy issues from its own local CA instead. The encryption
