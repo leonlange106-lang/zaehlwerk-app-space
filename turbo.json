@@ -4,6 +4,8 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
+      "//": "Turborepo 2 fuehrt Tasks in einer GEFILTERTEN Umgebung aus: was hier nicht steht, sieht der Task nicht. Diese drei liest next.config.ts WAEHREND des Builds und backt das Ergebnis in die Content-Security-Policy — sie hier zu vergessen heisst, dass die Einstellung wirkungslos bleibt und der geaenderte Wert nicht einmal den Cache invalidiert.",
+      "env": ["NODE_ENV", "FRAME_ANCESTORS", "HA_INGRESS"],
       "outputs": ["dist/**", ".next/**", "!.next/cache/**", "generated/**"]
     },
     "lint": {
