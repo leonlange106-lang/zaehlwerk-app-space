@@ -129,6 +129,51 @@ zurück: `prisma db push` ist additiv und macht Spalten nicht rückgängig. Die
 Instanz bleibt auf dem Beta-Stand, bis eine stabile Version ihn überholt. Die UI
 sagt das direkt am Umschalter.
 
+### 3.1 ⚠️ Bekannter Defekt: Stable bietet Beta-Stände an
+
+**Gemeldet nach beta.3, bestätigt im Code. Der Channel wirkt derzeit nur auf die
+*Anzeige*, nicht auf die Update-Entscheidung — und auch nicht auf das, was
+tatsächlich installiert wird.**
+
+**Zwei Stellen, beide falsch für `stable`:**
+
+1. **Die Erkennung.** `checkForUpdates()` berechnet
+   `updateAvailable: local.sha !== latestCommit.sha` — verglichen wird gegen den
+   **Branch-Head** (`fetchLatestCommit(..., branch)`), unabhängig vom Channel.
+   Da jeder Beta-Tag von `main` geschnitten wird, *ist* `main`s Spitze der
+   Beta-Stand. Auf `stable` meldet die Instanz deshalb ein Update, sobald ein
+   Beta gemerged wurde.
+2. **Die Installation.** `resolveUpdateTarget()` liefert für `stable` heute
+   `ref: null` (Branch-Fallback, weil es noch kein stabiles Release gibt), also
+   deployt `update.sh` `main` — **den Beta-Code**.
+
+**Das ist meine Fehleinschätzung, nicht nur ein Anzeigefehler.** Ich hatte den
+Branch-Fallback damit begründet, dass eine Instanz ohne installierbaren Stand
+stumm keine Updates mehr bekäme. Für `stable` ist die Abwägung falsch: dort
+Beta-Code zu installieren ist genau das, wogegen man `stable` wählt. „Für diesen
+Channel ist noch nichts veröffentlicht" ist ehrlich; ein Beta unterzuschieben
+nicht.
+
+**Praktische Warnung bis zum Fix:** Wer auf `stable` steht und aktualisiert,
+bekommt den Beta-Stand samt seiner Schemaänderungen. `prisma db push` ist additiv
+und macht die nicht rückgängig.
+
+**Der Fix, wenn er drankommt**
+
+- `updateAvailable` **channel-relativ** rechnen: den laufenden Build gegen den
+  Commit des Ziel-*Releases* vergleichen, nicht gegen den Branch-Head. Der Commit
+  eines Tags kommt über `GET /repos/{owner}/{repo}/commits/{tag}`;
+  `target_commitish` aus dem Release-Objekt taugt nicht, das ist häufig nur der
+  Branch-Name.
+- **Branch-Fallback für `stable` streichen.** Kein veröffentlichtes Release im
+  Channel → kein Update, und die UI sagt das. Nur als ausdrücklicher
+  Entwickler-Modus über eine Env-Variable behalten, nicht als stiller Default.
+- Gilt genauso für `beta`: auch dort darf nicht der Branch-Head zählen, sonst
+  werden Commits angeboten, die nach dem letzten Beta-Tag gemerged wurden und in
+  keinem Release stehen.
+- **Danach ist ein stabiles `v3.0.0` die Voraussetzung**, damit der Stable-Channel
+  überhaupt etwas anzubieten hat.
+
 **Was noch offen ist:** der GitHub-Aufbau mit `next` als Beta-Branch (§ 7). Solange
 alles über `main` läuft und Betas von dort getaggt werden, ist der Channel
 funktionsfähig, aber die Trennung ist eine Konvention und keine Struktur.
@@ -434,6 +479,8 @@ schaltet weiterhin global ab, ohne dass eine Aufrufstelle daran denken muss.
 ## 9. Reihenfolge-Vorschlag
 
 1. Pre-Release testen (aktueller Stand)
+1b. **Stable-Channel-Defekt beheben (§ 3.1)** — vor dem vollen Release zwingend,
+   sonst installiert der Stable-Channel Beta-Code
 2. ~~Mantine-Rest entfernen~~ ✅ (§ 2)
 3. ~~Release-Channel~~ ✅ (§ 3) — offen bleibt der `next`-Branch im GitHub-Aufbau
 4. Tunnel-Hardening (§ 5, Teil 1) — unabhängig, sofort machbar
