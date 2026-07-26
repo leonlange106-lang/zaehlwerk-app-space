@@ -18,6 +18,13 @@
  */
 
 @import "tailwindcss";
+/* Enter/exit animation utilities (`animate-in`, `fade-in`, `slide-in-from-*`,
+   `duration-*`). Plain CSS with `@utility` rules — Tailwind v4 dropped the
+   plugin API that the older `tailwindcss-animate` was built on, and this is its
+   maintained equivalent.
+   Everything it emits is switched off by the reduced-motion block at the bottom
+   of this file, so no call site has to remember that. */
+@import "tw-animate-css";
 
 /* Preflight (part of the import above) resets the user agent, but it stops short
    of a few things this design relies on everywhere: list markers, link colour,

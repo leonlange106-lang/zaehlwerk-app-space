@@ -85,7 +85,12 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             key={toast.id}
             className={cn(
               "panel pointer-events-auto flex w-full max-w-sm items-start gap-3 p-3.5",
+              // These utilities used to be dead: they come from tw-animate-css,
+              // which was not installed, so the toast snapped in. `motion-safe`
+              // is belt-and-braces — the reduced-motion block in globals.css
+              // already neutralises them.
               "motion-safe:animate-in motion-safe:slide-in-from-top-2 motion-safe:fade-in",
+              "motion-safe:duration-200",
             )}
           >
             <span className="mt-px flex-none" style={{ color: TONE_TOKEN[toast.tone] }} aria-hidden>

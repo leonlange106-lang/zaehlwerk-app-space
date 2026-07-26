@@ -51,6 +51,21 @@
   overflow: hidden;
 }
 
+/*
+ * Below `sm` (40rem — Tailwind's, which is what the `sm:` classes in this file's
+ * components compile to) the analyzer reads its values out of the strip UNDER
+ * the plot, so the floating box would only repeat them on top of the data — and
+ * on a touch screen it lands under the finger, hiding the curve being scrubbed.
+ *
+ * Only the BOX is hidden. `.recharts-tooltip-cursor` is a separate element and
+ * stays: the vertical line is what ties the strip's numbers to a position.
+ */
+@media (max-width: 39.9375rem) {
+  .chartClip :global(.recharts-tooltip-wrapper) {
+    display: none;
+  }
+}
+
 .legendDot {
   display: inline-block;
   width: 10px;

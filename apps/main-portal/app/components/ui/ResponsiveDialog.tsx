@@ -60,7 +60,17 @@ export function ResponsiveDialog({
       }}
     >
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm" />
+        {/* Radix keeps the element mounted while a CSS animation on it is
+            running, so `data-[state=closed]` gives a real exit — no JS, and it
+            is neutralised by the reduced-motion block in globals.css. */}
+        <Dialog.Overlay
+          className={cn(
+            "fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm",
+            "data-[state=open]:animate-in data-[state=open]:fade-in",
+            "data-[state=closed]:animate-out data-[state=closed]:fade-out",
+            "duration-150",
+          )}
+        />
         <Dialog.Content
           data-testid={testId}
           // While a submit is in flight, Escape and outside-clicks are ignored —
@@ -76,6 +86,21 @@ export function ResponsiveDialog({
             // Panel: centred from `sm` up.
             "sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-1/2 sm:w-[calc(100%-3rem)]",
             "sm:max-h-[85dvh] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-panel",
+            // The sheet rises from the edge it is anchored to; the desktop panel
+            // fades and scales in place. Movement that matches where the thing
+            // came from is what makes it readable rather than decorative.
+            "duration-200 data-[state=closed]:duration-150",
+            "data-[state=open]:animate-in data-[state=closed]:animate-out",
+            "data-[state=open]:slide-in-from-bottom data-[state=closed]:slide-out-to-bottom",
+            // The `-[50%]` offsets from `sm` up are NOT decoration: this panel is
+            // centred with `-translate-x/y-1/2`, and the animation keyframe
+            // rewrites `transform` wholesale. Without restating the centring as
+            // the animation's start and end offset, the panel would fly in from
+            // the viewport's centre-point corner and snap into place.
+            "sm:data-[state=open]:slide-in-from-left-[50%] sm:data-[state=open]:slide-in-from-top-[50%]",
+            "sm:data-[state=closed]:slide-out-to-left-[50%] sm:data-[state=closed]:slide-out-to-top-[50%]",
+            "sm:data-[state=open]:fade-in sm:data-[state=closed]:fade-out",
+            "sm:data-[state=open]:zoom-in-95 sm:data-[state=closed]:zoom-out-95",
             SIZE[size],
           )}
         >

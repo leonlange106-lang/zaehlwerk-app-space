@@ -393,25 +393,29 @@ export function AnalyzerView() {
       {evaluation && <EvaluationCard evaluation={evaluation} spec={spec} />}
 
       <Panel className="[&]:p-4">
-        <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+        {/* Title and the window itself on one line, the two actions on the next.
+            Letting all four wrap freely put each on its own row at 390px and
+            pushed the slider — the thing you came here to drag — most of a
+            screen down. */}
+        <div className="mb-2 flex items-baseline justify-between gap-3">
           <p className="text-sm font-semibold">Zeitfenster</p>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="readout text-xs">{windowLabel}</span>
-            {evaluation && evaluation.window[1] > evaluation.window[0] && (
-              <Button variant="subtle" size="sm" onClick={cropToPull} data-testid="crop-to-pull">
-                <IconCrop size={13} />
-                Auf Pull zuschneiden
-              </Button>
-            )}
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setRange([0, Math.max(0, log.time.length - 1)])}
-            >
-              <IconZoomReset size={13} />
-              Zoom zurücksetzen
+          <span className="readout truncate text-xs">{windowLabel}</span>
+        </div>
+        <div className="mb-1 flex flex-wrap items-center gap-2">
+          {evaluation && evaluation.window[1] > evaluation.window[0] && (
+            <Button variant="subtle" size="sm" onClick={cropToPull} data-testid="crop-to-pull">
+              <IconCrop size={13} />
+              Auf Pull zuschneiden
             </Button>
-          </div>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setRange([0, Math.max(0, log.time.length - 1)])}
+          >
+            <IconZoomReset size={13} />
+            Zoom zurücksetzen
+          </Button>
         </div>
         <RangeSlider
           label="Zeitfenster"

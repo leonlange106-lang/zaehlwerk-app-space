@@ -378,81 +378,58 @@ eigenes Gesicht.
 
 ---
 
-## 8. Animationen — geprüft, nicht umgesetzt
+## 8. Animationen — gebaut
 
-Auftrag war eine Machbarkeitsprüfung. Kurz: **machbar, günstig, und die Grundlagen
-liegen bereits** — mit einem Fund, der vorher weg muss.
+`tw-animate-css` 1.4.0. **Nicht** `tailwindcss-animate`: das ist ein Plugin für
+Tailwind v3, und v4 hat die Plugin-API abgelöst. Reines CSS mit `@utility`-Regeln,
+per `@import` in `globals.css`, keine Laufzeit-Abhängigkeit. Gesamtes CSS der App
+danach **12,2 KB gz**.
 
-### 8.1 Was schon da ist
+**Der Fund, der das ausgelöst hat:** `Toast.tsx` benutzte `animate-in`,
+`slide-in-from-top-2` und `fade-in` schon vorher — aus genau dieser
+Utility-Familie, die aber nicht installiert war. Im gebauten CSS kam `animate-in`
+**null mal** vor; der Toast erschien hart, obwohl der Code etwas anderes sagte.
+Jetzt enthält das CSS `@keyframes enter` und `@keyframes exit`, und die Klassen
+tun, was sie behaupten.
 
-- `@media (prefers-reduced-motion: reduce)` in `globals.css` neutralisiert alle
-  Animationen und Übergänge global. Jede neue Animation ist damit automatisch
-  abgeschaltet, wenn das System es verlangt — die Barrierefreiheits-Pflicht ist
-  bereits erfüllt und muss nicht pro Stelle wiederholt werden.
-- Radix setzt auf Dialog, DropdownMenu, Popover und Tooltip `data-state="open"` /
-  `"closed"` und hält das Element während einer laufenden CSS-Animation im DOM.
-  Ein- **und Ausblenden** sind damit ohne eine Zeile JavaScript möglich.
-- Tailwind v4 bringt `transition-*`, `duration-*`, `ease-*` und `@keyframes` über
-  `@theme` mit. Für alles außer Layout-Animationen braucht es keine Bibliothek.
+**Was animiert wird**
 
-### 8.2 Ein Fund: drei tote Klassen
+| Element | Bewegung |
+|---|---|
+| Bottom-Sheet (< `sm`) | steigt von der Kante auf, an der es verankert ist |
+| Dialog (≥ `sm`) | blendet ein und skaliert von 95 % in der Mitte |
+| Menü, Popover, Benutzermenü | Richtung aus `data-side`, kurzer 2er-Versatz |
+| Tooltip | dito |
+| Menü-Ebenenwechsel | schiebt sich aus der Richtung ein, aus der er kommt |
+| Toast | von oben herein |
 
-`components/ui/Toast.tsx` benutzt
-`motion-safe:animate-in motion-safe:slide-in-from-top-2 motion-safe:fade-in`.
-Diese Utilities stammen aus `tailwindcss-animate` — **das Paket ist nicht
-installiert**. Im gebauten CSS kommt `animate-in` null mal vor: der Toast erscheint
-heute hart, obwohl der Code etwas anderes suggeriert. Entweder die Klassen durch
-eigene Keyframes ersetzen oder das Plugin aufnehmen; so stehenlassen ist die
-schlechteste der drei Möglichkeiten.
+Das Ganze steckt in **einer** Konstante (`OVERLAY_MOTION` in `ui/primitives.tsx`),
+die alle vier Radix-Overlays teilen — sonst driften sie auseinander.
 
-### 8.3 Was sich lohnt, und was nicht
+**Drei Dinge, die dabei nicht offensichtlich waren**
 
-| Kandidat | Aufwand | Urteil |
-|---|---|---|
-| Dialog/Drawer ein- und ausblenden (Radix `data-state`) | klein | **Ja.** Ein Bottom-Sheet, das ohne Bewegung erscheint, wirkt wie ein Sprung. |
-| Menü-Ebenenwechsel (Drill-down horizontal schieben) | mittel | **Ja.** Die Bewegung erklärt die Richtung — genau der Punkt, an dem gerade Verwirrung entstand. |
-| Toast ein/aus | klein | **Ja**, ist ohnehin schon halb da (§ 8.2). |
-| Zahlen-Zähler auf `MetricTile` | klein | **Nein.** Verzögert das Ablesen einer Zahl, deren einziger Zweck das Ablesen ist. |
-| Chart-Aufbau (Recharts `isAnimationActive`) | klein | **Nein**, bewusst aus. Beim Umschalten von Kanälen würde jede Kurve neu aufbauen, und die CLS-Tests messen genau diese Phase. |
-| Seitenübergänge (View Transitions API) | mittel | **Später.** In Next 16 mit App Router noch nicht rund, und ein halb funktionierender Übergang ist schlechter als keiner. |
-| Skeleton-Shimmer | klein | **Nein.** Bewusste Designentscheidung: eine Kachel ohne Messwert soll wie ein unbestromtes Segment aussehen, nicht wie eine laufende Animation. |
+1. **Radix hält das Element gemountet, solange eine CSS-Animation darauf läuft.**
+   Deshalb gibt es ein echtes Ausblenden über `data-[state=closed]` — ohne
+   JavaScript und ohne Unmount-Timing, das man falsch machen könnte.
+2. **Der `enter`-Keyframe schreibt `transform` komplett neu.** Der Desktop-Dialog
+   ist mit `-translate-x/y-1/2` zentriert — ohne Gegenmaßnahme wäre er während der
+   Animation aus der Ecke hereingeflogen und am Ende eingerastet. Die
+   `-[50%]`-Offsets ab `sm` stellen die Zentrierung als Start- **und** Endwert der
+   Animation wieder her. Auf dem Handy gibt es das Problem nicht: das Sheet ist
+   an der Kante verankert und trägt keinen Zentrierungs-Transform.
+3. **Die 44px-Tap-Target-Prüfung maß mitten in der Einblendung.** Das Menü
+   skaliert beim Öffnen kurz auf 95 %, eine Zeile maß dabei 43,43 statt 44px. Die
+   Zusage gilt dem Ruhezustand, also misst der Test jetzt per `expect.poll` —
+   die 44px müssen weiterhin erreicht werden, nur der Weg dorthin ist toleriert.
 
-### 8.4 Entschieden: über eine Animations-Utility-Bibliothek
+**Bewusst nicht animiert:** zählende Zahlen auf `MetricTile` (verzögert das
+Ablesen genau der Zahl, für die die Kachel existiert), der Chart-Aufbau (die
+CLS-Tests messen genau diese Phase) und ein Skeleton-Shimmer (eine Kachel ohne
+Messwert soll unbestromt aussehen, nicht beschäftigt).
 
-Richtung steht — fließende Animationen sollen sauber eingebettet werden, nicht als
-handgeschriebene Keyframes verstreut.
-
-**Eine Einschränkung, die vorher geklärt gehört:** `tailwindcss-animate` ist ein
-Plugin für Tailwind **v3**. Dieses Projekt läuft auf **v4**, das die Plugin-API
-abgelöst hat. Der gepflegte Nachfolger mit denselben Utilities (`animate-in`,
-`fade-in`, `slide-in-from-*`, `zoom-in-*`, `duration-*`) ist **`tw-animate-css`**
-— reines CSS, wird per `@import` eingebunden, kein Plugin. Das ist auch der Weg,
-den die shadcn-Dokumentation für v4 nimmt.
-
-Damit sind die drei toten Klassen in `Toast.tsx` (§ 8.2) mit demselben Handgriff
-erledigt: sie stammen genau aus dieser Utility-Familie und funktionieren, sobald
-sie tatsächlich vorhanden ist.
-
-**Reihenfolge, wenn es so weit ist:**
-1. `tw-animate-css` aufnehmen und in `globals.css` importieren.
-2. `Toast.tsx` verifizieren — die Klassen stehen schon da.
-3. Radix-Overlays über `data-[state=open]` / `data-[state=closed]` animieren.
-4. Menü-Ebenenwechsel als horizontale Bewegung.
-5. Alles gegen `prefers-reduced-motion` prüfen — der globale Block greift
-   automatisch, aber die E2E-CLS-Tests sollten den Vorher/Nachher-Wert bestätigen.
-
-### 8.5 Kosten
-
-Keine neue Laufzeit-Abhängigkeit nötig. `tw-animate-css` ist reines CSS (~2 KB gz nach Purge) und braucht keine Laufzeit.
-`framer-motion` (~35 KB gz) ist für das Obige **nicht** nötig und würde ich hier
-nicht aufnehmen — es lohnt erst bei Layout-Animationen mit geteilten Elementen,
-die es hier nicht gibt.
-
-**Ein Fallstrick, der bleibt:** Animierte Höhen verschieben Inhalte. Die
-CLS-Disziplin aus `CLAUDE.md` gilt weiter — animiert werden `transform` und
-`opacity`, nie `height` oder `width` von etwas, das im Fluss liegt.
-
----
+Alles läuft über `transform` und `opacity`, verschiebt also kein Layout — beide
+CLS-Tests bleiben grün. Der `prefers-reduced-motion`-Block in `globals.css`
+schaltet weiterhin global ab, ohne dass eine Aufrufstelle daran denken muss.
 
 ## 9. Reihenfolge-Vorschlag
 

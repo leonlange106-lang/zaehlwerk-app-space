@@ -2,6 +2,8 @@
 
 import type { ReactNode } from "react";
 import * as RadixTooltip from "@radix-ui/react-tooltip";
+import { cn } from "@/app/lib/cn";
+import { OVERLAY_MOTION } from "./primitives";
 
 // Hover/focus hint. Radix handles the delay, the collision flipping and — the
 // part that is easy to get wrong — keyboard focus, so the hint is reachable
@@ -35,7 +37,10 @@ export function Tooltip({
         <RadixTooltip.Content
           side={side}
           sideOffset={6}
-          className="z-[70] rounded-control border border-line bg-elevated px-2.5 py-1.5 text-[12px] shadow-panel"
+          className={cn(
+            "z-[70] rounded-control border border-line bg-elevated px-2.5 py-1.5 text-[12px] shadow-panel",
+            OVERLAY_MOTION,
+          )}
         >
           {label}
           <RadixTooltip.Arrow className="fill-[var(--zw-elevated)]" />

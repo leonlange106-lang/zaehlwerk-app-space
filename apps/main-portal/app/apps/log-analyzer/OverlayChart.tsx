@@ -11,7 +11,7 @@ import {
   YAxis,
 } from "recharts";
 import type { OverlaySeries } from "./lib/compare-logs";
-import { SERIES_COLORS } from "./ChartLegend";
+import { CHART_TOOLTIP_PROPS, SERIES_COLORS } from "./ChartLegend";
 import classes from "./LogAnalyzer.module.css";
 
 // The overlay chart: both logs' selected channel on one shared X axis (elapsed
@@ -77,13 +77,12 @@ export function OverlayChart({
               />
             )}
             <Tooltip
-              isAnimationActive={false}
+              {...CHART_TOOLTIP_PROPS}
               labelFormatter={(v) => `${overlay.xLabel} = ${fmtX(Number(v))}`}
               formatter={(value, name) => {
                 const num = typeof value === "number" ? value : Number(value);
                 return [`${Number.isFinite(num) ? Math.round(num * 100) / 100 : "—"}${unitSuffix}`, name];
               }}
-              contentStyle={{ fontSize: 12, borderRadius: 8 }}
             />
             <Line
               type="monotone"
