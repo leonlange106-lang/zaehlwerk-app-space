@@ -135,6 +135,47 @@ const SHOTS: Shot[] = [
   },
 ];
 
+// The 2FA enrolment gate only exists while the instance enforces a second
+// factor, so this shot flips the setting for itself and puts it back. Written
+// straight to the E2E database rather than through the UI switch: turning
+// enforcement on gates the admin out of the settings page, including the switch
+// that would turn it off again.
+test.describe("2fa gate", () => {
+  const KEY = "security.enforceTwoFactor";
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- lazy import keeps Prisma out of the other shots
+  let prisma: any;
+
+  test.beforeAll(async () => {
+    const { PrismaClient } = await import("@zaehlwerk/database");
+    const dbPath = path.join(__dirname, ".data", "e2e.db").replace(/\\/g, "/");
+    // Explicit URL: this process inherits the ambient DATABASE_URL (the dev
+    // database), not the one the config hands the server it spawns.
+    prisma = new PrismaClient({ datasourceUrl: `file:${dbPath}` });
+    await prisma.setting.upsert({
+      where: { key: KEY },
+      create: { key: KEY, value: "true" },
+      update: { value: "true" },
+    });
+  });
+
+  test.afterAll(async () => {
+    await prisma?.setting.deleteMany({ where: { key: KEY } });
+    await prisma?.$disconnect();
+  });
+
+  for (const scheme of ["dark", "light"] as const) {
+    test(`18-2fa-gate (${scheme})`, async ({ page }, testInfo) => {
+      await setScheme(page, scheme);
+      await page.goto("/");
+      await expect(
+        page.getByRole("heading", { name: "Zwei-Faktor-Authentifizierung erforderlich" }),
+      ).toBeVisible();
+      await page.waitForTimeout(400);
+      await save(page, testInfo.project.name, scheme, "18-2fa-gate");
+    });
+  }
+});
+
 // The login page is the one screen the stored admin session hides, so it gets a
 // context of its own.
 test.describe("login", () => {

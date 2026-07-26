@@ -14,6 +14,7 @@ export const AUDIT_ACTIONS = {
   // put this instance back on an old build, and when" has to be answerable
   // without parsing free text out of the update entries.
   systemRollback: "system.rollback",
+  securityPolicy: "security.policy",
   userCreate: "user.create",
   userDelete: "user.delete",
   userRole: "user.role",

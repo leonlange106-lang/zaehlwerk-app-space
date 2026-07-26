@@ -65,6 +65,14 @@ services:
       # Settings UI. Generate with `openssl rand -hex 32`. Leave empty to require
       # a DB-managed key (X-API-Key header).
       INGESTION_API_KEY: ${INGESTION_API_KEY:-}
+      # Emergency release for the instance-wide 2FA requirement. An admin who
+      # turns that policy on WITHOUT a second factor of their own is gated out of
+      # the settings page — including the switch that turns it off — and a lost
+      # authenticator then locks the instance with no way in. Set this to 1 and
+      # restart to suspend the policy (it is not cleared), sign in, sort it out,
+      # then remove the variable again. Needing host access to use it is the
+      # point.
+      DISABLE_2FA_ENFORCEMENT: ${DISABLE_2FA_ENFORCEMENT:-}
     volumes:
       # Persists the SQLite database across container recreations.
       - zaehlwerk-db:/data

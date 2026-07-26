@@ -19,6 +19,7 @@ export const SETTING_KEYS = {
   logMaxCount: "logs.maxCount",
   maintenanceLastRunAt: "maintenance.lastRunAt",
   updateChannel: "update.channel",
+  enforceTwoFactor: "security.enforceTwoFactor",
 } as const;
 
 export const DEFAULT_RETENTION_DAYS = 30;
@@ -42,6 +43,34 @@ export async function getUpdateChannel(): Promise<ReleaseChannel> {
 
 export async function setUpdateChannel(channel: ReleaseChannel): Promise<void> {
   await writeSetting(SETTING_KEYS.updateChannel, channel);
+}
+
+/**
+ * Whether every account on this instance must have 2FA.
+ *
+ * Stored rather than env-configured, for the same reason as the release
+ * channel: it is a decision an admin makes in the UI and it has to survive the
+ * container being recreated by an update. Default OFF — turning it on locks
+ * every account without a second factor out of the app until they enrol, which
+ * is a choice the operator has to make deliberately.
+ */
+export async function getEnforceTwoFactor(): Promise<boolean> {
+  // Recovery hatch. An admin who switches enforcement on WITHOUT a second factor
+  // of their own is immediately gated out of the settings page — including the
+  // switch that would turn it off again — and if the authenticator is then lost,
+  // nobody can unlock the instance from inside it. Setting this in the compose
+  // file and restarting suspends the policy so the admin can get back in.
+  //
+  // Requiring host access to use it is the point: that is a real authority
+  // boundary, and it is the same one that could edit the database directly
+  // anyway. It suspends the policy without clearing it, so removing the variable
+  // restores whatever was configured.
+  if (process.env.DISABLE_2FA_ENFORCEMENT === "1") return false;
+  return (await readSetting(SETTING_KEYS.enforceTwoFactor)) === "true";
+}
+
+export async function setEnforceTwoFactor(enforced: boolean): Promise<void> {
+  await writeSetting(SETTING_KEYS.enforceTwoFactor, enforced ? "true" : "false");
 }
 
 export { DEFAULT_RELEASE_CHANNEL };

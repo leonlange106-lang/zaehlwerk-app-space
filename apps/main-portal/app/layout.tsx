@@ -7,6 +7,8 @@ import { ToastProvider } from "./components/ui/Toast";
 import { TooltipProvider } from "./components/ui/Tooltip";
 import { getCurrentVersionInfo } from "./lib/version";
 import { allowedAppIdsFor } from "./lib/app-access";
+import { resolveTwoFactorGate } from "./lib/two-factor-policy";
+import { TwoFactorGate } from "./components/shell/TwoFactorGate";
 import { auth } from "@/auth";
 
 export const metadata: Metadata = {
@@ -41,6 +43,14 @@ export default async function RootLayout({
   // Which apps this user may see (drives launcher tiles + header app-switcher).
   const allowedAppIds = await allowedAppIdsFor(session?.user);
 
+  // Instance-wide 2FA requirement. Resolved here because this layout wraps every
+  // page and runs in Node (the edge guard in proxy.ts has no database — see
+  // lib/two-factor-policy.ts). When it blocks, `children` is never rendered, so
+  // the page's markup is not produced or sent at all.
+  const twoFactorGate = await resolveTwoFactorGate(
+    session?.user?.id ? { id: session.user.id } : null,
+  );
+
   return (
     <html lang="de" suppressHydrationWarning>
       <head>
@@ -58,7 +68,11 @@ export default async function RootLayout({
                   version={version ? { shortSha: version.shortSha, branch: version.branch } : null}
                   allowedAppIds={allowedAppIds}
                 >
-                  {children}
+                  {twoFactorGate.blocked ? (
+                    <TwoFactorGate email={session?.user?.email ?? null} />
+                  ) : (
+                    children
+                  )}
                 </PortalShell>
               </SessionProvider>
             </TooltipProvider>
