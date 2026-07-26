@@ -46,6 +46,7 @@ import type { IngestionKeySummary } from "@/app/lib/ingestion-key-actions";
 import { BackupPolicyCard } from "./BackupPolicyCard";
 import { DatabaseMaintenanceCard } from "./DatabaseMaintenanceCard";
 import { AuditLogCard } from "./AuditLogCard";
+import { VersionHistoryCard } from "./VersionHistoryCard";
 
 export type GovernanceData = {
   policy: BackupPolicy;
@@ -72,6 +73,7 @@ export function SettingsView({
   apiTokens,
   ingestionKeys,
   governance,
+  updateTokenRequired,
 }: {
   versionInfo: LocalCommitInfo | null;
   updateChannel: ReleaseChannel;
@@ -81,6 +83,7 @@ export function SettingsView({
   apiTokens: ApiTokenSummary[];
   ingestionKeys: IngestionKeySummary[];
   governance: GovernanceData | null;
+  updateTokenRequired: boolean;
 }) {
   const isAdmin = currentUser?.role === "ADMIN";
 
@@ -109,6 +112,10 @@ export function SettingsView({
         </>
       )}
       <UpdateSettingsCard versionInfo={versionInfo} channel={updateChannel} />
+      {/* Directly below the update card on purpose: a rollback's progress is
+          rendered by that card (one update state, one place that shows it), so
+          the two belong within a glance of each other. */}
+      {isAdmin && <VersionHistoryCard tokenRequired={updateTokenRequired} />}
     </div>
   );
 }

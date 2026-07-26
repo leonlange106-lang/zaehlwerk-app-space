@@ -8,6 +8,7 @@ import { listAuditEvents } from "@/app/lib/audit";
 import { listSnapshots } from "@/app/lib/backup-engine";
 import { getDatabaseStats } from "@/app/lib/db-maintenance";
 import { getBackupPolicy, getLogRetentionPolicy, getUpdateChannel } from "@/app/lib/settings";
+import { updateTokenRequired } from "@/app/lib/update-run";
 import { SettingsView } from "./SettingsView";
 
 export const dynamic = "force-dynamic";
@@ -57,6 +58,9 @@ export default async function SettingsPage() {
       apiTokens={apiTokens}
       ingestionKeys={ingestionKeys}
       governance={governance}
+      // Read on the server: this is an env var, so asking the client to fetch it
+      // would be a round-trip for something already known at render time.
+      updateTokenRequired={updateTokenRequired()}
     />
   );
 }

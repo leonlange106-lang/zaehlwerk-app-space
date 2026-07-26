@@ -188,12 +188,30 @@ export async function fetchLatestReleaseForChannel(
   repo: string,
   channel: ReleaseChannel,
 ): Promise<RemoteReleaseInfo | null> {
+  const releases = await fetchReleasesForChannel(owner, repo, channel);
+  return releases[0] ?? null;
+}
+
+/**
+ * Every published release a channel offers, newest first.
+ *
+ * Same filter as {@link fetchLatestReleaseForChannel} — that function is now
+ * just "the first of these". The full list is what a rollback needs: the
+ * versions this instance could go back to are precisely the ones its channel
+ * would have been willing to install in the first place.
+ */
+export async function fetchReleasesForChannel(
+  owner: string,
+  repo: string,
+  channel: ReleaseChannel,
+  perPage = 30,
+): Promise<RemoteReleaseInfo[]> {
   const response = await fetch(
-    `https://api.github.com/repos/${owner}/${repo}/releases?per_page=30`,
+    `https://api.github.com/repos/${owner}/${repo}/releases?per_page=${perPage}`,
     { headers: githubHeaders(), cache: "no-store" },
   );
 
-  if (response.status === 404) return null;
+  if (response.status === 404) return [];
   if (!response.ok) {
     throw new Error(`GitHub releases request failed: ${response.status} ${response.statusText}`);
   }
@@ -203,6 +221,5 @@ export async function fetchLatestReleaseForChannel(
   // GitHub returns releases newest-first by creation, but published_at is the
   // date that actually matters and can differ — sort on it rather than trust it.
   usable.sort((a, b) => Date.parse(b.published_at) - Date.parse(a.published_at));
-  const newest = usable[0];
-  return newest ? toReleaseInfo(newest) : null;
+  return usable.map(toReleaseInfo);
 }

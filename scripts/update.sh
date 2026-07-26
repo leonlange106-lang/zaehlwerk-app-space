@@ -29,8 +29,17 @@ UPDATE_BRANCH="${UPDATE_BRANCH:-main}"
 # channels existed and what the stable channel still does while this repo has
 # no stable release tags.
 UPDATE_REF="${UPDATE_REF:-}"
+# "update" (default) or "rollback". A rollback is the same deploy with an older
+# ref — with ONE difference, see the migration step: it skips `prisma db push`.
+UPDATE_MODE="${UPDATE_MODE:-update}"
+# Human-readable name of the target and the channel it came from, recorded in
+# the deploy history by the deployer. Display text only, never interpreted here.
+UPDATE_LABEL="${UPDATE_LABEL:-}"
+UPDATE_CHANNEL="${UPDATE_CHANNEL:-stable}"
 LOG_FILE="${UPDATE_LOG_FILE:-/data/update.log}"
 STATUS_FILE="${UPDATE_STATUS_FILE:-/data/update-status.json}"
+# Append-only record of what this instance has deployed; the rollback UI reads it.
+DEPLOY_HISTORY_FILE="${DEPLOY_HISTORY_FILE:-/data/deploy-history.jsonl}"
 # Pin the Compose project name so a run from the container's /repo cwd targets
 # the SAME project (network/volume/container) as a manual run from the host.
 export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-zaehlwerk}"
@@ -66,10 +75,23 @@ fail() {
   exit 1
 }
 
-echo "===== update $(now) ====="
-write_status started true false "Update gestartet"
+if [ "$UPDATE_MODE" = "rollback" ]; then
+  VERB="Rollback"
+else
+  VERB="Update"
+fi
+
+echo "===== $UPDATE_MODE $(now) ====="
+echo "[update] mode=$UPDATE_MODE ref=${UPDATE_REF:-<branch>} channel=$UPDATE_CHANNEL"
+write_status started true false "$VERB gestartet"
 
 cd "$REPO_ROOT" || fail "Arbeitsverzeichnis nicht gefunden"
+
+# A rollback without a ref would fall into branch mode below and deploy the
+# NEWEST code — the exact opposite of what was asked for. Refuse instead.
+if [ "$UPDATE_MODE" = "rollback" ] && [ -z "$UPDATE_REF" ]; then
+  fail "Rollback ohne Zielversion angefordert – abgebrochen"
+fi
 
 # 1) Pull -------------------------------------------------------------------
 write_status pulling true false "Neuer Code wird geholt"
@@ -174,10 +196,30 @@ GIT_SHA="$GIT_SHA" docker compose -f "$COMPOSE_FILE" build main-portal \
 # chokes on the cache mounts. The builder layers are already cached from step 2,
 # so this build is a fast cache hit. db push is additive and a PRECONDITION for
 # the swap: if it fails we stop with the old app still running — no broken deploy.
-echo "[update] migrating database (prisma db push via compose)"
-write_status migrating true false "Datenbank wird migriert" "" "$GIT_SHA"
-GIT_SHA="$GIT_SHA" docker compose -f "$COMPOSE_FILE" run --rm --build db-migrate \
-  || fail "DB-Migration fehlgeschlagen – Details im Log" "$GIT_SHA"
+#
+# A ROLLBACK SKIPS THIS, deliberately. `prisma db push` makes the database match
+# the schema it is given, in both directions: handed an OLDER schema it wants to
+# drop the columns and tables the newer version introduced. It would either
+# refuse (it demands --accept-data-loss for destructive changes) and abort the
+# rollback, or — if that flag were ever added here — silently destroy the data
+# the newer version wrote. Neither belongs behind a "go back" button.
+#
+# Leaving the newer schema in place is the safe asymmetry: Prisma selects named
+# columns, so the older client simply never asks for the ones it does not know.
+# What it CANNOT survive is a column the newer version added as NOT NULL without
+# a default — inserts from the old client would then fail. Additive migrations
+# on a table with rows need a default anyway, so this is rare rather than
+# impossible; the UI says so before the button is pressed, and the answer is to
+# restore a backup rather than to migrate backwards.
+if [ "$UPDATE_MODE" = "rollback" ]; then
+  echo "[update] rollback: skipping prisma db push (forward-only; older schema would drop columns)"
+  write_status migrating true false "Datenbank bleibt unverändert (Rollback)" "" "$GIT_SHA"
+else
+  echo "[update] migrating database (prisma db push via compose)"
+  write_status migrating true false "Datenbank wird migriert" "" "$GIT_SHA"
+  GIT_SHA="$GIT_SHA" docker compose -f "$COMPOSE_FILE" run --rm --build db-migrate \
+    || fail "DB-Migration fehlgeschlagen – Details im Log" "$GIT_SHA"
+fi
 
 # 4) Hand the swap to a detached deployer ------------------------------------
 # Built from the NEW image (it has docker + compose). It is NOT part of the
@@ -209,6 +251,11 @@ docker run -d --rm --name zaehlwerk-deployer \
   -e UPDATE_STATUS_FILE="$STATUS_FILE" \
   -e UPDATE_LOG_FILE="$LOG_FILE" \
   -e GIT_SHA="$GIT_SHA" \
+  -e UPDATE_MODE="$UPDATE_MODE" \
+  -e UPDATE_REF="$UPDATE_REF" \
+  -e UPDATE_LABEL="$UPDATE_LABEL" \
+  -e UPDATE_CHANNEL="$UPDATE_CHANNEL" \
+  -e DEPLOY_HISTORY_FILE="$DEPLOY_HISTORY_FILE" \
   "$IMAGE_TAG" \
   "${HOST_REPO}/scripts/deploy-swap.sh" \
   || fail "Deployer konnte nicht gestartet werden – Details im Log" "$GIT_SHA"

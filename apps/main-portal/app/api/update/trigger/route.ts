@@ -1,27 +1,12 @@
-import { timingSafeEqual } from "node:crypto";
-import { spawn } from "node:child_process";
-import { writeFile } from "node:fs/promises";
-import path from "node:path";
 import { type NextRequest, NextResponse } from "next/server";
 import { denyUnlessAdmin, sessionUserForAudit } from "@/app/lib/api-guards";
 import { AUDIT_ACTIONS, recordAuditEvent } from "../../../lib/audit";
+import { readUpdateState } from "@/app/lib/update-state";
+import { startDeployRun, updateTokenAccepted, updateTokenRequired } from "@/app/lib/update-run";
 import { resolveUpdateTarget } from "@/app/lib/update-target";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-
-const STATUS_FILE = process.env.UPDATE_STATUS_FILE ?? "/data/update-status.json";
-
-function tokenRequired(): boolean {
-  return Boolean(process.env.UPDATE_TRIGGER_TOKEN);
-}
-
-function tokensMatch(provided: string, expected: string): boolean {
-  const providedBuf = Buffer.from(provided);
-  const expectedBuf = Buffer.from(expected);
-  if (providedBuf.length !== expectedBuf.length) return false;
-  return timingSafeEqual(providedBuf, expectedBuf);
-}
 
 /**
  * Lets the UI know whether the token field is needed, so it doesn't ask for a
@@ -32,7 +17,7 @@ export async function GET() {
   if (denied) return denied;
 
   return NextResponse.json(
-    { tokenRequired: tokenRequired() },
+    { tokenRequired: updateTokenRequired() },
     { headers: { "Cache-Control": "no-store" } },
   );
 }
@@ -52,34 +37,19 @@ export async function POST(request: NextRequest) {
   const denied = await denyUnlessAdmin();
   if (denied) return denied;
 
-  const expectedToken = process.env.UPDATE_TRIGGER_TOKEN;
-  if (expectedToken) {
-    const providedToken = request.headers.get("x-update-token") ?? "";
-    if (!providedToken || !tokensMatch(providedToken, expectedToken)) {
-      return NextResponse.json({ error: "Ungültiges Update-Token." }, { status: 401 });
-    }
+  if (!updateTokenAccepted(request.headers.get("x-update-token"))) {
+    return NextResponse.json({ error: "Ungültiges Update-Token." }, { status: 401 });
   }
 
-  // Write an initial "started" status synchronously BEFORE spawning the script,
-  // so the UI never briefly reads a stale "done" from a previous run and
-  // reports false success. Best-effort — the script overwrites it immediately.
-  try {
-    await writeFile(
-      STATUS_FILE,
-      JSON.stringify({
-        stage: "started",
-        ok: true,
-        done: false,
-        message: "Update wird gestartet",
-        updatedAt: new Date().toISOString(),
-      }),
+  // Two concurrent deploys would fight over the same checkout, image tag and
+  // status file. Same guard as the rollback endpoint, for the same reason.
+  const state = await readUpdateState();
+  if (state.status === "RUNNING") {
+    return NextResponse.json(
+      { error: "Es läuft bereits ein Update. Bitte abwarten." },
+      { status: 409 },
     );
-  } catch {
-    // /data not writable in some dev setups — the script handles status too.
   }
-
-  const scriptPath =
-    process.env.UPDATE_SCRIPT_PATH ?? path.resolve(process.cwd(), "..", "..", "scripts", "update.sh");
 
   // Which ref this instance's channel points at. Resolved HERE rather than in
   // the script: the channel lives in the database, and the script has no client.
@@ -97,13 +67,12 @@ export async function POST(request: NextRequest) {
     console.error("[update/trigger] audit", error);
   }
 
-  const child = spawn("sh", [scriptPath], {
-    detached: true,
-    stdio: "ignore",
-    // UPDATE_REF empty = follow the branch, exactly as before channels existed.
-    env: { ...process.env, UPDATE_REF: target.ref ?? "" },
+  await startDeployRun({
+    ref: target.ref,
+    label: target.label,
+    channel: target.channel,
+    mode: "update",
   });
-  child.unref();
 
   return NextResponse.json({ started: true }, { status: 202 });
 }
