@@ -27,6 +27,10 @@ async function main() {
   // cards and the mobile suite times out waiting for it to settle.
   await prisma.logFile.deleteMany();
   await prisma.ingestionKey.deleteMany();
+  // Vehicles first: log_files.vehicleId points at them, and although the
+  // relation is SetNull rather than Cascade, deleting in dependency order keeps
+  // the seed independent of that choice.
+  await prisma.vehicle.deleteMany();
   await prisma.auditLog.deleteMany();
   await prisma.user.deleteMany();
 

@@ -49,6 +49,13 @@ export interface NotificationSources {
     /** Whether any retention limit is switched on at all. */
     enabled: boolean;
   };
+  /**
+   * Meters with a reading interval set, and when they were last read.
+   *
+   * Phase 2 of § 7.2, and the reason it waited for this package: the interval is
+   * a column on the meter, so it needed the same migration as the vehicles.
+   */
+  meters: { id: string; name: string; intervalDays: number; lastReadingAt: string | null }[];
   /** Injected so the rules are testable without freezing the clock globally. */
   now: Date;
 }
@@ -146,6 +153,33 @@ export function buildNotifications(sources: NotificationSources): NotificationIt
         at: nowIso,
       });
     }
+  }
+
+  // 4) A meter is overdue for a reading.
+  //
+  // Unlike the jobs above this is a HUMAN task, so there is no grace factor:
+  // the interval is what the person asked to be reminded of, and doubling it
+  // silently would make a 30-day interval fire after 60. A meter with interval
+  // 0 has no reminder configured and is skipped entirely.
+  for (const meter of sources.meters) {
+    if (meter.intervalDays <= 0) continue;
+    const elapsed = hoursSince(meter.lastReadingAt, sources.now);
+    // Never read at all is not "overdue" — it is a meter someone just created.
+    // Nagging about it the moment it exists is how a bell loses its audience.
+    if (elapsed === null) continue;
+    const dueAfterHours = meter.intervalDays * 24;
+    if (elapsed <= dueAfterHours) continue;
+
+    items.push({
+      // Keyed by meter AND by the reading it is waiting on, so entering a
+      // reading ends this item and a later overdue period is a new one.
+      id: `reading:${meter.id}:${meter.lastReadingAt?.slice(0, 10)}`,
+      tone: "watch",
+      title: `Ablesung fällig: ${meter.name}`,
+      body: `Zuletzt vor ${formatHours(elapsed)} abgelesen, vorgesehen ist alle ${meter.intervalDays} Tage.`,
+      href: `/apps/zaehlwerk/zaehler/${meter.id}`,
+      at: nowIso,
+    });
   }
 
   return items;

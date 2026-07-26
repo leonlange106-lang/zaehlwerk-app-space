@@ -217,6 +217,23 @@ function CreateZaehlerForm({ locations }: { locations: LocationList }) {
             />
           )}
         </Field>
+        <Field
+          label="Ableseintervall (Tage)"
+          description="0 = keine Erinnerung. Sonst meldet die Glocke, wenn eine Ablesung überfällig ist."
+        >
+          {({ id, describedBy }) => (
+            <NumberInput
+              id={id}
+              aria-describedby={describedBy}
+              name="ableseIntervallTage"
+              data-testid="zaehler-interval"
+              min={0}
+              max={1825}
+              step={1}
+              defaultValue={0}
+            />
+          )}
+        </Field>
         {locations.length > 0 && (
           <Field label="Standort">
             {({ id }) => (

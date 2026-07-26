@@ -16,6 +16,16 @@ const optionalLocationId = z
 const MAX_METER_VALUE = 1_000_000_000;
 const MAX_COST = 10_000_000;
 
+// Ableseintervall in Tagen. 0 = keine Erinnerung (Default), sonst mindestens
+// ein Tag. Der Deckel liegt bei fünf Jahren — darüber ist es kein Intervall
+// mehr, sondern ein Tippfehler.
+const ableseIntervallField = z.coerce
+  .number()
+  .int()
+  .min(0)
+  .max(1825)
+  .optional();
+
 export const zaehlerCreateSchema = z.object({
   name: nameField,
   kategorie: z.enum(ENERGY_CATEGORIES),
@@ -23,6 +33,7 @@ export const zaehlerCreateSchema = z.object({
   locationId: optionalLocationId,
   farbe: z.string().trim().min(1).max(20).optional(),
   icon: z.string().trim().min(1).max(40).optional(),
+  ableseIntervallTage: ableseIntervallField,
 });
 
 export type ZaehlerCreateInput = z.infer<typeof zaehlerCreateSchema>;
@@ -33,6 +44,7 @@ export const zaehlerUpdateSchema = z.object({
   kategorie: z.enum(ENERGY_CATEGORIES),
   einheit: einheitField,
   locationId: optionalLocationId,
+  ableseIntervallTage: ableseIntervallField,
 });
 
 export type ZaehlerUpdateInput = z.infer<typeof zaehlerUpdateSchema>;
@@ -213,3 +225,21 @@ export const locationUpdateSchema = z.object({
 });
 
 export type LocationUpdateInput = z.infer<typeof locationUpdateSchema>;
+
+// --- Fahrzeuge (Log Analyzer) ---------------------------------------------
+//
+// Bewusst FLACH: geprüft wird hier nur, was ohne Fachwissen prüfbar ist — ein
+// Name ist da, die Herkunftsangabe ist eines von drei Wörtern. Ob 95 000 °C eine
+// Abgastemperatur sein kann und ob eine Masse eine Zahl ist, wissen die
+// Coercer der App (`coerceSpec`, `coerceDynoProfile`, `parseLimitOverrides`);
+// diese Regeln hier zu duplizieren hieße, zwei Wahrheiten über dieselbe Grenze
+// zu pflegen — und die eine driftet.
+export const vehicleInputSchema = z.object({
+  name: z.string().trim().min(1, "Ein Name ist nötig.").max(120),
+  spec: z.unknown(),
+  limitOverrides: z.unknown().optional(),
+  dynoProfile: z.unknown().nullish(),
+  profileOrigin: z.enum(["own", "preset", "imported"]).optional(),
+});
+
+export type VehicleInputSchema = z.infer<typeof vehicleInputSchema>;

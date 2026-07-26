@@ -147,6 +147,10 @@ export async function createZaehlerAction(
     kategorie: formData.get("kategorie"),
     einheit: formData.get("einheit"),
     locationId: formData.get("locationId"),
+    // Absent field → undefined → the schema's optional default, i.e. "no
+    // reminder". An empty string would fail `z.coerce.number()`, so the form's
+    // untouched state must not reach it as "".
+    ableseIntervallTage: formData.get("ableseIntervallTage") || undefined,
   });
 
   if (!parsed.success) {
@@ -176,6 +180,7 @@ export async function updateZaehlerAction(
     kategorie: formData.get("kategorie"),
     einheit: formData.get("einheit"),
     locationId: formData.get("locationId"),
+    ableseIntervallTage: formData.get("ableseIntervallTage") || undefined,
   });
 
   if (!parsed.success) {
