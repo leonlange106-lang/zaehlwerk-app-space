@@ -19,6 +19,30 @@ import { Alert, Code } from "@/app/components/ui/primitives";
 // — and they must not drift: this is the screen where a mistake costs someone
 // access to their account.
 
+/**
+ * The server's own clock, stated plainly.
+ *
+ * TOTP is an agreement between two clocks: when they differ by more than half a
+ * minute EVERY code is refused, and nothing else on screen hints at why. A
+ * container host whose time has drifted is the ordinary cause.
+ *
+ * Deliberately NOT compared against the browser here — `Date.now()` in render is
+ * impure and would differ between the server and client passes. The precise
+ * measurement belongs on the server anyway, and it happens there: a rejected
+ * code is re-checked across a wide window, and if it matches at an offset the
+ * error says how far the clock is out instead of blaming the code.
+ */
+function ServerClock({ iso }: { iso: string }) {
+  const parsed = Date.parse(iso);
+  if (!Number.isFinite(parsed)) return null;
+  return (
+    <p className="text-xs text-dim">
+      Serverzeit bei Ausgabe: {new Date(parsed).toLocaleString("de-DE")} — weicht sie deutlich von
+      der Uhr dieses Geräts ab, wird jeder Code abgelehnt, bis die Zeit auf dem Host stimmt (NTP).
+    </p>
+  );
+}
+
 export function TwoFactorEnrolment({
   setup,
   onSetupChange,
@@ -86,6 +110,11 @@ export function TwoFactorEnrolment({
           Konto: <strong className="text-ink">{setup.account}</strong> · Typ: zeitbasiert (TOTP),
           6 Stellen, 30 Sekunden
         </p>
+        {/* TOTP is a clock agreement. When the two clocks differ by more than
+            half a minute EVERY code is rejected, and nothing else on screen
+            hints at it — so the server's own time is stated here rather than
+            left to be discovered after five failed attempts. */}
+        <ServerClock iso={setup.serverTime} />
       </div>
 
       <PinInput
