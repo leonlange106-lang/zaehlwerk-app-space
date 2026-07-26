@@ -206,3 +206,22 @@ test.describe("Settings groups", () => {
     await expect(page).toHaveURL(/\/settings\/system$/);
   });
 });
+
+test.describe("Sign out", () => {
+  test("lands on /login on the SAME origin", async ({ page }) => {
+    // Regression: signing out sent people to http://0.0.0.0:3000/login — an
+    // address no browser can reach. `signOut({ callbackUrl })` makes the server
+    // resolve that path against its own base URL, and the container sets
+    // HOSTNAME=0.0.0.0 for Next's standalone bind address.
+    await page.goto("/");
+    const origin = new URL(page.url()).origin;
+
+    await page.getByRole("button", { name: "Benutzermenü" }).click();
+    await page.getByRole("menuitem", { name: "Abmelden" }).click();
+
+    await page.waitForURL((url) => url.pathname === "/login", { timeout: 15_000 });
+    // The origin is the assertion — a wrong host is exactly what broke, and a
+    // pathname check alone would have passed straight through it.
+    expect(new URL(page.url()).origin, "sign-out must not change the origin").toBe(origin);
+  });
+});

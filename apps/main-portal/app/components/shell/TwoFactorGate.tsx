@@ -2,13 +2,13 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { signOut } from "next-auth/react";
 import { IconAlertCircle, IconLogout, IconShieldLock } from "@tabler/icons-react";
 import { startTwoFactorSetup, type TwoFactorSetup } from "@/app/lib/two-factor-actions";
 import { TwoFactorEnrolment } from "@/app/components/TwoFactorEnrolment";
 import { Button } from "@/app/components/ui/Button";
 import { Panel } from "@/app/components/ui/Panel";
 import { Alert } from "@/app/components/ui/primitives";
+import { signOutToLogin } from "@/app/lib/sign-out";
 
 // The enrolment screen shown INSTEAD of the app when the instance requires a
 // second factor and this account has none.
@@ -73,7 +73,7 @@ export function TwoFactorGate({ email }: { email: string | null }) {
       </Panel>
 
       <div className="flex justify-center">
-        <Button variant="ghost" size="sm" onClick={() => void signOut({ callbackUrl: "/login" })}>
+        <Button variant="ghost" size="sm" onClick={() => void signOutToLogin()}>
           <IconLogout size={15} />
           Abmelden
         </Button>
