@@ -7,7 +7,7 @@ import type { ActionState } from "./action-state";
 import { getSessionUser } from "./auth-helpers";
 import { decryptSecret, encryptSecret } from "./crypto";
 import { getEnforceTwoFactor } from "./settings";
-import { generateTotpSecret, otpauthUri, verifyTotp } from "./totp";
+import { generateTotpSecret, otpauthUri, totpDriftSeconds, verifyTotp } from "./totp";
 
 export type TwoFactorSetup = {
   secret: string;
@@ -16,6 +16,13 @@ export type TwoFactorSetup = {
   account: string;
   /** True when this is a key that was already handed out earlier. */
   resumed: boolean;
+  /**
+   * The server's own clock, ISO. Shown in the UI because TOTP fails silently and
+   * completely when the two clocks disagree, and a drifted container host is the
+   * common cause — visible up front, it is a five-second diagnosis instead of a
+   * loop of re-scanning.
+   */
+  serverTime: string;
 };
 
 /**
@@ -82,7 +89,16 @@ export async function startTwoFactorSetup(): Promise<
       margin: 1,
       width: 220,
     });
-    return { success: true, setup: { secret, qrDataUrl, account: user.email, resumed } };
+    return {
+      success: true,
+      setup: {
+        secret,
+        qrDataUrl,
+        account: user.email,
+        resumed,
+        serverTime: new Date().toISOString(),
+      },
+    };
   } catch (error) {
     console.error("[startTwoFactorSetup]", error);
     return { success: false, error: "2FA-Einrichtung konnte nicht gestartet werden." };
@@ -120,7 +136,16 @@ export async function regenerateTwoFactorSecret(): Promise<
       margin: 1,
       width: 220,
     });
-    return { success: true, setup: { secret, qrDataUrl, account: user.email, resumed: false } };
+    return {
+      success: true,
+      setup: {
+        secret,
+        qrDataUrl,
+        account: user.email,
+        resumed: false,
+        serverTime: new Date().toISOString(),
+      },
+    };
   } catch (error) {
     console.error("[regenerateTwoFactorSecret]", error);
     return { success: false, error: "Neuer Schlüssel konnte nicht erzeugt werden." };
@@ -148,6 +173,24 @@ export async function confirmTwoFactor(code: string): Promise<ActionState> {
   }
 
   if (!verifyTotp(secret, code)) {
+    // Look again with a wide window before blaming the user. If the code lands
+    // at an offset, their authenticator is right and this server's clock is
+    // wrong — every code will fail until the host's time is fixed, and no amount
+    // of re-scanning will help. Saying so is the difference between a five-minute
+    // fix and an afternoon.
+    const drift = totpDriftSeconds(secret, code);
+    if (drift !== null && drift !== 0) {
+      const minutes = Math.round(Math.abs(drift) / 60);
+      const amount = minutes >= 1 ? `${minutes} Minute(n)` : `${Math.abs(drift)} Sekunden`;
+      const direction = drift > 0 ? "nach" : "vor";
+      return {
+        success: false,
+        error:
+          `Der Code stimmt, aber die Uhr dieses Servers geht ${amount} ${direction}. ` +
+          `Serverzeit: ${new Date().toLocaleString("de-DE")}. ` +
+          "Zeitsynchronisierung auf dem Host einrichten (NTP), danach klappt die Einrichtung sofort.",
+      };
+    }
     return { success: false, error: "Code ist ungültig. Bitte erneut versuchen." };
   }
 
