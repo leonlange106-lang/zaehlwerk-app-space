@@ -19,6 +19,7 @@ coverage/
 **/e2e/.shots-results/
 **/playwright-report/
 **/test-results/
+**/e2e/.test-results-smoke/
 
 # Local machine-specific settings, not shared with the team
 .claude/settings.local.json
