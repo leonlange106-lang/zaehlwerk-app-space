@@ -34,6 +34,14 @@ import { setUpdateChannelAction } from "@/app/lib/update-channel-actions";
 // into sub-pages. It is by far the largest card — progress stepper, live SSE log,
 // channel switch — and it now sits on /settings/system with the version history.
 
+/** "4 min 12 s" — coarse on purpose; nobody is timing this to the second. */
+function formatElapsed(seconds: number): string {
+  if (seconds < 60) return `${seconds} s`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return rest ? `${minutes} min ${rest} s` : `${minutes} min`;
+}
+
 const dateFormatter = new Intl.DateTimeFormat("de-DE", {
   day: "2-digit",
   month: "2-digit",
@@ -111,7 +119,21 @@ function UpdateProgress({ state, failIndex }: { state: UpdateState; failIndex: n
       </div>
       {state.status === "RUNNING" && (
         <div className="flex flex-col gap-1">
-          <p className="text-xs text-dim">{state.message || "…"}</p>
+          <p className="text-xs text-dim">
+            {state.message || "…"}
+            {/* Elapsed time, not an estimate. The Docker build is most of the
+                wait, so any "time remaining" would be a number we cannot stand
+                behind — how long it HAS taken is something we know exactly, and
+                it is what tells someone whether this looks normal. */}
+            {state.elapsedSeconds !== null && (
+              <>
+                {" · seit "}
+                <strong className="text-ink" data-testid="update-elapsed">
+                  {formatElapsed(state.elapsedSeconds)}
+                </strong>
+              </>
+            )}
+          </p>
           {/* The build is the phase that takes minutes. Without its own step
               count the bar sits still and the whole thing looks hung. */}
           {state.buildStep && (

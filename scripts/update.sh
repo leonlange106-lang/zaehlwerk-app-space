@@ -69,11 +69,24 @@ fi
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 log_now() { date +'%Y-%m-%d %H:%M:%S %Z'; }
 
+# When this run began. Stamped into EVERY status line, not just the first, so
+# elapsed time survives what happens next: the container is recreated mid-update
+# and the server's memory goes with it. The status file on /data is the only
+# state that persists, so anything the UI must still know afterwards has to live
+# in it — the same lesson as the old updater that hung on "building".
+STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
 # Machine-readable progress for GET /api/update/status → the UI.
 # Args: <stage> <ok:true|false> <done:true|false> <message> [error] [targetSha]
+#
+# `mode` travels with every write because a rollback does NOT do the same four
+# things an update does: it deliberately skips the migration. Without it the
+# stepper ticked off "Datenbank migriert" for a step that never ran, which is
+# worse than a vague display — it is wrong about the one step whose behaviour
+# matters most here.
 write_status() {
-  printf '{"stage":"%s","ok":%s,"done":%s,"message":"%s","error":"%s","targetSha":"%s","updatedAt":"%s"}\n' \
-    "$1" "$2" "$3" "$4" "${5:-}" "${6:-}" "$(now)" >"$STATUS_FILE" 2>/dev/null || true
+  printf '{"stage":"%s","ok":%s,"done":%s,"message":"%s","error":"%s","targetSha":"%s","mode":"%s","startedAt":"%s","updatedAt":"%s"}\n' \
+    "$1" "$2" "$3" "$4" "${5:-}" "${6:-}" "$UPDATE_MODE" "$STARTED_AT" "$(now)" >"$STATUS_FILE" 2>/dev/null || true
 }
 
 fail() {
@@ -271,6 +284,7 @@ docker run -d --rm --name zaehlwerk-deployer \
   -e UPDATE_LOG_FILE="$LOG_FILE" \
   -e GIT_SHA="$GIT_SHA" \
   -e UPDATE_MODE="$UPDATE_MODE" \
+  -e UPDATE_STARTED_AT="$STARTED_AT" \
   -e UPDATE_REF="$UPDATE_REF" \
   -e UPDATE_LABEL="$UPDATE_LABEL" \
   -e UPDATE_CHANNEL="$UPDATE_CHANNEL" \

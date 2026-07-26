@@ -89,3 +89,76 @@ describe("updateStateKey — change detection", () => {
     expect(updateStateKey(IDLE_UPDATE_STATE)).toBe(updateStateKey(normalizeUpdateState(null, "")));
   });
 });
+
+describe("rollback is not an update with a different name", () => {
+  it("names the steps for what a rollback actually does", () => {
+    // A rollback deliberately SKIPS the migration — `prisma db push` handed an
+    // older schema wants to drop the newer version's columns. The stepper used
+    // to tick off "Datenbank migriert" and show a green check for a step that
+    // never ran, which is wrong about precisely the step people need to
+    // understand before pressing the button.
+    const rollback = normalizeUpdateState({ stage: "migrating", mode: "rollback" });
+    expect(rollback.isRollback).toBe(true);
+    expect(rollback.steps[2]).toBe("Datenbank bleibt unverändert");
+    expect(rollback.step).toBe("Datenbank bleibt unverändert");
+  });
+
+  it("keeps the ordinary labels for a forward update", () => {
+    const update = normalizeUpdateState({ stage: "migrating", mode: "update" });
+    expect(update.isRollback).toBe(false);
+    expect(update.steps).toEqual([...UPDATE_STEPS]);
+    expect(update.step).toBe("Datenbank migriert");
+  });
+
+  it("treats a status file without a mode as a forward update", () => {
+    // Written by a version that predates the field — it must not read as a
+    // rollback, which is the more surprising of the two.
+    const legacy = normalizeUpdateState({ stage: "building" });
+    expect(legacy.isRollback).toBe(false);
+    expect(legacy.steps).toEqual([...UPDATE_STEPS]);
+  });
+
+  it("keeps the same number of steps, so progress arithmetic is unchanged", () => {
+    const a = normalizeUpdateState({ stage: "building", mode: "rollback" });
+    const b = normalizeUpdateState({ stage: "building", mode: "update" });
+    expect(a.steps).toHaveLength(b.steps.length);
+    expect(a.progress).toBe(b.progress);
+  });
+});
+
+describe("elapsed time", () => {
+  it("is the difference between the file's own two timestamps", () => {
+    // Measured from the STATUS FILE, never against the reader's clock: the
+    // container is recreated mid-update and the browser may be in another
+    // timezone or simply wrong. Both stamps come from the same `date -u`.
+    const state = normalizeUpdateState({
+      stage: "building",
+      startedAt: "2026-07-26T12:00:00Z",
+      updatedAt: "2026-07-26T12:04:12Z",
+    });
+    expect(state.elapsedSeconds).toBe(252);
+    expect(state.startedAt).toBe("2026-07-26T12:00:00Z");
+  });
+
+  it("is null when the status file does not carry a start", () => {
+    expect(normalizeUpdateState({ stage: "building", updatedAt: "2026-07-26T12:00:00Z" }).elapsedSeconds).toBeNull();
+  });
+
+  it("refuses a negative duration rather than showing one", () => {
+    // A clock stepped backwards mid-run (NTP correcting a drifted host) would
+    // otherwise render as "-3 min", which reads as a bug in the updater.
+    const state = normalizeUpdateState({
+      stage: "building",
+      startedAt: "2026-07-26T12:05:00Z",
+      updatedAt: "2026-07-26T12:00:00Z",
+    });
+    expect(state.elapsedSeconds).toBeNull();
+  });
+
+  it("survives an unparseable timestamp", () => {
+    expect(
+      normalizeUpdateState({ stage: "building", startedAt: "gestern", updatedAt: "heute" })
+        .elapsedSeconds,
+    ).toBeNull();
+  });
+});

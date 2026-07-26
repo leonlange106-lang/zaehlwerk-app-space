@@ -510,7 +510,7 @@ mehrere Update-Runden für eine Sache.
 **Reihenfolge:** A → B → C → D → 🏁 **v3.0.0** → E → F → G → H → I → J
 
 **Stand 2026-07-26:** B und D sind ausgeklammert (reine Betriebsarbeit bzw. Folge
-von C). E ist umgesetzt; F–J stehen aus.
+von C). E und F sind umgesetzt; G–J stehen aus.
 
 ---
 
@@ -619,7 +619,7 @@ kommen aus einem Live-Aufruf der GitHub-API — pro Tastendruck ein
 Netzwerk-Roundtrip, und eine Suche, die ausfällt, wenn GitHub langsam ist. Die
 Changelog-Seite hat ihre eigene Suche; der Index verweist nur auf sie.
 
-#### Paket F — Zustand sichtbar machen
+#### Paket F — Zustand sichtbar machen ✅ v3.2.0-beta.1
 
 - § 7.1 Update-Fortschritt mit echten Einzelschritten
 - § 7.2 Benachrichtigungs-Drawer, **Phase 1**: Update verfügbar, Backup
@@ -628,7 +628,48 @@ Changelog-Seite hat ihre eigene Suche; der Index verweist nur auf sie.
 *Zusammen, weil beide vom selben Update-Status und derselben SSE-Leitung leben —
 und die Glocke ohne einen ersten echten Anlass leer bliebe.*
 **Bewusst nicht hier:** fällige Ablesungen brauchen ein Ableseintervall am
-Zähler, also eine Schemaänderung → Paket G.
+Zähler, also eine Schemaänderung → Paket G. Eingehalten: Paket F kommt ohne
+Schemaänderung aus — die Lesemarken liegen im vorhandenen `Setting`-Store.
+
+**Zu § 7.1: die Beschreibung oben war überholt.** Sie nennt „gut zwanzig
+nummerierte Abschnitte" in `update.sh` — tatsächlich sind es **vier**, und der
+Kern der Beschwerde („der Balken springt minutenlang nicht") war bereits in
+v3.0.0-beta mit den echten BuildKit-Schritten behoben: der Build, also rund 80 %
+der Wartezeit, hat seit dem eigene Unterschritte. Zwanzig Stufen zu erfinden,
+nur damit die Liste länger aussieht, hätte den Fortschritt nicht ehrlicher
+gemacht. Behoben wurde stattdessen, was wirklich falsch war:
+
+- **Der Stepper hat bei einem Rollback gelogen.** Er hakte „Datenbank migriert"
+  mit grünem Haken ab — obwohl ein Rollback die Migration bewusst überspringt
+  (ein älteres Schema würde `prisma db push` dazu bringen, Spalten zu löschen).
+  Ausgerechnet der Schritt, dessen Verhalten man vor dem Knopfdruck verstehen
+  muss, war der einzige falsch beschriftete. `mode` steht jetzt in jeder
+  Statuszeile, und ein Rollback zeigt „Datenbank bleibt unverändert".
+- **Keine verstrichene Zeit.** Jetzt „seit 4 min 12 s", berechnet aus den zwei
+  Zeitstempeln der Statusdatei selbst — nie gegen die Uhr des Lesers, denn der
+  Container wird mitten im Update neu erstellt. Eine *Rest*zeit wird bewusst
+  nicht versprochen: der Docker-Build ist der größte Teil der Wartezeit, jede
+  Schätzung wäre eine Zahl, für die niemand geradestehen kann.
+
+**Zu § 7.2.** Die Glocke war ein Knopf mit `aria-label` und ohne Handler. Sie
+meldet jetzt: verfügbares Update, überfälliges/nie gelaufenes automatisches
+Backup, überfällige Wartung. Alles **abgeleitet** aus Zuständen, die die
+Plattform ohnehin führt — es wird keine Benachrichtigungszeile geschrieben, ein
+Eintrag verschwindet also, wenn seine Ursache verschwindet. Persistiert wird nur,
+was gelesen wurde.
+
+**Nicht offensichtlich, und der Grund für die Id-Regeln:** Eine Lesemarke zeigt
+auf eine Id. Eine Id aus einem rohen Zeitstempel taucht eine Minute nach dem
+Wegklicken wieder als ungelesen auf; eine Id ohne Version bedeutet, dass
+„3.1.0 verfügbar" wegzuklicken auch 3.2.0 verstummen lässt. Deshalb: Update-Id
+trägt die Version, Backup-Id ist auf den Tag gerundet. Lesemarken sind **Ids,
+keine Wasserstandslinie** — eine Linie würde alles Ältere als gelesen markieren,
+auch eine ernstere Bedingung, die zufällig früher beobachtet wurde.
+
+**Was bewusst nicht gemeldet wird:** ein *abgeschaltetes* automatisches Backup
+und eine nicht konfigurierte Aufbewahrung. Das sind Entscheidungen, keine Fehler
+— sie zu melden erzieht dazu, die Glocke zu ignorieren, und das kostet die
+Meldungen, auf die es ankommt.
 
 #### Paket G — Fahrzeuge als echte Daten 🔵 Schemaänderung
 
@@ -709,6 +750,7 @@ decken den Fall möglicherweise schon ab.*
 | Scrubben auf dem Handy (§ 2.1 ff.) | ✅ v3.0.0-beta.3 |
 | 2FA-Login-Hotfix (Cookie-Flag + PIN-Vollständigkeit) | ✅ v3.0.0-beta.12 |
 | Navigation & Auffindbarkeit (Paket E) | ✅ v3.1.0-beta.1 |
+| Zustand sichtbar machen (Paket F) | ✅ v3.2.0-beta.1 |
 | Animationen (§ 8) | ✅ v3.0.0-beta.3 |
 
 **Offen aus § 3, aber nicht paketiert:** der GitHub-Aufbau mit `next` als
