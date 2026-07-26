@@ -15,6 +15,7 @@ function sources(patch: Partial<NotificationSources> = {}): NotificationSources 
     backup: { autoEnabled: false, intervalHours: 24, lastRunAt: null },
     maintenance: { lastRunAt: null, enabled: false },
     meters: [],
+    ingestion: { expectedWithinHours: 0, lastIngestAt: null },
     now: NOW,
     ...patch,
   };
@@ -255,6 +256,56 @@ describe("readings due", () => {
       sources({ meters: [meter(), meter({ id: "m2", name: "Gas" })] }),
     );
     expect(items).toHaveLength(2);
+  });
+});
+
+describe("ingestion gone quiet", () => {
+  it("says nothing when no expectation is configured", () => {
+    // The normal state for an instance that uploads by hand. Telling it that
+    // its imports stopped would be telling it about something it never had.
+    expect(
+      buildNotifications(
+        sources({ ingestion: { expectedWithinHours: 0, lastIngestAt: null } }),
+      ),
+    ).toEqual([]);
+  });
+
+  it("reports an expectation that has never been met", () => {
+    const items = buildNotifications(
+      sources({ ingestion: { expectedWithinHours: 24, lastIngestAt: null } }),
+    );
+    expect(items).toHaveLength(1);
+    expect(items[0].id).toBe("ingestion:never");
+    expect(items[0].href).toBe("/settings/integrationen");
+  });
+
+  it("stays quiet while imports keep arriving", () => {
+    expect(
+      buildNotifications(
+        sources({
+          ingestion: {
+            expectedWithinHours: 24,
+            lastIngestAt: new Date(NOW.getTime() - 3 * 60 * 60 * 1000).toISOString(),
+          },
+        }),
+      ),
+    ).toEqual([]);
+  });
+
+  it("reports the silence once the window has passed", () => {
+    // This is the answer to § 6.4: a push path fails silently, and the one real
+    // advantage a crawler had was that you did not have to remember.
+    const items = buildNotifications(
+      sources({
+        ingestion: {
+          expectedWithinHours: 24,
+          lastIngestAt: new Date(NOW.getTime() - 72 * 60 * 60 * 1000).toISOString(),
+        },
+      }),
+    );
+    expect(items).toHaveLength(1);
+    expect(items[0].title).toContain("verstummt");
+    expect(items[0].body).toContain("3 Tagen");
   });
 });
 

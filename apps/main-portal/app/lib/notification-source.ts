@@ -80,7 +80,7 @@ export async function listNotifications(
   userId: string,
   { allowedAppIds }: { allowedAppIds: string[] } = { allowedAppIds: [] },
 ): Promise<{ items: NotificationItem[]; unread: number }> {
-  const [update, backup, retention, readIds, meters] = await Promise.all([
+  const [update, backup, retention, readIds, meters, ingestion] = await Promise.all([
     checkUpdate(),
     getBackupPolicy(),
     getLogRetentionPolicy(),
@@ -89,6 +89,9 @@ export async function listNotifications(
     // Zählwerk app would tell it that meter exists — the same information leak
     // the search route guards against, arriving through the bell instead.
     allowedAppIds.includes("zaehlwerk") ? dueReadingSources() : Promise.resolve([]),
+    allowedAppIds.includes("log-analyzer")
+      ? ingestionSource()
+      : Promise.resolve({ expectedWithinHours: 0, lastIngestAt: null }),
   ]);
 
   const items = sortNotifications(
@@ -106,6 +109,7 @@ export async function listNotifications(
         enabled: retention.retentionDays > 0 || retention.maxCount > 0,
       },
       meters,
+      ingestion,
       now: new Date(),
     }),
   );
@@ -138,6 +142,34 @@ async function dueReadingSources(): Promise<
     intervalDays: row.ableseIntervallTage,
     lastReadingAt: row.ablesungen[0]?.datum.toISOString() ?? null,
   }));
+}
+
+/**
+ * When did an automated import last land, and how often is one expected?
+ *
+ * The expectation is opt-in (`logs.ingestExpectedHours`, 0 = off) for the same
+ * reason every other limit here is: an instance that uploads by hand must not be
+ * told its imports stopped. "Automated" is `source != "upload"` — the column the
+ * ingestion path already sets.
+ */
+async function ingestionSource(): Promise<{
+  expectedWithinHours: number;
+  lastIngestAt: string | null;
+}> {
+  const [setting, latest] = await Promise.all([
+    prisma.setting.findUnique({ where: { key: "logs.ingestExpectedHours" } }),
+    prisma.logFile.findFirst({
+      where: { source: { not: "upload" } },
+      orderBy: { createdAt: "desc" },
+      // Never select `csv` — the largest column in the database, for a timestamp.
+      select: { createdAt: true },
+    }),
+  ]);
+  const hours = Number.parseInt(setting?.value ?? "0", 10);
+  return {
+    expectedWithinHours: Number.isFinite(hours) && hours > 0 ? hours : 0,
+    lastIngestAt: latest?.createdAt.toISOString() ?? null,
+  };
 }
 
 async function readMaintenanceRun(): Promise<string | null> {

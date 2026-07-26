@@ -56,6 +56,18 @@ export interface NotificationSources {
    * a column on the meter, so it needed the same migration as the vehicles.
    */
   meters: { id: string; name: string; intervalDays: number; lastReadingAt: string | null }[];
+  /**
+   * Automated log ingestion: is anything still arriving?
+   *
+   * The conclusion of § 6.4 was that a crawler is not worth a stored foreign
+   * password and an integration that breaks silently. But a PUSH path fails
+   * silently too — the difference is that we can notice. Someone who believes
+   * their logs arrive by themselves does not go and check; this is the check.
+   *
+   * `expectedWithinHours` is 0 when nothing is configured, which is the normal
+   * state for an instance that uploads by hand.
+   */
+  ingestion: { expectedWithinHours: number; lastIngestAt: string | null };
   /** Injected so the rules are testable without freezing the clock globally. */
   now: Date;
 }
@@ -180,6 +192,35 @@ export function buildNotifications(sources: NotificationSources): NotificationIt
       href: `/apps/zaehlwerk/zaehler/${meter.id}`,
       at: nowIso,
     });
+  }
+
+  // 5) Automated ingestion has gone quiet.
+  //
+  // Only when someone declared an expectation — an instance that uploads by hand
+  // has nothing to be quiet about. This is the answer to § 6.4: the one real
+  // advantage a crawler had was "you do not have to remember", and noticing the
+  // silence buys that without storing anyone's foreign password.
+  if (sources.ingestion.expectedWithinHours > 0) {
+    const elapsed = hoursSince(sources.ingestion.lastIngestAt, sources.now);
+    if (elapsed === null) {
+      items.push({
+        id: "ingestion:never",
+        tone: "watch",
+        title: "Noch kein automatischer Log-Import",
+        body: "Es wird ein automatischer Import erwartet, aber es ist noch nie einer angekommen. Schlüssel, Watch-Ordner oder das sendende Skript prüfen.",
+        href: "/settings/integrationen",
+        at: nowIso,
+      });
+    } else if (elapsed > sources.ingestion.expectedWithinHours) {
+      items.push({
+        id: `ingestion:silent:${sources.ingestion.lastIngestAt?.slice(0, 10)}`,
+        tone: "watch",
+        title: "Automatischer Log-Import ist verstummt",
+        body: `Der letzte automatische Import liegt ${formatHours(elapsed)} zurück, erwartet wird spätestens alle ${sources.ingestion.expectedWithinHours} Stunden.`,
+        href: "/settings/integrationen",
+        at: nowIso,
+      });
+    }
   }
 
   return items;
