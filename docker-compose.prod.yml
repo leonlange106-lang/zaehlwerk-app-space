@@ -27,7 +27,15 @@ services:
     container_name: zaehlwerk-main-portal
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      # Bind-Adresse als Variable, damit der riskante Teil der Absicherung eine
+      # .env-Zeile ist und kein Datei-Edit: `APP_BIND=127.0.0.1` nimmt die App
+      # aus dem LAN, ohne dass Caddy sie verliert (der geht über das Compose-Netz
+      # an `main-portal:3000`, nicht über diesen Port). Default bleibt bewusst
+      # offen — wer die Datei zieht, ohne Caddy zu betreiben, sperrt sich sonst
+      # beim naechsten `up -d` selbst aus.
+      #
+      # Zurueckdrehen ist eine Zeile: APP_BIND entfernen, `up -d`.
+      - "${APP_BIND:-0.0.0.0}:3000:3000"
     environment:
       NODE_ENV: production
       # Display timezone for everything the server renders (log timestamps, dates
@@ -129,5 +137,30 @@ services:
       - zaehlwerk-db:/data
     command: ["sh", "-c", "cd packages/database && pnpm db:push"]
 
+  # TLS-Terminierung. Erst hinter HTTPS laeuft das Session-Cookie nicht mehr im
+  # Klartext durchs LAN — und `secure`-Cookies (2FA-Challenge) funktionieren
+  # ueberhaupt. Siehe Caddyfile und DEPLOYMENT.md.
+  caddy:
+    image: caddy:2-alpine
+    container_name: zaehlwerk-caddy
+    restart: unless-stopped
+    depends_on:
+      - main-portal
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      # Der Name, unter dem die App im LAN erreichbar sein soll. Muss im Netz
+      # aufloesen (Router-DNS-Eintrag oder hosts-Datei) — sonst kommt niemand an.
+      ZW_HOSTNAME: ${ZW_HOSTNAME:?set ZW_HOSTNAME in .env, z.B. zaehlwerk.fritz.box}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # ENTHAELT DIE LOKALE CA. Geht das Volume verloren, erzeugt Caddy eine neue
+      # und jedes Geraet muss erneut vertrauen. Gehoert ins Backup.
+      - caddy-data:/data
+      - caddy-config:/config
+
 volumes:
   zaehlwerk-db:
+  caddy-data:
+  caddy-config:
