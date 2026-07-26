@@ -6,6 +6,7 @@ import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as Popover from "@radix-ui/react-popover";
 import {
   IconAlertCircle,
+  IconInfoCircle,
   IconDotsVertical,
   IconKey,
   IconTrash,
@@ -283,10 +284,24 @@ export function UserManagementCard({
       </TableScroll>
 
       <h3 className="mb-1 text-[13px] font-semibold">Neuen Benutzer anlegen</h3>
-      <p className="mb-4 text-xs text-dim">
+      <p className="mb-2 text-xs text-dim">
         Kein Passwort nötig: Der Account wird mit einem Temp-Passwort angelegt. Beim ersten Login
         (nur mit E-Mail) vergibt der Benutzer selbst ein Passwort, bevor er die App nutzen kann.
       </p>
+      {/* Der haeufigste Stolperstein beim Einladen, und er sieht nicht wie ein
+          Zugangsproblem aus: ueber die LAN-Adresse warnt der Browser vor dem
+          Zertifikat, und in einem iframe laedt gar nichts, ohne dass etwas
+          dasteht. Ueber die oeffentliche Adresse gibt es das Problem nicht —
+          deshalb steht hier, welche Adresse man weitergibt, nicht nur dass es
+          eine Huerde gibt. */}
+      <Alert icon={<IconInfoCircle size={16} />} className="mb-4">
+        <strong className="text-ink">Welche Adresse du weitergibst, macht einen Unterschied.</strong>{" "}
+        Über die öffentliche Adresse (Cloudflare) ist nichts weiter nötig — das Zertifikat ist
+        überall gültig. Wer die App über die lokale Adresse im Heimnetz aufruft, muss dagegen
+        einmalig das Zertifikat der Instanz installieren, sonst warnt der Browser bei jedem Aufruf
+        und die Installation als App wird verweigert. Die Datei liegt unter{" "}
+        <code className="readout">/caddy-root.crt</code> auf der lokalen Adresse.
+      </Alert>
       <form action={createFormAction} ref={formRef} className="flex flex-col gap-4">
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="E-Mail" required>
