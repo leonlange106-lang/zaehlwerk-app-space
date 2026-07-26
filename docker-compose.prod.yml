@@ -96,6 +96,21 @@ services:
       # then remove the variable again. Needing host access to use it is the
       # point.
       DISABLE_2FA_ENFORCEMENT: ${DISABLE_2FA_ENFORCEMENT:-}
+      # Zugriffszahlen im Admin-Bereich. LAUFZEIT-Variablen, keine Build-Args:
+      # sie werden bei jeder Abfrage gelesen, ein Wechsel des Tokens braucht also
+      # keinen Rebuild — anders als FRAME_ANCESTORS, das in die ausgelieferte
+      # Policy eingebacken wird.
+      #
+      # Sie MUESSEN hier stehen. Ein Eintrag allein in der .env erreicht den
+      # Container nicht: compose liest die Datei nur, um ${...} zu ersetzen. Ohne
+      # diese drei Zeilen meldet der Bereich "noch nicht eingerichtet", egal was
+      # in der .env steht.
+      #
+      # Eigener Token mit `Analytics: Read` auf der Zone — der Tunnel-Token kann
+      # nur Tunnel, und mehr als Lesen hat hier nichts zu suchen.
+      CLOUDFLARE_ANALYTICS_TOKEN: ${CLOUDFLARE_ANALYTICS_TOKEN:-}
+      CLOUDFLARE_ZONE_ID: ${CLOUDFLARE_ZONE_ID:-}
+      CLOUDFLARE_ZONE_NAME: ${CLOUDFLARE_ZONE_NAME:-}
     volumes:
       # Persists the SQLite database across container recreations.
       - zaehlwerk-db:/data
