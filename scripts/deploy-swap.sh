@@ -12,6 +12,11 @@ set -u
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
 LOG_FILE="${UPDATE_LOG_FILE:-/data/update.log}"
 STATUS_FILE="${UPDATE_STATUS_FILE:-/data/update-status.json}"
+HISTORY_FILE="${DEPLOY_HISTORY_FILE:-/data/deploy-history.jsonl}"
+UPDATE_MODE="${UPDATE_MODE:-update}"
+UPDATE_REF="${UPDATE_REF:-}"
+UPDATE_LABEL="${UPDATE_LABEL:-}"
+UPDATE_CHANNEL="${UPDATE_CHANNEL:-stable}"
 export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-zaehlwerk}"
 
 # Append (never truncate) so the live log keeps the whole story across the swap.
@@ -21,6 +26,23 @@ now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 write_status() {
   printf '{"stage":"%s","ok":%s,"done":%s,"message":"%s","error":"%s","targetSha":"%s","updatedAt":"%s"}\n' \
     "$1" "$2" "$3" "$4" "${5:-}" "${6:-}" "$(now)" >"$STATUS_FILE" 2>/dev/null || true
+}
+
+# Append one JSON Lines record of what just went live. This is the list the
+# rollback UI offers, so it is written HERE — at the only moment we know the swap
+# actually succeeded, from the one container that survives it.
+#
+# Appended, never rewritten: a read-modify-write on a JSON array would have to be
+# done by this `sh` with no jq available, on the one file that must outlive the
+# deploy. A torn append costs a single line, which the parser skips.
+#
+# The label is sanitised app-side (see sanitizeDeployLabel) because printf does
+# no escaping — quotes or a newline here would corrupt the record.
+record_deploy() {
+  [ -n "${GIT_SHA:-}" ] || return 0
+  printf '{"at":"%s","sha":"%s","ref":"%s","label":"%s","channel":"%s","mode":"%s"}\n' \
+    "$(now)" "$GIT_SHA" "$UPDATE_REF" "$UPDATE_LABEL" "$UPDATE_CHANNEL" "$UPDATE_MODE" \
+    >>"$HISTORY_FILE" 2>/dev/null || true
 }
 
 echo "[deploy] $(now) recreating main-portal (compose up -d --no-build)"
@@ -37,7 +59,12 @@ echo "[deploy] repo dir: $REPO_DIR"
 # --no-build: the image was already built in update.sh; this is just the swap.
 if docker compose -f "$COMPOSE_FILE" up -d --no-build; then
   echo "[deploy] swap complete $(now)"
-  write_status done true true "Update abgeschlossen" "" "${GIT_SHA:-}"
+  record_deploy
+  if [ "$UPDATE_MODE" = "rollback" ]; then
+    write_status done true true "Rollback abgeschlossen" "" "${GIT_SHA:-}"
+  else
+    write_status done true true "Update abgeschlossen" "" "${GIT_SHA:-}"
+  fi
 else
   echo "[deploy] swap FAILED $(now)"
   write_status failed false true "Neustart fehlgeschlagen – Details im Log" "" "${GIT_SHA:-}"

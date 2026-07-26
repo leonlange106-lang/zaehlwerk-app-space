@@ -9,6 +9,11 @@ import { prisma } from "@zaehlwerk/database";
 
 export const AUDIT_ACTIONS = {
   systemUpdate: "system.update",
+  // Its own action, not a flavour of system.update: a rollback deploys code that
+  // was already superseded and deliberately skips the schema migration, so "who
+  // put this instance back on an old build, and when" has to be answerable
+  // without parsing free text out of the update entries.
+  systemRollback: "system.rollback",
   userCreate: "user.create",
   userDelete: "user.delete",
   userRole: "user.role",

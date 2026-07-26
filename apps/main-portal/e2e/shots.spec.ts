@@ -18,6 +18,12 @@ interface Shot {
   ready?: (page: Page) => Promise<void>;
   /** Extra interaction before the shot (open a dialog, load a log, …). */
   setup?: (page: Page) => Promise<void>;
+  /**
+   * Capture just this `data-testid` instead of the whole page. For one card on
+   * a long screen — the settings page is over 13000px tall on a phone, so a
+   * full-page shot of it shows a component at postage-stamp size.
+   */
+  element?: string;
 }
 
 const SAMPLE_BUTTON = "Beispiel laden";
@@ -99,6 +105,26 @@ const SHOTS: Shot[] = [
     ready: (page) => expect(page.getByRole("heading", { name: "Changelog" })).toBeVisible(),
   },
   {
+    slug: "16-version-rollback",
+    url: "/settings",
+    element: "version-history",
+    // Wait for the LIST, not the card. The card paints immediately with skeleton
+    // rows (it reserves its geometry), so anything that also matches the loading
+    // state resolves at once and captures placeholders.
+    ready: (page) => expect(page.getByTestId("version-list")).toBeVisible({ timeout: 30_000 }),
+  },
+  {
+    slug: "17-version-rollback-dialog",
+    url: "/settings",
+    element: "rollback-confirm",
+    ready: (page) => expect(page.getByTestId("version-list")).toBeVisible({ timeout: 30_000 }),
+    setup: async (page) => {
+      await page.getByTestId("rollback-select").first().click();
+      await expect(page.getByTestId("rollback-confirm")).toBeVisible();
+      await page.waitForTimeout(400);
+    },
+  },
+  {
     slug: "15-menue",
     url: "/apps/zaehlwerk",
     setup: async (page) => {
@@ -133,7 +159,7 @@ for (const shot of SHOTS) {
       if (shot.ready) await shot.ready(page);
       if (shot.setup) await shot.setup(page);
       await page.waitForTimeout(500);
-      await save(page, testInfo.project.name, scheme, shot.slug);
+      await save(page, testInfo.project.name, scheme, shot.slug, shot.element);
     });
   }
 }
@@ -163,10 +189,18 @@ async function setScheme(page: Page, scheme: "dark" | "light") {
  */
 const MAX_SHOT_HEIGHT = 20_000;
 
-async function save(page: Page, project: string, scheme: string, slug: string) {
+async function save(page: Page, project: string, scheme: string, slug: string, element?: string) {
   const dir = path.join(OUT, `${project}-${scheme}`);
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, `${slug}.png`);
+
+  if (element) {
+    const target = page.getByTestId(element);
+    await target.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(200);
+    await target.screenshot({ path: file });
+    return;
+  }
 
   const { width, height } = await page.evaluate(() => ({
     width: document.documentElement.clientWidth,
