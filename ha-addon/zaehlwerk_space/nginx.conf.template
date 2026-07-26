@@ -3,6 +3,10 @@
 # `${BUILD_OPTIONS_BACKEND_URL}` is substituted by run.sh (via envsubst) at
 # start-up; every other `$…` below is a genuine Nginx runtime variable and is
 # deliberately left untouched by the restricted envsubst call.
+#
+# Dieser Proxy leitet weiter — mehr nicht. Er formt keine Sicherheitskopfzeilen
+# um: die App kennt ihre eigene Policy, und eine zweite Fassung hier waere eine
+# zweite Wahrheit, die beim naechsten Aenderung der ersten still veraltet.
 
 worker_processes  auto;
 error_log         /dev/stderr  warn;
@@ -57,17 +61,27 @@ http {
             # it can trim duplicate chrome. The app also detects framing itself.
             proxy_set_header  X-HA-Ingress  "true";
 
-            # ── Allow Home Assistant to embed the app (iframe) ──
-            # The app ships a STRICT framing policy for direct access
-            # (frame-ancestors 'none' + X-Frame-Options: DENY). Here we relax it so
-            # HA can embed it, with NO app rebuild: we drop the upstream framing
-            # headers and re-emit the app's CSP with frame-ancestors 'self' plus the
-            # optional configured HA origin (frame_parent) needed for the cross-
-            # origin panel_iframe route. Keep this policy string in sync with the
-            # app (apps/main-portal/next.config.ts) if its CSP ever changes.
-            proxy_hide_header  X-Frame-Options;
-            proxy_hide_header  Content-Security-Policy;
-            add_header  Content-Security-Policy  "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self' ${BUILD_OPTIONS_FRAME_PARENT}; form-action 'self'; img-src 'self' data: blob:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'"  always;
+            # ── Einbettung: NICHT hier geregelt ──
+            #
+            # Frueher stand an dieser Stelle die komplette
+            # Content-Security-Policy der App ein zweites Mal, mitsamt der
+            # Bitte, sie "in sync" zu halten. Genau das ist schiefgegangen: zwei
+            # Orte fuer dieselbe Sicherheitsregel, und der hier hat nicht
+            # mitbekommen, wenn die App ihre Regel aenderte — ein Proxy, der eine
+            # veraltete Policy ueber eine aktuelle legt, schwaecht sie still.
+            #
+            # Die App entscheidet das jetzt selbst, beim Bauen:
+            #   HA_INGRESS=true                  -> frame-ancestors 'self'
+            #   FRAME_ANCESTORS="http://ha:8123" -> genau dieser Ursprung
+            #
+            # Unter Ingress ist HAs Origin die eigene, 'self' passt also. Fuer den
+            # panel_iframe-Weg (fester Port, fremder Ursprung) traegt man die
+            # HA-Adresse in FRAME_ANCESTORS ein. Beide Wege ohne eine Zeile nginx.
+            #
+            # Der Ingress-Pfad wird durchgereicht, damit die App ihn kennt —
+            # HA setzt ihn, und ohne ihn kann niemand darunter liegende
+            # Verweise richtig bilden.
+            proxy_set_header  X-Ingress-Path  $http_x_ingress_path;
 
             # Do NOT rewrite Location/redirect headers — Ingress path routing must
             # stay intact so redirects remain inside the HA frame.

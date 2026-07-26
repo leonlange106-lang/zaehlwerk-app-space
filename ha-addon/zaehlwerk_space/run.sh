@@ -23,26 +23,16 @@ fi
 BACKEND_URL="${BACKEND_URL%/}"
 export BUILD_OPTIONS_BACKEND_URL="${BACKEND_URL}"
 
-# Optional: the HA frontend origin allowed to frame the app (panel_iframe route).
-# Added to the CSP frame-ancestors alongside 'self'. Empty → Ingress-only.
-if [ -f "${OPTIONS_FILE}" ]; then
-  FRAME_PARENT="$(jq -r '.frame_parent // empty' "${OPTIONS_FILE}")"
-else
-  FRAME_PARENT=""
-fi
-FRAME_PARENT="${FRAME_PARENT%/}"
-export BUILD_OPTIONS_FRAME_PARENT="${FRAME_PARENT}"
-
-echo "[zaehlwerk_space] Reverse proxy → ${BUILD_OPTIONS_BACKEND_URL}"
-if [ -n "${FRAME_PARENT}" ]; then
-  echo "[zaehlwerk_space] Allowing iframe embedding from: ${FRAME_PARENT} (plus 'self')"
-else
-  echo "[zaehlwerk_space] Iframe embedding: same-origin only ('self'). Set 'frame_parent' for panel_iframe."
-fi
+# `frame_parent` gibt es hier nicht mehr. Die Einbettung entscheidet die APP
+# beim Bauen (HA_INGRESS / FRAME_ANCESTORS) — dieser Proxy formt keine
+# Sicherheitskopfzeilen mehr um. Zwei Orte fuer dieselbe Regel waren der Grund,
+# aus dem dieses Add-on abgeschafft werden sollte.
+echo "[zaehlwerk_space] Reverse proxy -> ${BUILD_OPTIONS_BACKEND_URL}"
+echo "[zaehlwerk_space] Einbettung regelt die App selbst (HA_INGRESS / FRAME_ANCESTORS beim Build)."
 
 # Substitute ONLY our variables so Nginx's own $-variables ($host, $scheme, …)
 # survive untouched.
-envsubst '${BUILD_OPTIONS_BACKEND_URL} ${BUILD_OPTIONS_FRAME_PARENT}' \
+envsubst '${BUILD_OPTIONS_BACKEND_URL}' \
   < /etc/nginx/nginx.conf.template \
   > /etc/nginx/nginx.conf
 

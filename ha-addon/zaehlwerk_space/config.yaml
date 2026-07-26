@@ -1,9 +1,17 @@
 # Home Assistant add-on manifest for the Zählwerk App Space.
 #
-# The actual Next.js app runs in a separate Proxmox LXC container. This add-on
-# is a thin nginx reverse proxy that (a) forwards to that app and (b) relaxes the
-# app's strict iframe-framing policy so Home Assistant can embed it — without
-# rebuilding the app.
+# Die eigentliche Next.js-App laeuft in einer eigenen Proxmox-LXC. Dieses Add-on
+# ist ein duenner nginx-Reverse-Proxy davor — und seit 2.0.0 NUR das.
+#
+# Bis 1.1.0 hat es zusaetzlich die Content-Security-Policy der App neu geschrieben,
+# mit einer Kopie der kompletten Policy in der nginx-Konfiguration und der Bitte,
+# beide "in sync" zu halten. Das ist der Grund, aus dem RELEASE-3.0.0.md ~ 4 die
+# Abschaffung des Add-ons vorschlug: zwei Orte fuer dieselbe Sicherheitsregel, und
+# der Proxy merkt nicht, wenn die App ihre aendert — eine veraltete Policy ueber
+# eine aktuelle gelegt schwaecht sie still.
+#
+# Jetzt entscheidet die App das beim Bauen (HA_INGRESS=true bzw. FRAME_ANCESTORS),
+# und dieses Add-on leitet nur weiter. `frame_parent` ist deshalb entfallen.
 #
 # Two ways to use it:
 #   • Ingress  — HA proxies same-origin; works for simple apps, but a Next.js app
@@ -15,7 +23,7 @@
 name: "Zählwerk App Space"
 slug: "zaehlwerk_space"
 description: "Reverse proxy / Ingress bridge for the Zählwerk App Space"
-version: "1.1.0"
+version: "2.0.0"
 arch:
   - amd64
   - aarch64
@@ -33,12 +41,7 @@ init: false
 host_network: false
 options:
   backend_url: "http://192.168.1.X:3000"
-  frame_parent: ""
 schema:
   # Base URL of the Next.js app in the LXC container (scheme + host + port,
   # no trailing slash), e.g. http://192.168.1.50:3000
   backend_url: "str"
-  # Origin of your Home Assistant frontend, e.g. http://192.168.1.43:8123 —
-  # REQUIRED for the panel_iframe route so the app may be framed cross-origin.
-  # Leave empty if you only use Ingress (same-origin 'self' is always allowed).
-  frame_parent: "str?"
