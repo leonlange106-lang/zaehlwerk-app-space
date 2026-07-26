@@ -3,6 +3,7 @@ import { test, expect, type Page } from "@playwright/test";
 import * as OTPAuth from "otpauth";
 import { PrismaClient } from "@zaehlwerk/database";
 import { E2E_ADMIN } from "./fixtures";
+import { encryptSecret } from "./encrypt-secret";
 
 // The short list of things that must work in the REAL build, over plain HTTP,
 // with the container's environment. Deliberately small: this runs after a full
@@ -12,7 +13,7 @@ import { E2E_ADMIN } from "./fixtures";
 const SMOKE_DB = path.join(__dirname, ".data", "smoke.db").replace(/\\/g, "/");
 const prisma = new PrismaClient({ datasourceUrl: `file:${SMOKE_DB}` });
 
-process.env.AUTH_SECRET ??= "smoke-secret-do-not-use-in-production-0123456789";
+const AUTH_SECRET = "smoke-secret-do-not-use-in-production-0123456789";
 
 const SECRET = new OTPAuth.Secret({ size: 20 }).base32;
 const code = () =>
@@ -50,10 +51,9 @@ test("2FA login works in production over plain HTTP", async ({ page }) => {
   // connection really is HTTP, so the browser really does discard it — and the
   // second factor fails exactly as it did for users. Under `next dev` this
   // passes no matter what, which is why 200 other tests never saw it.
-  const { encryptSecret } = await import("../app/lib/crypto");
   await prisma.user.updateMany({
     where: { email: E2E_ADMIN.email },
-    data: { twoFactorEnabled: true, twoFactorSecret: encryptSecret(SECRET) },
+    data: { twoFactorEnabled: true, twoFactorSecret: encryptSecret(SECRET, AUTH_SECRET) },
   });
 
   try {

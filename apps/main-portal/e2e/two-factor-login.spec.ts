@@ -3,6 +3,7 @@ import { test, expect, type Page } from "@playwright/test";
 import * as OTPAuth from "otpauth";
 import { PrismaClient } from "@zaehlwerk/database";
 import { E2E_ADMIN } from "./fixtures";
+import { encryptSecret } from "./encrypt-secret";
 
 // Signing IN with 2FA on — the half of the flow no spec covered.
 //
@@ -23,13 +24,7 @@ const prisma = new PrismaClient({ datasourceUrl: `file:${E2E_DB}` });
 
 // Must match playwright.config.ts — the stored secret is encrypted with a key
 // derived from it, so a mismatch makes every code fail for the wrong reason.
-process.env.AUTH_SECRET ??= "e2e-secret-do-not-use-in-production-0123456789";
-
-// Imported lazily so the AUTH_SECRET above is in place before key() reads it.
-async function encrypt(plain: string): Promise<string> {
-  const { encryptSecret } = await import("../app/lib/crypto");
-  return encryptSecret(plain);
-}
+const AUTH_SECRET = "e2e-secret-do-not-use-in-production-0123456789";
 
 const SECRET = new OTPAuth.Secret({ size: 20 }).base32;
 
@@ -45,7 +40,7 @@ function currentCode(): string {
 async function enableTwoFactor() {
   await prisma.user.updateMany({
     where: { email: E2E_ADMIN.email },
-    data: { twoFactorEnabled: true, twoFactorSecret: await encrypt(SECRET) },
+    data: { twoFactorEnabled: true, twoFactorSecret: encryptSecret(SECRET, AUTH_SECRET) },
   });
 }
 

@@ -79,6 +79,12 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @zaehlwerk/database exec prisma generate
+      # Die Workspace-Pakete werden nach dist/ gebaut und sind sonst nicht
+      # aufloesbar — `next dev` scheitert dann an "Can't resolve
+      # '@zaehlwerk/database'". Lokal faellt das nie auf, weil dist/ dort von
+      # einem frueheren Build herumliegt.
+      - name: Workspace-Pakete bauen
+        run: pnpm --filter @zaehlwerk/database --filter @zaehlwerk/updater build
       - name: Playwright-Browser installieren
         run: pnpm --filter main-portal exec playwright install --with-deps chromium webkit
       - name: E2E
