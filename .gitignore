@@ -27,3 +27,15 @@ coverage/
 # `/graphify`, several MB per build (graph.json + graph.html), and stale the
 # moment anything is committed — a derived artifact, not a source of truth.
 graphify-out/
+
+# Secrets. Die `.env` auf der Produktiv-LXC enthaelt AUTH_SECRET, GITHUB_TOKEN
+# und den Update-Token — und /opt/zaehlwerk ist dort ein gewoehnliches Git-Repo
+# wie jedes andere. Ohne diese Regel wuerde ein einziges `git add -A` auf der
+# Maschine alle drei stagen.
+#
+# AUTH_SECRET waere der teuerste Verlust: aus ihm leitet sich der Schluessel ab,
+# mit dem die TOTP-Secrets verschluesselt sind.
+.env
+.env.*
+!.env.example
+!**/*.env.example
