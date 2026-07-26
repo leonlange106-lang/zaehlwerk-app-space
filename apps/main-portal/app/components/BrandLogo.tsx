@@ -26,11 +26,10 @@ export function BrandLogo({ height = 56 }: { height?: number }) {
       {/* The tile keeps hard geometry but takes its colour from the app accent,
           so the wordmark on the launcher matches the chip in the header. */}
       <rect width="64" height="64" rx="15" fill="url(#asl-bg)" />
-      <rect x="24" y="24" width="16" height="16" rx="5" fill="#ffffff" />
-      <rect x="28" y="7" width="8" height="8" rx="2.6" fill="#ffffff" opacity="0.92" />
-      <rect x="49" y="28" width="8" height="8" rx="2.6" fill="#ffffff" opacity="0.72" />
-      <rect x="28" y="49" width="8" height="8" rx="2.6" fill="#ffffff" opacity="0.92" />
-      <rect x="7" y="28" width="8" height="8" rx="2.6" fill="#ffffff" opacity="0.72" />
+      {/* Aurora-Ebenen — the same three offset panels as the header mark. */}
+      <rect x="21" y="12" width="30" height="21" rx="5" fill="#ffffff" opacity="0.34" />
+      <rect x="17" y="21" width="30" height="21" rx="5" fill="#ffffff" opacity="0.62" />
+      <rect x="13" y="30" width="30" height="21" rx="5" fill="#ffffff" />
 
       <text x="82" y="34" fontSize="26" fontWeight="700" fill="currentColor" letterSpacing="-0.5">
         App

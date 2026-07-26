@@ -27,7 +27,7 @@ Zähler-Management für Strom, Gas, Wasser & PV) und der **Log Analyzer**
 <td><strong>Zählwerk</strong> — <code>/apps/zaehlwerk</code><br/>Zähler & Standorte, Verbrauch & Kosten, Tarife, Berichte/PDF-Export, Smart-Home-Erfassung und Jahresprognose.</td>
 </tr>
 <tr>
-<td align="center"><img src="./docs/assets/icon-log-analyzer.svg" width="56" height="56" alt="MGflasher Log Analyzer" /></td>
+<td align="center"><img src="./docs/assets/icon-log-analyzer.svg" width="56" height="56" alt="Log Analyzer" /></td>
 <td><strong>Log Analyzer</strong> — <code>/apps/log-analyzer</code><br/>Datenlogs auswerten (Pull-Erkennung, Grenzwerte je Fahrzeug), zwei Logs überlagern, Leistung schätzen (virtueller Prüfstand), PDF/PNG-Report. Import per Upload, Watch-Ordner oder API.</td>
 </tr>
 </table>

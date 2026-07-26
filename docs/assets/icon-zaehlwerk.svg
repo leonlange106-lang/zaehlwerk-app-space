@@ -1,19 +1,26 @@
 <svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Zählwerk">
+  <!--
+    Zählwerk: the digit wheels of a meter, the rightmost one lit — the place a
+    reading actually changes.
+
+    Unlike the App Space mark, this one DOES carry its own tile: it appears on
+    the launcher and in menu rows, over surfaces of differing brightness and
+    with no accent chip behind it. The gradient is the Zählwerk accent itself
+    (cyan → blue), so the app is identifiable before its name is read.
+  -->
   <defs>
     <linearGradient id="zw-bg" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#586a7e"/>
-      <stop offset="1" stop-color="#3c4b5a"/>
+      <stop stop-color="#22d3ee"/>
+      <stop offset="1" stop-color="#4f7cff"/>
     </linearGradient>
   </defs>
   <rect width="64" height="64" rx="15" fill="url(#zw-bg)"/>
-  <!-- odometer / counter housing -->
-  <rect x="12" y="24" width="40" height="18" rx="4" fill="#2d3945"/>
-  <!-- digit wheels -->
-  <rect x="16" y="27" width="9" height="12" rx="2" fill="#e5e9ed"/>
-  <rect x="27.5" y="27" width="9" height="12" rx="2" fill="#e5e9ed"/>
-  <rect x="39" y="27" width="9" height="12" rx="2" fill="#20c997"/>
-  <!-- center reading band -->
-  <line x1="12" y1="33" x2="52" y2="33" stroke="#778ba0" stroke-width="1.5" opacity="0.5"/>
-  <!-- energy tick / bolt above the counter -->
-  <path d="M33 12 L27 22 L32 22 L30 30 L38 19 L33 19 Z" fill="#20c997"/>
+  <!-- counter housing, punched out of the gradient -->
+  <rect x="12" y="22" width="40" height="22" rx="6" fill="#0b1020" opacity="0.5"/>
+  <!-- digit wheels, brightening towards the digit that turns -->
+  <rect x="17" y="27" width="9" height="12" rx="2.5" fill="#ffffff" opacity="0.5"/>
+  <rect x="27.5" y="27" width="9" height="12" rx="2.5" fill="#ffffff" opacity="0.75"/>
+  <rect x="38" y="27" width="9" height="12" rx="2.5" fill="#ffffff"/>
+  <!-- reading band across the wheels -->
+  <rect x="12" y="32.2" width="40" height="1.6" rx="0.8" fill="#0b1020" opacity="0.4"/>
 </svg>
