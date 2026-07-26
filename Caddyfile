@@ -25,10 +25,31 @@
 # Eine Definition, die sich beide Zugangswege teilen. Damit ist der zweite
 # Hostname später vier Zeilen und keine Kopie.
 (app) {
+	# Die eigene Root-CA unter einem festen Pfad zum Abholen.
+	#
+	# Ohne das ist der Weg auf ein Telefon unangenehm: SSH als root ist dicht
+	# (zu Recht), also bleiben AirDrop, Mail oder USB — für ein Zertifikat, das
+	# jedes neue Gerät im Haushalt einmal braucht.
+	#
+	# Unbedenklich: das ist der ÖFFENTLICHE Teil der CA, nicht ihr Schlüssel.
+	# Der liegt daneben im selben Volume und wird hier nicht ausgeliefert —
+	# `root` zeigt zwar auf das Verzeichnis, aber `rewrite` nagelt die Antwort
+	# auf genau eine Datei fest, sodass kein anderer Name durchgereicht wird.
+	handle /caddy-root.crt {
+		root * /data/caddy/pki/authorities/local
+		rewrite * /root.crt
+		# Ohne diesen Typ bieten iOS und Android den Import nicht an, sondern
+		# laden die Datei nur herunter.
+		header Content-Type application/x-x509-ca-cert
+		file_server
+	}
+
 	# Über das Compose-Netz an den Dienstnamen, nicht an einen veröffentlichten
 	# Port: so erreicht Caddy die App auch dann noch, wenn Port 3000 gar nicht
 	# mehr im LAN hängt (APP_BIND=127.0.0.1).
-	reverse_proxy main-portal:3000
+	handle {
+		reverse_proxy main-portal:3000
+	}
 
 	# Caddy setzt X-Forwarded-Proto/-Host bei reverse_proxy selbst — genau die
 	# Header, aus denen die App ableitet, ob die Verbindung sicher war.

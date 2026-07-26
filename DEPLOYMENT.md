@@ -277,9 +277,33 @@ cannot validate it; Caddy issues from its own local CA instead. The encryption
 on the wire is identical — the only difference is who trusts the certificate.
 Install Caddy's root CA once per device to get rid of the warning:
 
+Every device fetches it from the instance itself:
+
+```
+https://<your-host>/caddy-root.crt
+```
+
+Accept the warning once for that download — you are fetching the very thing that
+removes it. On iOS and Android this opens the certificate import directly; the
+served content type is set for that.
+
+Only the CA's **public** certificate is exposed there, never its key.
+
+From the LXC itself, if you prefer a file:
+
 ```bash
 docker cp zaehlwerk-caddy:/data/caddy/pki/authorities/local/root.crt ./caddy-root.crt
 ```
+
+On Windows, import it from an **elevated** PowerShell — `certutil` fails with
+`ERROR_ACCESS_DENIED` otherwise:
+
+```powershell
+certutil -addstore -f "Root" caddy-root.crt
+```
+
+`scp root@<host>:…` will not work on a properly configured LXC: root SSH login
+is disabled, which is correct and not worth weakening for one file.
 
 Import that file as a trusted root (Windows: *Trusted Root Certification
 Authorities*; Android: *Settings → Security → Encryption & credentials*; iOS:
