@@ -4,6 +4,7 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
+      "env": ["NODE_ENV", "FRAME_ANCESTORS", "HA_INGRESS"],
       "outputs": ["dist/**", ".next/**", "!.next/cache/**", "generated/**"]
     },
     "lint": {
