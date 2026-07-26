@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { signOut, useSession } from "next-auth/react";
+import { useSession } from "next-auth/react";
+import { signOutToLogin } from "@/app/lib/sign-out";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import {
   IconLogout,
@@ -229,7 +230,7 @@ export function PortalShell({
                 </DropdownMenu.Item>
                 <DropdownMenu.Item
                   className={cn(menuItem, "text-risk")}
-                  onSelect={() => signOut({ callbackUrl: "/login" })}
+                  onSelect={() => void signOutToLogin()}
                 >
                   <IconLogout size={15} className="flex-none" />
                   Abmelden

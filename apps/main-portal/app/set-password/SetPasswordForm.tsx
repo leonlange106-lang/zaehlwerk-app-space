@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { signOut, useSession } from "next-auth/react";
+import { useSession } from "next-auth/react";
+import { signOutToLogin } from "@/app/lib/sign-out";
 import { IconAlertCircle, IconShieldLock } from "@tabler/icons-react";
 import { completePasswordSetupAction } from "../lib/login-actions";
 import { AuthShell } from "../components/ui/AuthShell";
@@ -59,7 +60,7 @@ export function SetPasswordForm({ email }: { email: string }) {
       footer={
         <button
           type="button"
-          onClick={() => signOut({ callbackUrl: "/login" })}
+          onClick={() => void signOutToLogin()}
           className="text-xs text-dim underline-offset-2 hover:underline"
         >
           Abmelden
