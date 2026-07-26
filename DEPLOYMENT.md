@@ -224,9 +224,28 @@ Then:
 
 ```bash
 cd /opt/zaehlwerk
+# NOT just `git pull`. A channel deploy checks out a TAG (`git checkout
+# --detach`), so the repo sits on a detached HEAD and `git pull` refuses with
+# "You are not currently on a branch" — it fetches and then merges nothing. The
+# failure is quiet in the worst way: the next `up -d` happily starts the OLD
+# compose file, no new container appears, and nothing explains why.
+git fetch origin
+git checkout main
 git pull
+
+# Verify the new files actually arrived before starting anything.
+ls Caddyfile && grep -q 'caddy:' docker-compose.prod.yml && echo OK
+
+# Caddy needs 80 and 443. If something already holds them it will not start.
+ss -tlnp | grep -E ':80 |:443 '     # expect: no output
+
 docker compose -f docker-compose.prod.yml up -d
+docker compose -f docker-compose.prod.yml ps        # zaehlwerk-caddy must be up
 ```
+
+Moving the checkout back to `main` does not disturb the running containers —
+they serve from an image that is already built. The next in-app update checks
+out its target ref regardless, so this costs nothing.
 
 Port 3000 is still open at this point — deliberately. Verify HTTPS works
 *before* closing it:
