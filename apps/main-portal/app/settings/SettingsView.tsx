@@ -131,6 +131,7 @@ type CheckResponse = UpdateCheckResult & {
     ref: string | null;
     label: string;
     usingBranchFallback: boolean;
+    unavailable: boolean;
   };
 };
 
@@ -570,19 +571,45 @@ function UpdateSettingsCard({
 
       {checkState.status === "done" && (
         <p className="mb-3 text-xs text-dim" data-testid="update-target">
-          Nächstes Update installiert: <strong className="text-ink">{checkState.result.target.label}</strong>
-          {checkState.result.target.usingBranchFallback && (
+          {checkState.result.target.unavailable ? (
             <>
-              {" — "}für den Channel „{checkState.result.target.channel}“ ist noch keine Version
-              veröffentlicht, deshalb folgt das Update dem Branch.
+              Für den Channel „{checkState.result.target.channel}“ ist keine Version veröffentlicht —
+              es gibt nichts zu installieren.
+            </>
+          ) : (
+            <>
+              Nächstes Update installiert:{" "}
+              <strong className="text-ink">{checkState.result.target.label}</strong>
+              {checkState.result.target.usingBranchFallback && (
+                <>
+                  {" — "}Entwicklermodus: <Code>UPDATE_ALLOW_BRANCH</Code> ist gesetzt, deshalb folgt
+                  das Update dem Branch statt einer veröffentlichten Version.
+                </>
+              )}
             </>
           )}
         </p>
       )}
 
-      {checkState.status === "done" && !updateAvailable && (
+      {checkState.status === "done" && checkState.result.comparisonUnavailable && (
+        <Alert tone="watch" icon={<IconAlertCircle size={16} />} className="mb-3">
+          Der Versionsvergleich bei GitHub war nicht möglich. „Update verfügbar“ heißt hier nur
+          „andere Version“ — ob sie neuer oder älter ist, lässt sich gerade nicht feststellen.
+        </Alert>
+      )}
+
+      {checkState.status === "done" && !updateAvailable && !checkState.result.target.unavailable && (
         <Alert tone="ok" icon={<IconCheck size={16} />} className="mb-3">
-          Auf dem neuesten Stand ({checkState.result.branch} @ {checkState.result.currentShortSha}).
+          {checkState.result.comparison === "behind" ? (
+            <>
+              Diese Instanz läuft auf einem <strong className="text-ink">neueren</strong> Stand, als
+              der Channel „{checkState.result.channel}“ anbietet ({checkState.result.currentShortSha}
+              ). Ein Update gibt es erst, wenn der Channel nachzieht — zurück geht es über „Frühere
+              Version einspielen“.
+            </>
+          ) : (
+            <>Auf dem neuesten Stand ({checkState.result.currentShortSha}).</>
+          )}
         </Alert>
       )}
 

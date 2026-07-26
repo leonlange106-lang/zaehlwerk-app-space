@@ -571,11 +571,14 @@ function LogsLevel({
       {logs?.map((log) => (
         <LinkRow
           key={log.id}
-          href={`/apps/log-analyzer/history?log=${log.id}`}
+          // Straight into the Analyzer with the log open. This used to point at
+          // the history page, where nothing ever read `?log=` — so picking a log
+          // in the menu dropped you on the overview and you had to find it again.
+          href={`/apps/log-analyzer?log=${encodeURIComponent(log.id)}`}
           label={log.label}
           dot={HEALTH_DOT[log.health] ?? "var(--zw-neutral)"}
           hint={log.recordedAt ? logDateFormatter.format(new Date(log.recordedAt)) : undefined}
-          active={pathname === "/apps/log-analyzer/history"}
+          active={pathname === "/apps/log-analyzer"}
         />
       ))}
     </>

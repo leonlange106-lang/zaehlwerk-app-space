@@ -70,7 +70,72 @@ function githubHeaders(): HeadersInit {
   return headers;
 }
 
-/** Latest commit on a branch of a public (or token-accessible) GitHub repo. */
+/**
+ * How `head` relates to `base` in the commit graph.
+ *
+ * This is what tells an update from a downgrade. Comparing two SHAs for
+ * inequality cannot: an instance running a beta and a channel offering an older
+ * stable have *different* commits, and calling that "an update available" is
+ * exactly how the stable channel came to offer beta builds.
+ *
+ *   ahead     — head is a descendant of base: a real update
+ *   behind    — base is a descendant of head: the running build is NEWER
+ *   identical — same commit
+ *   diverged  — neither is an ancestor of the other
+ */
+export type CommitComparison = "ahead" | "behind" | "identical" | "diverged";
+
+/**
+ * Does a comparison result mean "there is an update to install"?
+ *
+ * The rule, isolated so it can be tested without a network:
+ *
+ *  - `ahead`     yes — the channel's release is a descendant of what we run.
+ *  - `diverged`  yes — a released state on another line of history. Not
+ *                reachable while every release is cut from `main`, but if it
+ *                ever is, a published release still outranks an unreleased
+ *                local build.
+ *  - `behind`    NO — the running build is newer. This is the everyday result
+ *                of testing a beta and switching back to stable, and calling it
+ *                an update is what made the stable channel offer beta builds.
+ *  - `identical` NO.
+ */
+export function updateAvailableFor(comparison: CommitComparison): boolean {
+  return comparison === "ahead" || comparison === "diverged";
+}
+
+export async function compareCommits(
+  owner: string,
+  repo: string,
+  base: string,
+  head: string,
+): Promise<CommitComparison> {
+  const response = await fetch(
+    `https://api.github.com/repos/${owner}/${repo}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}`,
+    { headers: githubHeaders(), cache: "no-store" },
+  );
+
+  if (!response.ok) {
+    throw new Error(`GitHub compare request failed: ${response.status} ${response.statusText}`);
+  }
+
+  const data = (await response.json()) as { status?: string };
+  switch (data.status) {
+    case "ahead":
+    case "behind":
+    case "identical":
+      return data.status;
+    default:
+      return "diverged";
+  }
+}
+
+/**
+ * Latest commit on a branch of a public (or token-accessible) GitHub repo.
+ *
+ * The endpoint resolves ANY ref, so this also turns a release tag into its
+ * commit — including annotated tags, which it dereferences for us.
+ */
 export async function fetchLatestCommit(
   owner: string,
   repo: string,

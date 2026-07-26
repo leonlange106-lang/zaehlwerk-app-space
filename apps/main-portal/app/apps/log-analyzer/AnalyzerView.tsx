@@ -129,12 +129,29 @@ export function AnalyzerView() {
     [openRecord],
   );
 
-  // Pick up a log handed over from Remote Import or the Overview (one-shot).
+  // Open the log this view was navigated to, from either of two routes in.
+  //
+  //   ?log=<id>  — a real link. The navigation menu uses it, so a log entry
+  //                behaves like a link should: middle-click, "open in new tab",
+  //                bookmark and the back button all work, and a reload lands on
+  //                the same log. That is why the URL WINS and is not consumed.
+  //   sessionStorage — the one-shot handover from Remote Import and from
+  //                Analyzer → Prüfstand, where there is no id in the URL to use.
+  //
+  // The handover is taken unconditionally so a stale pending id can't sit there
+  // and hijack a later visit; the URL simply outranks it.
+  //
+  // Read from `window.location` rather than `useSearchParams()`: this page is
+  // not force-dynamic, and that hook would need a Suspense boundary around the
+  // whole view to keep the build prerenderable. A one-shot read on mount is what
+  // this is, and it has neither requirement.
   useEffect(() => {
     const handedId = takeActiveLogId();
+    const fromUrl = new URLSearchParams(window.location.search).get("log")?.trim();
+    const id = fromUrl || handedId;
     // openById only setState()s after an async fetch, never synchronously here.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (handedId) void openById(handedId);
+    if (id) void openById(id);
   }, [openById]);
 
   // Bulk upload: persist every picked/dropped CSV server-side, then open the

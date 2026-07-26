@@ -55,6 +55,18 @@ export async function POST(request: NextRequest) {
   // the script: the channel lives in the database, and the script has no client.
   const target = await resolveUpdateTarget();
 
+  // Nothing published in this channel (or GitHub is unreachable). Refuse rather
+  // than deploy the branch head: an instance on stable opted OUT of unreleased
+  // code, and a network blip must never be what decides which code it runs.
+  if (target.unavailable) {
+    return NextResponse.json(
+      {
+        error: `Für den Channel „${target.channel}" ist keine Version veröffentlicht. Es gibt nichts zu installieren.`,
+      },
+      { status: 409 },
+    );
+  }
+
   // Best-effort audit trail — never block the update on the session lookup or log.
   try {
     const user = await sessionUserForAudit();
