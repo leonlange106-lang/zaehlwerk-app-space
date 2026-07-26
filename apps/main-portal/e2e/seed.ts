@@ -52,6 +52,7 @@ async function main() {
       OR: [
         { key: { in: ["backup.autoEnabled", "backup.intervalHours", "backup.lastRunAt"] } },
         { key: { startsWith: "notifications.read." } },
+        { key: "logs.ingestExpectedHours" },
       ],
     },
   });

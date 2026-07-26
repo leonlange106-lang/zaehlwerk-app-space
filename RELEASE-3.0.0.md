@@ -510,7 +510,7 @@ mehrere Update-Runden für eine Sache.
 **Reihenfolge:** A → B → C → D → 🏁 **v3.0.0** → E → F → G → H → I → J
 
 **Stand 2026-07-26:** B und D sind ausgeklammert (reine Betriebsarbeit bzw. Folge
-von C). E–I sind umgesetzt; J steht aus.
+von C). E–I sind umgesetzt, J ist ausgewertet (kein Crawler).
 
 ---
 
@@ -795,13 +795,55 @@ danach entweder auf die ausgelieferten Dateien zeigen oder verschwinden, und
 Icon-Hexwerte sind Kopien (siehe CLAUDE.md — separate Dokumente sehen die Token
 nicht).
 
-#### Paket J — Automatischer CSV-Bezug
+#### Paket J — Automatischer CSV-Bezug ✅ ausgewertet, v3.6.0-beta.1
 
 § 6.4: API-Anbindung / Crawler weiter evaluieren.
 
 *Zuletzt, weil ergebnisoffen. Vor dem Bauen ist zu entscheiden, ob es überhaupt
 Crawling sein muss — Push per API-Key und der Watch-Folder existieren bereits und
 decken den Fall möglicherweise schon ab.*
+
+---
+
+**Ergebnis der Auswertung: kein Crawler. Die drei vorhandenen Wege decken den
+Fall ab, und der vierte kostet mehr, als er einbringt.**
+
+Die Frage war nicht „können wir crawlen", sondern „welches Problem bleibt übrig,
+wenn Push und Watch-Folder da sind". Aufgeschlüsselt nach dem, wie ein Log
+tatsächlich entsteht:
+
+| Weg | Deckt ab | Zustand |
+|---|---|---|
+| `POST /api/v1/logs/ingest` (API-Key) | Alles, was skriptbar ist: Sync-Job, Home Assistant, `curl` nach der Fahrt | vorhanden, dedupliziert per SHA-256 |
+| Watch-Folder (`LOG_WATCH_DIR`) | Ein Ordner, in den das Logging-Tool ohnehin schreibt — inkl. HAOS-Share | vorhanden, Polling alle 5 s |
+| `fetch-remote` (Share-Link) | Der Einzelfall: ein fremd geteilter Log | vorhanden, 20 MB / 12 s / Rate-Limit |
+
+**Was ein Crawler zusätzlich könnte:** wiederkehrend das eigene Konto auf einer
+Fremdseite abfragen und neue Exporte selbst abholen. Das ist genau ein Fall —
+und er verlangt: fremde Zugangsdaten dauerhaft speichern (ein Passwort, kein
+widerrufbarer Key), ein Rate-Limit gegen eine Seite, die uns nichts zugesagt hat,
+Nutzungsbedingungen prüfen, und einen Parser, der bei jeder Layout-Änderung
+drüben still bricht. Der Nutzen ist „ich muss nicht auf Exportieren klicken",
+die Kosten sind ein gespeichertes Fremdpasswort und eine Integration, die
+unangekündigt kaputtgeht.
+
+**Ein still brechender Abholweg ist schlimmer als gar keiner.** Wer glaubt, seine
+Logs kämen automatisch, prüft nicht nach — und merkt erst Wochen später, dass
+nichts mehr ankam. Beide vorhandenen Wege sind aktiv: etwas schreibt, wir
+empfangen. Fällt das Schreiben aus, merkt es die Seite, die es auslöst.
+
+**Statt eines Crawlers wurde das gebaut, was Push wirklich tragfähig macht:** die
+Ingestion meldet sich jetzt selbst, wenn sie verstummt (siehe unten). Damit ist
+der einzige echte Vorteil eines Crawlers — man muss nicht daran denken —
+adressiert, ohne fremde Zugangsdaten zu speichern.
+
+**Zu revidieren, wenn:** die Fremdseite eine dokumentierte API mit widerrufbaren
+Tokens anbietet. Dann ist es kein Crawling mehr, sondern eine Anbindung, und die
+Rechnung fällt anders aus.
+
+**Beta-Kennzeichnung:** Remote-Import und Ingestion-API bleiben vorerst Beta —
+nicht wegen Stabilität, sondern weil ihre Form (Schlüsselverwaltung, Fehlerbild)
+noch nicht lange genug im Alltag stand.
 
 ---
 
@@ -820,6 +862,7 @@ decken den Fall möglicherweise schon ab.*
 | Fahrzeuge als echte Daten (Paket G) | ✅ v3.3.0-beta.1 |
 | Auswertung erklären (Paket H) | ✅ v3.4.0-beta.1 |
 | Marke (Paket I) | ✅ v3.5.0-beta.1 |
+| Automatischer CSV-Bezug ausgewertet (Paket J) | ✅ v3.6.0-beta.1 |
 | Animationen (§ 8) | ✅ v3.0.0-beta.3 |
 
 **Offen aus § 3, aber nicht paketiert:** der GitHub-Aufbau mit `next` als
