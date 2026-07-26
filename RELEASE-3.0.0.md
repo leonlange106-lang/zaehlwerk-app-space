@@ -476,16 +476,152 @@ Alles läuft über `transform` und `opacity`, verschiebt also kein Layout — be
 CLS-Tests bleiben grün. Der `prefers-reduced-motion`-Block in `globals.css`
 schaltet weiterhin global ab, ohne dass eine Aufrufstelle daran denken muss.
 
-## 9. Reihenfolge-Vorschlag
+## 9. Arbeitspakete
 
-1. Pre-Release testen (aktueller Stand)
-1b. **Stable-Channel-Defekt beheben (§ 3.1)** — vor dem vollen Release zwingend,
-   sonst installiert der Stable-Channel Beta-Code
-2. ~~Mantine-Rest entfernen~~ ✅ (§ 2)
-3. ~~Release-Channel~~ ✅ (§ 3) — offen bleibt der `next`-Branch im GitHub-Aufbau
-4. Tunnel-Hardening (§ 5, Teil 1) — unabhängig, sofort machbar
-5. Cloudflare-Integration + 2FA-Zwang (§ 5, Teil 2)
-6. HA über eigenen HTTPS-Hostname (§ 4, Weg A) — setzt 5 voraus
-7. **v3.0.0 Full Release**
-8. Danach Plattform-Backlog (§ 7) und Animationen (§ 8)
-9. Zuletzt das Log-Analyzer-Backlog (§ 6)
+Gruppiert nach dem, was denselben Code anfasst, dieselbe Voraussetzung teilt und
+zusammen eine sinnvolle Version ergibt. Ein Paket = ein Branch = ein PR.
+
+**Das Gruppierungskriterium, das am meisten steuert:** Schemaänderungen greifen
+erst nach einem Self-Update (`prisma db push` läuft im Deploy). Alles, was
+dieselbe Migration braucht, gehört deshalb in **ein** Paket — sonst zahlt man
+mehrere Update-Runden für eine Sache.
+
+**Reihenfolge:** A → B → C → D → 🏁 **v3.0.0** → E → F → G → H → I → J
+
+---
+
+### Vor v3.0.0
+
+#### Paket A — Channel reparieren 🔴 blockiert den Release
+
+- § 3.1: `updateAvailable` channel-relativ rechnen (gegen den Commit des
+  Ziel-**Releases**, nicht gegen den Branch-Head)
+- Branch-Fallback für `stable` streichen; nur noch als ausdrücklicher
+  Entwickler-Modus über eine Env-Variable
+- Gilt genauso für `beta` — auch dort darf der Branch-Head nicht zählen
+
+*Zusammen, weil es eine Ursache mit zwei Symptomen ist (Erkennung **und**
+Installation). Getrennt behoben bliebe die Hälfte stehen.*
+**Risiko:** mittel — betrifft den Deploy-Pfad, und `update.sh` lässt sich lokal
+nicht durchspielen.
+
+#### Paket B — Tunnel härten 🟢 unabhängig, sofort machbar
+
+§ 5 Teil 1 vollständig: Access vor die gesamte Origin, Service-Tokens für
+`/api/v1/*` und `/api/health`, WAF-Rate-Limits, `--no-autoupdate` + systemd,
+Origin-Zertifikat.
+
+*Reine Betriebsarbeit, kein Anwendungscode — hängt an nichts.*
+**Risiko:** niedrig für die App, hoch für die Erreichbarkeit. Falsch gesetzte
+Access-Regeln sperren Watch-Folder, Home-Assistant-Push und den
+Docker-Healthcheck aus.
+
+#### Paket C — Zugang: Cloudflare + 2FA-Pflicht
+
+§ 5 Teil 2: Instanz-Schalter „2FA für alle erzwingen", Zwang **im
+`proxy.ts`-Guard** (nicht nur in der UI), Cloudflare Access als äußere Schranke.
+
+*Zusammen, weil sich die beiden Schranken ergänzen; einzeln ausgeliefert
+entsteht dazwischen eine Lücke.*
+**Voraussetzung:** B.
+
+#### Paket D — Home Assistant sauber
+
+§ 4 Weg A: eigener HTTPS-Hostname über den Tunnel, `FRAME_ANCESTORS` auf die
+HA-Origin. Das Add-on **entfällt** samt seiner handgepflegten
+nginx-CSP-Duplikation.
+
+*Klein, weil es zu 90 % eine Folge von C ist: das Problem war nie der iframe,
+sondern das Schema.*
+**Voraussetzung:** C.
+
+### 🏁 v3.0.0 — stabil getaggt
+
+Erst hier hat der Stable-Channel überhaupt einen Stand anzubieten.
+
+---
+
+### Nach v3.0.0
+
+#### Paket E — Navigation & Auffindbarkeit
+
+- § 7.3 Suchfunktion (das Headerfeld ist heute Dekoration)
+- § 7.4 Einstellungen in Gruppen (13 629 px hoch auf dem Handy)
+
+*Zusammen, weil beide Shell und Routing anfassen und die Einstellungsgruppen
+sowohl als Menüebene als auch als Suchtreffer gebraucht werden — getrennt baut
+man dieselbe Struktur zweimal.*
+**Achtung:** Suche muss App-Freigaben respektieren, sonst Informationsleck.
+
+#### Paket F — Zustand sichtbar machen
+
+- § 7.1 Update-Fortschritt mit echten Einzelschritten
+- § 7.2 Benachrichtigungs-Drawer, **Phase 1**: Update verfügbar, Backup
+  fehlgeschlagen, Wartung überfällig
+
+*Zusammen, weil beide vom selben Update-Status und derselben SSE-Leitung leben —
+und die Glocke ohne einen ersten echten Anlass leer bliebe.*
+**Bewusst nicht hier:** fällige Ablesungen brauchen ein Ableseintervall am
+Zähler, also eine Schemaänderung → Paket G.
+
+#### Paket G — Fahrzeuge als echte Daten 🔵 Schemaänderung
+
+- § 7.5 Profile pro Fahrzeug statt eines globalen im `localStorage`
+- § 7.6 eigene Referenzprofile anlegen
+- § 6.3 eigene Fahrzeugmodelle mit ableitbaren, überschreibbaren Grenzwerten
+- § 7.2 Phase 2: Ableseintervall → Benachrichtigung über fällige Ablesungen
+
+*Zwingend zusammen: alle vier brauchen **dieselben neuen Prisma-Modelle**. In
+Etappen ausgeliefert bedeutet das mehrere Migrationen für eine Sache, jede erst
+nach einem Self-Update wirksam.*
+**Nicht offensichtlich:** Der Bewertungs-Cache (`LogFile.evalVersion`) hasht heute
+nur die Grenzwert-*Tabellen*. Benutzereigene Limits stehen nicht in diesem Hash —
+ohne Anpassung zeigen gespeicherte Logs veraltete Badges.
+**Größe:** das mit Abstand dickste Paket. Notfalls schneidbar in
+„Fahrzeug-Entität + Profile" und „eigene Grenzwerte", aber **eine** Migration.
+
+#### Paket H — Auswertung erklären
+
+- § 6.1 Grenzwerte je Sensor immer anzeigen, auch wenn nicht erreicht
+- § 6.2 Handlungsempfehlungen bei „Hardware-Risiko"
+
+*Zusammen, weil beide dasselbe Urteil erklären, beide rein anzeigend sind und
+keine Schemaänderung brauchen.*
+**Achtung:** Ein *nicht* erreichter Grenzwert ist kein Urteil und darf nicht über
+`StatusBadge` laufen. Empfehlungen ändern das Urteil nicht — **kein**
+`EVALUATION_RULES_VERSION`-Bump.
+
+#### Paket I — Marke
+
+§ 7.7: Zeichen überarbeiten und in die Kopfzeile holen, Favicon, Apple-Icon und
+Manifest mitziehen. Ablauf: mehrere Entwürfe in unterschiedlichen Designsprachen
+zur Auswahl, dann umsetzen.
+
+*Allein, weil in der Mitte eine Gestaltungsentscheidung steht — das passt in kein
+Paket mit einem Termin.*
+**Randbedingung:** `BrandLogo` bleibt inline, sonst folgt es dem Theme nicht.
+
+#### Paket J — Automatischer CSV-Bezug
+
+§ 6.4: API-Anbindung / Crawler weiter evaluieren.
+
+*Zuletzt, weil ergebnisoffen. Vor dem Bauen ist zu entscheiden, ob es überhaupt
+Crawling sein muss — Push per API-Key und der Watch-Folder existieren bereits und
+decken den Fall möglicherweise schon ab.*
+
+---
+
+### Erledigt
+
+| | |
+|---|---|
+| Mantine-Ausbau (§ 2) | ✅ v3.0.0-beta.1 |
+| Release-Channel gebaut (§ 3) | ✅ v3.0.0-beta.2 — Defekt in § 3.1 offen (Paket A) |
+| Scrubben auf dem Handy (§ 2.1 ff.) | ✅ v3.0.0-beta.3 |
+| Animationen (§ 8) | ✅ v3.0.0-beta.3 |
+
+**Offen aus § 3, aber nicht paketiert:** der GitHub-Aufbau mit `next` als
+Beta-Branch. Solange alles über `main` läuft und Betas von dort getaggt werden,
+ist der Channel funktionsfähig — die Trennung ist dann aber eine Konvention und
+keine Struktur. Sinnvoll zusammen mit Paket A, weil beide am selben Verständnis
+von „was ist ein freigegebener Stand" hängen.
