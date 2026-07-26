@@ -277,17 +277,40 @@ cannot validate it; Caddy issues from its own local CA instead. The encryption
 on the wire is identical — the only difference is who trusts the certificate.
 Install Caddy's root CA once per device to get rid of the warning:
 
-Every device fetches it from the instance itself:
+Every device fetches it from the instance itself, **over HTTP**:
 
 ```
-https://<your-host>/caddy-root.crt
+http://<your-host>/caddy-root.crt
 ```
 
-Accept the warning once for that download — you are fetching the very thing that
-removes it. On iOS and Android this opens the certificate import directly; the
-served content type is set for that.
+Plain HTTP on purpose, and it is the only path served that way. Over HTTPS this
+is a chicken-and-egg problem: the device is asked to download the root
+certificate across a connection that does not yet trust that certificate. The
+browser warns, and on iOS "visit this website" simply does nothing for an unknown
+issuer — the certificate stays unreachable. Over HTTP no certificate is involved
+and the question does not arise.
 
-Only the CA's **public** certificate is exposed there, never its key.
+Only the CA's **public** certificate is exposed, never its key.
+
+**The trade-off, stated plainly:** an attacker on your LAN could forge that
+response and hand you *their* CA — which your device would then accept for every
+site on the internet. Verify the fingerprint before trusting it. On the LXC:
+
+```bash
+openssl x509 -in caddy-root.crt -noout -fingerprint -sha256
+```
+
+Compare it with what the device shows during import. On a home network this is a
+reasonable trade; on a network you do not control, carry the file over by cable
+instead.
+
+**iOS** needs two steps and people miss the second: install the downloaded
+profile under *Settings → Profile Downloaded*, then switch the certificate on
+under *Settings → General → About → Certificate Trust Settings*. Until that
+toggle is set, the import has no effect.
+
+**Firefox keeps its own certificate store** and ignores the Windows one, so it
+will keep warning even after a successful `certutil` import.
 
 From the LXC itself, if you prefer a file:
 

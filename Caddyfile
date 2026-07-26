@@ -25,13 +25,11 @@
 # Eine Definition, die sich beide Zugangswege teilen. Damit ist der zweite
 # Hostname später vier Zeilen und keine Kopie.
 (app) {
-	# Die eigene Root-CA unter einem festen Pfad zum Abholen.
+	# Die eigene Root-CA unter einem festen Pfad. Ueber HTTPS fuer Geraete, die
+	# ihr bereits vertrauen (z.B. um sie weiterzugeben); der Weg fuer ein NEUES
+	# Geraet ist der HTTP-Block weiter unten.
 	#
-	# Ohne das ist der Weg auf ein Telefon unangenehm: SSH als root ist dicht
-	# (zu Recht), also bleiben AirDrop, Mail oder USB — für ein Zertifikat, das
-	# jedes neue Gerät im Haushalt einmal braucht.
-	#
-	# Unbedenklich: das ist der ÖFFENTLICHE Teil der CA, nicht ihr Schlüssel.
+	# Unbedenklich: das ist der OEFFENTLICHE Teil der CA, nicht ihr Schluessel.
 	# Der liegt daneben im selben Volume und wird hier nicht ausgeliefert —
 	# `root` zeigt zwar auf das Verzeichnis, aber `rewrite` nagelt die Antwort
 	# auf genau eine Datei fest, sodass kein anderer Name durchgereicht wird.
@@ -77,6 +75,37 @@
 {$ZW_HOSTNAME:zaehlwerk.local} {
 	tls internal
 	import app
+}
+
+# --- Die CA über HTTP, und NUR die --------------------------------------------
+#
+# Henne und Ei: ein Geraet soll das Root-Zertifikat ueber eine Verbindung laden,
+# die genau dieses Zertifikat noch nicht kennt. Der Browser warnt also — und auf
+# iOS fuehrt „diese Website besuchen" bei einem unbekannten Aussteller
+# regelmaessig ins Leere, das Zertifikat bleibt unerreichbar.
+#
+# Ueber HTTP ist schlicht kein Zertifikat im Spiel und die Frage stellt sich
+# nicht. Ein ausdruecklicher `http://`-Block schaltet Caddys automatische
+# Weiterleitung fuer diesen Host ab, deshalb steht sie unten fuer alles andere
+# wieder drin — es bleibt bei genau einem Pfad im Klartext.
+#
+# **Der Handel, ausgesprochen:** wer im LAN mitschneidet, koennte diese Antwort
+# faelschen und dir seine eigene CA unterschieben — und die wuerde dein Geraet
+# dann fuer JEDE Seite akzeptieren. Deshalb steht in DEPLOYMENT.md, wie man den
+# Fingerabdruck gegenpruefen kann. Fuer ein Heimnetz ist das vertretbar; in einem
+# Netz, dem du nicht traust, gehoert die Datei per Kabel aufs Geraet.
+http://{$ZW_HOSTNAME:zaehlwerk.local} {
+	handle /caddy-root.crt {
+		root * /data/caddy/pki/authorities/local
+		rewrite * /root.crt
+		header Content-Type application/x-x509-ca-cert
+		file_server
+	}
+
+	# Alles andere unverzueglich auf HTTPS.
+	handle {
+		redir https://{host}{uri} permanent
+	}
 }
 
 # --- Cloudflare (später, NACH dem Hardening) --------------------------------
