@@ -10,7 +10,7 @@ import {
 } from "@/app/lib/two-factor-actions";
 import { Button } from "@/app/components/ui/Button";
 import { CopyButton } from "@/app/components/ui/CopyButton";
-import { PinInput } from "@/app/components/ui/PinInput";
+import { isPinComplete, PinInput } from "@/app/components/ui/PinInput";
 import { Alert, Code } from "@/app/components/ui/primitives";
 
 // The 2FA enrolment step, in one place.
@@ -139,7 +139,7 @@ export function TwoFactorEnrolment({
       <Button
         variant="primary"
         full
-        disabled={isPending || code.length !== 6}
+        disabled={isPending || !isPinComplete(code)}
         onClick={() => confirm(code)}
       >
         {isPending ? "Wird geprüft…" : "Aktivieren"}

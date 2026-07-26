@@ -1,11 +1,12 @@
 "use server";
 
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import bcrypt from "bcryptjs";
 import { prisma } from "@zaehlwerk/database";
-import { CHALLENGE_COOKIE } from "./auth-constants";
-import { signChallenge } from "./crypto";
+import { CHALLENGE_COOKIE, CHALLENGE_TTL_SECONDS, isSecureConnection } from "./auth-constants";
+import { decryptSecret, signChallenge, verifyChallenge } from "./crypto";
 import { getSessionUser } from "./auth-helpers";
+import { totpDriftSeconds, verifyTotp } from "./totp";
 import type { ActionState } from "./action-state";
 
 const BCRYPT_ROUNDS = 12;
@@ -41,18 +42,103 @@ export async function beginLoginAction(email: string, password: string): Promise
   if (!valid) return { ok: false };
 
   if (user.twoFactorEnabled) {
-    const token = signChallenge({ sub: user.id }, 300);
+    const token = signChallenge({ sub: user.id }, CHALLENGE_TTL_SECONDS);
     (await cookies()).set(CHALLENGE_COOKIE, token, {
       httpOnly: true,
       sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-      maxAge: 300,
+      // Read off the connection, NOT NODE_ENV — see isSecureConnection(). Getting
+      // this wrong makes the browser drop the cookie in silence and every code
+      // on the next screen comes back "ungültig".
+      secure: isSecureConnection(await headers()),
+      maxAge: CHALLENGE_TTL_SECONDS,
       path: "/",
     });
     return { ok: true, twoFactorRequired: true };
   }
 
   return { ok: true, twoFactorRequired: false };
+}
+
+/**
+ * Why was the second factor refused?
+ *
+ * Auth.js's Credentials provider can only answer yes or no — `authorize()`
+ * returns a user or null, and every reason collapses into the same
+ * CredentialsSignin. So /login/2fa had exactly one sentence for four different
+ * situations, and the least likely of them ("your code is wrong") was the one it
+ * printed. That is how a dropped challenge cookie masqueraded as a bad code for
+ * an entire release: the codes were always right.
+ *
+ * This runs only after a rejection and never issues a session. It is reachable
+ * only with a valid challenge cookie — i.e. the password was already proven — so
+ * it tells the holder of that password nothing they could not learn by enrolling,
+ * where the same drift message already lives.
+ */
+export async function diagnoseTwoFactorFailure(code: string): Promise<string> {
+  const GENERIC = "Code ist ungültig. Bitte erneut versuchen.";
+  const RESTART =
+    "Die Anmeldung ist abgelaufen. Bitte melde dich mit E-Mail und Passwort erneut an.";
+
+  try {
+    const challenge = (await cookies()).get(CHALLENGE_COOKIE)?.value;
+    if (!challenge) {
+      // The cookie is not merely expired — it never arrived. Over plain HTTP a
+      // `secure` cookie is discarded by the browser without any error, which is
+      // the bug this whole path was built to name instead of hide.
+      return isSecureConnection(await headers())
+        ? RESTART
+        : "Die Anmeldung wurde nicht gespeichert: der Browser hat das Sitzungs-Cookie verworfen. " +
+            "Rufe die App über die gleiche Adresse auf, unter der du dich angemeldet hast, " +
+            "und erlaube Cookies für diese Seite.";
+    }
+
+    const payload = verifyChallenge<{ sub?: string }>(challenge);
+    if (!payload?.sub) return RESTART;
+
+    const user = await prisma.user.findUnique({
+      where: { id: payload.sub },
+      select: { twoFactorEnabled: true, twoFactorSecret: true },
+    });
+    if (!user?.twoFactorEnabled || !user.twoFactorSecret) return RESTART;
+
+    const secret = decryptSecret(user.twoFactorSecret);
+    if (verifyTotp(secret, code)) {
+      // It verifies here but not in authorize() — nothing sensible left to say,
+      // and claiming the code is wrong would be a lie.
+      return "Die Bestätigung ist fehlgeschlagen. Bitte erneut versuchen.";
+    }
+
+    // Look again with a wide window before blaming the user. A code that lands
+    // at an offset means their authenticator is right and this server's clock is
+    // wrong — every code will fail until the host's time is fixed, and no amount
+    // of re-entering will help.
+    const drift = totpDriftSeconds(secret, code);
+    if (drift !== null && drift !== 0) {
+      const minutes = Math.round(Math.abs(drift) / 60);
+      const amount = minutes >= 1 ? `${minutes} Minute(n)` : `${Math.abs(drift)} Sekunden`;
+      const direction = drift > 0 ? "nach" : "vor";
+      return (
+        `Der Code stimmt, aber die Uhr dieses Servers geht ${amount} ${direction}. ` +
+        `Serverzeit: ${new Date().toLocaleString("de-DE")}. ` +
+        "Zeitsynchronisierung auf dem Host einrichten (NTP), danach klappt die Anmeldung sofort."
+      );
+    }
+
+    return GENERIC;
+  } catch (error) {
+    console.error("[diagnoseTwoFactorFailure]", error);
+    return GENERIC;
+  }
+}
+
+/**
+ * Drop the challenge cookie once the second factor has been accepted.
+ *
+ * The proof has been spent. Leaving it in place keeps a five-minute window in
+ * which that one cookie plus any single valid code mints another session.
+ */
+export async function clearLoginChallenge(): Promise<void> {
+  (await cookies()).delete(CHALLENGE_COOKIE);
 }
 
 /**
