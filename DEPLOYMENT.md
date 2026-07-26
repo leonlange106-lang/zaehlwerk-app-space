@@ -395,6 +395,47 @@ Then pick the shape:
   Cloudflare, so the connection would either fail or need `noTLSVerify: true`,
   which defeats the purpose.
 
+### 7.4 Embedding in Home Assistant (iframe card)
+
+The dashboard refuses to be embedded by default — `frame-ancestors 'none'` plus
+`X-Frame-Options: DENY`, which is the right stance for an instance you open
+directly. An iframe card pointing at it therefore stays **blank**, with nothing
+on screen to say why.
+
+Three things must all be true, and each fails silently on its own:
+
+1. **The card points at the HTTPS URL** (`https://<host>`), not the old port 3000.
+2. **Every device that opens the HA dashboard trusts the CA.** An iframe gets no
+   certificate interstitial — there is no "visit anyway" to click. It simply does
+   not load. This is the one people lose an evening to.
+3. **`FRAME_ANCESTORS` names Home Assistant's own origin**, with scheme and port:
+
+   ```env
+   FRAME_ANCESTORS=http://192.168.178.50:8123
+   ```
+
+   Several origins are space-separated. It is the origin of the page doing the
+   embedding, not of this app.
+
+**This is a BUILD argument, not an environment variable.** `next.config.ts` reads
+it while `next build` runs and bakes the finished Content-Security-Policy into
+the output, so a value under `environment:` arrives far too late and does
+nothing. After changing it, rebuild:
+
+```bash
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+Or trigger a normal in-app update, which rebuilds anyway.
+
+**Check what you actually shipped:**
+
+```bash
+curl -kI https://<host>/api/health | grep -i content-security-policy
+```
+
+`frame-ancestors 'none'` means the value did not reach the build.
+
 ### 7.4 Other proxies
 
 If you would rather terminate TLS somewhere else entirely, the following still

@@ -23,6 +23,15 @@ services:
         # for a manual build, prefix the command:
         #   GIT_SHA=$(git rev-parse HEAD) docker compose -f docker-compose.prod.yml up -d --build
         GIT_SHA: ${GIT_SHA:-unknown}
+        # Einbettung in Home Assistant. BUILD-Argument, nicht Umgebungsvariable:
+        # die Content-Security-Policy wird beim Bauen festgeschrieben, ein
+        # Eintrag unter `environment:` käme zu spät und täte nichts.
+        #
+        # Leer = nicht einbettbar, und das ist der richtige Standard. Für eine
+        # iframe-Karte die Origin von Home Assistant eintragen, mit Schema und
+        # Port: FRAME_ANCESTORS="http://192.168.178.50:8123"
+        FRAME_ANCESTORS: ${FRAME_ANCESTORS:-}
+        HA_INGRESS: ${HA_INGRESS:-}
     image: zaehlwerk-main-portal:latest
     container_name: zaehlwerk-main-portal
     restart: unless-stopped

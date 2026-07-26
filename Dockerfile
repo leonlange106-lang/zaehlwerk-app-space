@@ -56,6 +56,22 @@ ENV DATABASE_URL="file:./build-placeholder.db"
 # ENOSPC while unpacking the layer. Drop it inside the same RUN, so the bytes
 # are gone before the layer is committed (deleting it later would not shrink
 # anything — the earlier layer would still carry it).
+# Einbettungs-Richtlinie. MUSS hier stehen, nicht im Runner: next.config.ts liest
+# diese Werte, waehrend `next build` laeuft, und backt die fertige
+# Content-Security-Policy in die Ausgabe. Als `environment:` in der Compose
+# gesetzt waeren sie reine Laufzeit und blieben wirkungslos — der Header stuende
+# zu dem Zeitpunkt laengst fest.
+#
+# Standard ist "nicht einbettbar" (frame-ancestors 'none' + X-Frame-Options:
+# DENY), und das bleibt richtig fuer eine direkt aufgerufene Instanz. Wer die App
+# in Home Assistant als iframe zeigt, traegt dessen Origin ein — Schema und Port
+# inklusive:
+#   FRAME_ANCESTORS="http://192.168.178.50:8123"
+ARG FRAME_ANCESTORS=""
+ARG HA_INGRESS=""
+ENV FRAME_ANCESTORS=$FRAME_ANCESTORS
+ENV HA_INGRESS=$HA_INGRESS
+
 RUN --mount=type=cache,id=zw-next-cache,target=/repo/apps/main-portal/.next/cache \
     --mount=type=cache,id=zw-turbo-cache,target=/repo/.turbo \
     pnpm build \
