@@ -2,12 +2,14 @@ import { NextResponse } from "next/server";
 import { checkForUpdates } from "@zaehlwerk/updater";
 import { getRepoRoot, getRunningBuildSha } from "../../../lib/version";
 import { denyUnlessAdmin } from "@/app/lib/api-guards";
-import { resolveUpdateTarget } from "@/app/lib/update-target";
+import {
+  branchFallbackAllowed,
+  REPO_NAME,
+  REPO_OWNER,
+  resolveUpdateTarget,
+} from "@/app/lib/update-target";
 
 export const dynamic = "force-dynamic";
-
-const REPO_OWNER = "leonlange106-lang";
-const REPO_NAME = "zaehlwerk-app-space";
 
 export async function GET() {
   const denied = await denyUnlessAdmin();
@@ -21,6 +23,7 @@ export async function GET() {
       repo: REPO_NAME,
       branch: process.env.UPDATE_BRANCH ?? "main",
       channel: target.channel,
+      allowBranchFallback: branchFallbackAllowed(),
       // Compare GitHub against the actually-running build, not the (possibly
       // already-pulled-ahead) git checkout — falls back to git when unbaked.
       currentSha: getRunningBuildSha(),

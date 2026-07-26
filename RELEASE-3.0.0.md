@@ -129,11 +129,30 @@ zurück: `prisma db push` ist additiv und macht Spalten nicht rückgängig. Die
 Instanz bleibt auf dem Beta-Stand, bis eine stabile Version ihn überholt. Die UI
 sagt das direkt am Umschalter.
 
-### 3.1 ⚠️ Bekannter Defekt: Stable bietet Beta-Stände an
+### 3.1 ✅ Behoben in v3.0.0-beta.5: Stable bot Beta-Stände an
 
-**Gemeldet nach beta.3, bestätigt im Code. Der Channel wirkt derzeit nur auf die
-*Anzeige*, nicht auf die Update-Entscheidung — und auch nicht auf das, was
-tatsächlich installiert wird.**
+**Gemeldet nach beta.3, bestätigt im Code, behoben in Paket A.** Der Channel
+wirkte nur auf die *Anzeige*, nicht auf die Update-Entscheidung — und auch nicht
+auf das, was tatsächlich installiert wurde. Die Beschreibung des Defekts bleibt
+hier stehen, weil sie erklärt, warum die Lösung so aussieht, wie sie aussieht.
+
+**Was jetzt gilt:**
+
+1. **Erkennung:** `checkForUpdates()` löst den Release-Tag des Channels zu seinem
+   Commit auf und fragt GitHub, wie er zum laufenden Build steht
+   (`compare/base...head`). Nur `ahead` und `diverged` sind ein Update; `behind`
+   heißt, die Instanz ist bereits weiter — der Alltagsfall nach einem Beta-Test.
+   Gleichheit zweier SHAs kann ein Update nicht von einem Downgrade
+   unterscheiden, und genau daran lag es.
+2. **Installation:** Der Branch-Fallback ist weg. Ein Channel ohne
+   veröffentlichte Version bietet **nichts** an und sagt das; der Update-Knopf
+   lehnt mit 409 ab. Als ausdrücklicher Entwicklermodus bleibt
+   `UPDATE_ALLOW_BRANCH=1` — env-only, ohne UI, absichtlich.
+3. Fällt der GitHub-Vergleich aus, degradiert die Prüfung auf den alten,
+   schwächeren SHA-Vergleich — **sagt es aber in der Oberfläche**, statt eine
+   Sicherheit vorzutäuschen, die sie nicht hat.
+
+<details><summary>Der ursprüngliche Befund</summary>
 
 **Zwei Stellen, beide falsch für `stable`:**
 
@@ -157,6 +176,8 @@ nicht.
 **Praktische Warnung bis zum Fix:** Wer auf `stable` steht und aktualisiert,
 bekommt den Beta-Stand samt seiner Schemaänderungen. `prisma db push` ist additiv
 und macht die nicht rückgängig.
+
+</details>
 
 **Der Fix, wenn er drankommt**
 
@@ -492,7 +513,7 @@ mehrere Update-Runden für eine Sache.
 
 ### Vor v3.0.0
 
-#### Paket A — Channel reparieren 🔴 blockiert den Release
+#### Paket A — Channel reparieren ✅ v3.0.0-beta.5
 
 - § 3.1: `updateAvailable` channel-relativ rechnen (gegen den Commit des
   Ziel-**Releases**, nicht gegen den Branch-Head)
@@ -631,7 +652,9 @@ decken den Fall möglicherweise schon ab.*
 | | |
 |---|---|
 | Mantine-Ausbau (§ 2) | ✅ v3.0.0-beta.1 |
-| Release-Channel gebaut (§ 3) | ✅ v3.0.0-beta.2 — Defekt in § 3.1 offen (Paket A) |
+| Release-Channel gebaut (§ 3) | ✅ v3.0.0-beta.2 |
+| Rollback auf frühere Version | ✅ v3.0.0-beta.4 |
+| Channel-Defekt § 3.1 + `?log=`-Deeplink (Paket A) | ✅ v3.0.0-beta.5 |
 | Scrubben auf dem Handy (§ 2.1 ff.) | ✅ v3.0.0-beta.3 |
 | Animationen (§ 8) | ✅ v3.0.0-beta.3 |
 

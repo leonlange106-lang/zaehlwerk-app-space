@@ -7,13 +7,14 @@ import { getUpdateChannel } from "./settings";
 // was merged last, which is not a state anybody released. `scripts/update.sh`
 // takes that tag as `UPDATE_REF`.
 //
-// The one exception is the fallback below, and it exists because this repo has
-// no stable release tags yet — every release so far is a pre-release. Without a
-// fallback, an instance on the stable channel would have nothing to update to
-// and would simply stop receiving updates, which is a worse failure than
-// following the branch. So: when a channel has no published release, the update
-// follows `UPDATE_BRANCH` exactly as it did before channels existed, and the UI
-// says so rather than pretending the channel is fully wired.
+// This used to fall back to the branch whenever a channel had no release, on the
+// reasoning that receiving no updates is worse than following `main`. It is not:
+// an instance on the stable channel then silently installed unreleased code —
+// including the pre-release commits it had specifically opted out of. A channel
+// with nothing published now offers nothing, and says so.
+//
+// The fallback survives only as an explicit developer mode. It has to be turned
+// on deliberately, per instance, and the UI labels the target as a branch.
 
 export const REPO_OWNER = "leonlange106-lang";
 export const REPO_NAME = "zaehlwerk-app-space";
@@ -22,14 +23,28 @@ export function updateBranch(): string {
   return process.env.UPDATE_BRANCH ?? "main";
 }
 
+/**
+ * Developer mode: deploy the branch head when the channel has no release.
+ *
+ * Deliberately opt-in and env-only — there is no UI for it, because an instance
+ * that follows a branch is not running a released version and nobody should
+ * arrive there by clicking.
+ */
+export function branchFallbackAllowed(): boolean {
+  const value = process.env.UPDATE_ALLOW_BRANCH;
+  return value === "1" || value === "true";
+}
+
 export interface UpdateTarget {
   channel: ReleaseChannel;
-  /** Git ref to check out: a release tag, or null when falling back to the branch. */
+  /** Git ref to check out: a release tag, or null when following the branch. */
   ref: string | null;
   /** Human-readable description of what the next update would install. */
   label: string;
   /** True when this channel has no published release and follows the branch. */
   usingBranchFallback: boolean;
+  /** True when there is nothing this instance can install right now. */
+  unavailable: boolean;
 }
 
 /** Resolve the ref the next update should install for the stored channel. */
@@ -39,8 +54,9 @@ export async function resolveUpdateTarget(): Promise<UpdateTarget> {
   try {
     release = await fetchLatestReleaseForChannel(REPO_OWNER, REPO_NAME, channel);
   } catch {
-    // GitHub unreachable or rate-limited: fall back to the branch rather than
-    // blocking the update entirely.
+    // GitHub unreachable or rate-limited. Reported as "nothing to install right
+    // now" rather than quietly deploying the branch — a network blip must not
+    // change WHICH code an instance runs.
     release = null;
   }
 
@@ -50,12 +66,25 @@ export async function resolveUpdateTarget(): Promise<UpdateTarget> {
       ref: release.tagName,
       label: `${release.name} (${release.tagName})`,
       usingBranchFallback: false,
+      unavailable: false,
     };
   }
+
+  if (branchFallbackAllowed()) {
+    return {
+      channel,
+      ref: null,
+      label: `Branch ${updateBranch()} (Entwicklermodus)`,
+      usingBranchFallback: true,
+      unavailable: false,
+    };
+  }
+
   return {
     channel,
     ref: null,
-    label: `Branch ${updateBranch()}`,
-    usingBranchFallback: true,
+    label: `Keine veröffentlichte Version im Channel „${channel}“`,
+    usingBranchFallback: false,
+    unavailable: true,
   };
 }
