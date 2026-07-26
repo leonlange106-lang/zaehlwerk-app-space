@@ -12,12 +12,25 @@ import { generateTotpSecret, otpauthUri, verifyTotp } from "./totp";
 export type TwoFactorSetup = {
   secret: string;
   qrDataUrl: string;
+  /** Account name shown next to the key, for password managers that ask. */
+  account: string;
+  /** True when this is a key that was already handed out earlier. */
+  resumed: boolean;
 };
 
 /**
- * Begin 2FA enrollment: generate a fresh secret, store it ENCRYPTED but leave
- * twoFactorEnabled=false, and return the secret + QR code for the authenticator
- * app. Enrollment only completes once confirmTwoFactor() verifies a live code.
+ * Begin (or RESUME) 2FA enrollment.
+ *
+ * Resuming is the whole point. This used to mint a fresh secret on every call
+ * and overwrite the stored one, which broke the most ordinary mobile flow there
+ * is: copy the key, switch to the password manager, save it, come back to a
+ * reloaded page, press "set up" again — and the key the manager just saved is
+ * now the OLD one while the database holds a new one. Every code then fails, and
+ * nothing on screen explains why. So a pending secret is reused until enrollment
+ * actually completes.
+ *
+ * Enrollment completes only once confirmTwoFactor() verifies a live code; until
+ * then the row keeps twoFactorEnabled=false.
  */
 export async function startTwoFactorSetup(): Promise<
   { success: true; setup: TwoFactorSetup } | { success: false; error: string }
@@ -25,19 +38,92 @@ export async function startTwoFactorSetup(): Promise<
   const user = await getSessionUser();
   if (!user) return { success: false, error: "Nicht angemeldet." };
 
-  const secret = generateTotpSecret();
-  const uri = otpauthUri(secret, user.email);
+  try {
+    const record = await prisma.user.findUnique({
+      where: { id: user.id },
+      select: { twoFactorSecret: true, twoFactorEnabled: true },
+    });
+
+    // Refuse while 2FA is ACTIVE. Without this, calling this action was a way to
+    // switch someone's second factor off and replace it with your own without
+    // ever proving you hold the current one — disableTwoFactor demands a valid
+    // code precisely so that cannot happen, and this path went around it. Server
+    // actions are POST endpoints reachable by anyone with the session, so "the
+    // UI does not offer it" is not a control.
+    if (record?.twoFactorEnabled) {
+      return {
+        success: false,
+        error: "2FA ist bereits aktiv. Zum Wechseln zuerst deaktivieren.",
+      };
+    }
+
+    // Reuse the pending key if there is a readable one.
+    let secret: string | null = null;
+    if (record?.twoFactorSecret) {
+      try {
+        secret = decryptSecret(record.twoFactorSecret);
+      } catch {
+        // Unreadable (key rotated, row corrupted) — fall through and mint a new
+        // one. Nothing depends on it yet, since enrollment never completed.
+        secret = null;
+      }
+    }
+
+    const resumed = secret !== null;
+    if (!secret) {
+      secret = generateTotpSecret();
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { twoFactorSecret: encryptSecret(secret), twoFactorEnabled: false },
+      });
+    }
+
+    const qrDataUrl = await QRCode.toDataURL(otpauthUri(secret, user.email), {
+      margin: 1,
+      width: 220,
+    });
+    return { success: true, setup: { secret, qrDataUrl, account: user.email, resumed } };
+  } catch (error) {
+    console.error("[startTwoFactorSetup]", error);
+    return { success: false, error: "2FA-Einrichtung konnte nicht gestartet werden." };
+  }
+}
+
+/**
+ * Throw away a pending (unconfirmed) key and issue a new one.
+ *
+ * The escape hatch for the case resuming cannot fix: the key was saved somewhere
+ * unreachable, or half-transferred, and the user wants to start clean. Refuses
+ * while 2FA is active, for the same reason startTwoFactorSetup does.
+ */
+export async function regenerateTwoFactorSecret(): Promise<
+  { success: true; setup: TwoFactorSetup } | { success: false; error: string }
+> {
+  const user = await getSessionUser();
+  if (!user) return { success: false, error: "Nicht angemeldet." };
 
   try {
+    const record = await prisma.user.findUnique({
+      where: { id: user.id },
+      select: { twoFactorEnabled: true },
+    });
+    if (record?.twoFactorEnabled) {
+      return { success: false, error: "2FA ist bereits aktiv. Zum Wechseln zuerst deaktivieren." };
+    }
+
+    const secret = generateTotpSecret();
     await prisma.user.update({
       where: { id: user.id },
       data: { twoFactorSecret: encryptSecret(secret), twoFactorEnabled: false },
     });
-    const qrDataUrl = await QRCode.toDataURL(uri, { margin: 1, width: 220 });
-    return { success: true, setup: { secret, qrDataUrl } };
+    const qrDataUrl = await QRCode.toDataURL(otpauthUri(secret, user.email), {
+      margin: 1,
+      width: 220,
+    });
+    return { success: true, setup: { secret, qrDataUrl, account: user.email, resumed: false } };
   } catch (error) {
-    console.error("[startTwoFactorSetup]", error);
-    return { success: false, error: "2FA-Einrichtung konnte nicht gestartet werden." };
+    console.error("[regenerateTwoFactorSecret]", error);
+    return { success: false, error: "Neuer Schlüssel konnte nicht erzeugt werden." };
   }
 }
 

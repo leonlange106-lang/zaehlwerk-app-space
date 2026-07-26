@@ -2,14 +2,13 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import Image from "next/image";
 import { IconAlertCircle, IconShieldLock } from "@tabler/icons-react";
 import {
-  confirmTwoFactor,
   disableTwoFactor,
   startTwoFactorSetup,
   type TwoFactorSetup,
 } from "@/app/lib/two-factor-actions";
+import { TwoFactorEnrolment } from "@/app/components/TwoFactorEnrolment";
 import { setEnforceTwoFactorAction } from "@/app/lib/security-policy-actions";
 import { Button } from "@/app/components/ui/Button";
 import { Panel } from "@/app/components/ui/Panel";
@@ -75,22 +74,6 @@ export function SecurityCard({
         setCode("");
       } else {
         toast.show({ tone: "risk", title: "2FA-Einrichtung fehlgeschlagen", message: result.error });
-      }
-    });
-  }
-
-  function confirm() {
-    setError(null);
-    startTransition(async () => {
-      const result = await confirmTwoFactor(code);
-      if (result.success) {
-        setSetup(null);
-        setCode("");
-        toast.show({ tone: "ok", title: "2FA aktiviert" });
-        router.refresh();
-      } else {
-        setError(result.error ?? "Fehler.");
-        setCode("");
       }
     });
   }
@@ -191,49 +174,17 @@ export function SecurityCard({
         onClose={() => setSetup(null)}
         title="2FA einrichten"
         size="sm"
-        footer={
-          <Button
-            variant="primary"
-            full
-            disabled={isPending || code.length !== 6}
-            onClick={confirm}
-          >
-            {isPending ? "Wird geprüft…" : "Aktivieren"}
-          </Button>
-        }
       >
         {setup && (
-          <div className="flex flex-col items-center gap-4">
-            <p className="text-center text-sm text-dim">
-              Scanne den QR-Code mit deiner Authenticator-App und gib dann den 6-stelligen Code
-              ein.
-            </p>
-            {/* The QR is a data: URL generated server-side — `unoptimized` because
-                there is nothing for the image pipeline to do with it. */}
-            <Image
-              src={setup.qrDataUrl}
-              alt="2FA QR-Code"
-              width={200}
-              height={200}
-              unoptimized
-              className="rounded-control bg-white p-2"
-            />
-            <p className="text-center text-xs text-dim">
-              Manuell: <Code>{setup.secret}</Code>
-            </p>
-            <PinInput
-              value={code}
-              onChange={setCode}
-              onComplete={confirm}
-              disabled={isPending}
-              label="6-stelliger Code"
-            />
-            {error && (
-              <Alert tone="risk" role="alert" icon={<IconAlertCircle size={16} />} className="w-full">
-                {error}
-              </Alert>
-            )}
-          </div>
+          <TwoFactorEnrolment
+            setup={setup}
+            onSetupChange={setSetup}
+            onConfirmed={() => {
+              setSetup(null);
+              toast.show({ tone: "ok", title: "2FA aktiviert" });
+              router.refresh();
+            }}
+          />
         )}
       </ResponsiveDialog>
 
