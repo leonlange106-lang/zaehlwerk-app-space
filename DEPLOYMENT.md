@@ -254,6 +254,17 @@ Port 3000 is still open at this point — deliberately. Verify HTTPS works
 curl -kI https://zaehlwerk.fritz.box/api/health    # expect: HTTP/2 200
 ```
 
+**After editing the `Caddyfile`, restart the container explicitly:**
+
+```bash
+docker compose -f docker-compose.prod.yml restart caddy
+```
+
+`up -d` is not enough and does not warn you. The Caddyfile is a bind mount, so
+changing it leaves the *service definition* untouched — compose sees nothing to
+do, prints "Running", and Caddy keeps serving the old config. Another success
+message for an operation that did nothing.
+
 **If the handshake fails with `tlsv1 alert internal error`:** that is the
 IP-address case, not a certificate problem. SNI may not carry an IP literal
 (RFC 6066), so clients connecting by IP send no server name at all and Caddy has
