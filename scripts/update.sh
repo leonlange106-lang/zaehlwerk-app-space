@@ -75,6 +75,18 @@ fail() {
   exit 1
 }
 
+# Stopped from the UI (POST /api/update/cancel signals this process GROUP, so
+# the running `docker compose build` dies with us). Record it as cancelled, not
+# failed: nothing went wrong and the old build is still serving. The endpoint
+# writes the same status again afterwards, because a killed shell may not get to
+# run this at all — belt and braces on the one file the UI believes.
+on_cancel() {
+  write_status cancelled false true "Update abgebrochen. Die laufende Version wurde nicht verändert." "" "${GIT_SHA:-}"
+  echo "[update] CANCELLED $(now)"
+  exit 143
+}
+trap on_cancel TERM INT
+
 if [ "$UPDATE_MODE" = "rollback" ]; then
   VERB="Rollback"
 else

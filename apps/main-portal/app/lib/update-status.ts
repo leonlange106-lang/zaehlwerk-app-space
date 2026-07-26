@@ -1,3 +1,5 @@
+import { parseBuildProgress } from "./build-progress";
+
 // Shared, framework-free model for the System Update workflow. The authoritative
 // state is written by scripts/update.sh + scripts/deploy-swap.sh to a JSON file
 // on the persistent /data volume (so it survives the container recreation that
@@ -7,7 +9,10 @@
 // exactly once. No node/React imports: safe on both sides of the wire.
 
 /** Coarse lifecycle the whole UI keys off. */
-export type UpdateStatus = "IDLE" | "RUNNING" | "SUCCESS" | "ERROR";
+// CANCELLED is its own state, not a flavour of ERROR: nothing went wrong, the
+// operator stopped it, and the old build is still serving. Reporting that as a
+// failure would send people hunting through the log for a cause that isn't there.
+export type UpdateStatus = "IDLE" | "RUNNING" | "SUCCESS" | "ERROR" | "CANCELLED";
 
 // The concrete actions of an update, in order. The scripts report a matching
 // raw `stage`; everything before the active step is shown as done.
@@ -27,7 +32,23 @@ export const STAGE_INDEX: Record<string, number> = {
   restarting: 3,
   done: UPDATE_STEPS.length,
   failed: 0,
+  cancelled: 0,
 };
+
+/**
+ * Stages an update may still be stopped in.
+ *
+ * Up to and including the migration, the OLD container is still serving and
+ * nothing has been swapped — aborting costs a wasted build and nothing else.
+ * From `restarting` on, the detached deployer is recreating containers, and
+ * killing it there would leave the stack half-swapped: exactly the state the
+ * whole detached-deployer design exists to avoid.
+ */
+export const CANCELLABLE_STAGES = new Set(["started", "pulling", "building", "migrating"]);
+
+export function isCancellable(state: Pick<UpdateState, "status" | "stage">): boolean {
+  return state.status === "RUNNING" && CANCELLABLE_STAGES.has(state.stage);
+}
 
 /** The raw JSON shape written by the update shell scripts. */
 export interface RawUpdateStatus {
@@ -57,6 +78,10 @@ export interface UpdateState {
   message: string;
   /** Failure detail when status is ERROR, else null. */
   error: string | null;
+  /** BuildKit sub-progress while building, e.g. "builder 5/9". Null otherwise. */
+  buildStep: string | null;
+  /** The command BuildKit is currently running, when known. */
+  buildLabel: string | null;
   /** Target commit SHA of the running update, if known. */
   targetSha: string | null;
   /** Tail of the server update log. */
@@ -66,6 +91,7 @@ export interface UpdateState {
 }
 
 function statusForStage(stage: string, hasRaw: boolean): UpdateStatus {
+  if (stage === "cancelled") return "CANCELLED";
   if (stage === "failed") return "ERROR";
   if (stage === "done") return "SUCCESS";
   if (!hasRaw || stage === "" || stage === "idle") return "IDLE";
@@ -80,25 +106,39 @@ export function normalizeUpdateState(
   const stage = raw?.stage ?? "idle";
   const status = statusForStage(stage, Boolean(raw));
   const stepIndex = STAGE_INDEX[stage] ?? 0;
+  // Inside the build stage the coarse number would sit still for minutes, so the
+  // BuildKit sub-progress fills that span instead: step 2 of 4 spans 25…50%, and
+  // the build's own percentage is mapped into it.
+  const build = stage === "building" ? parseBuildProgress(logs) : { current: null, percent: null, summary: null };
+  const stageFraction = stepIndex / UPDATE_STEPS.length;
+  const withinStage =
+    stage === "building" && build.percent !== null
+      ? (build.percent / 100) * (1 / UPDATE_STEPS.length)
+      : 0;
   const progress =
     status === "SUCCESS"
       ? 100
       : status === "IDLE"
         ? 0
-        : Math.round((stepIndex / UPDATE_STEPS.length) * 100);
+        : Math.min(100, Math.round((stageFraction + withinStage) * 100));
 
   return {
     status,
     stage,
     stepIndex,
     steps: [...UPDATE_STEPS],
-    step: status === "SUCCESS" || status === "IDLE" ? null : UPDATE_STEPS[stepIndex] ?? null,
+    step:
+      status === "SUCCESS" || status === "IDLE" || status === "CANCELLED"
+        ? null
+        : UPDATE_STEPS[stepIndex] ?? null,
     progress,
     message: raw?.message ?? "",
     error:
       status === "ERROR"
         ? raw?.message || raw?.error || "Update fehlgeschlagen."
         : null,
+    buildStep: build.summary,
+    buildLabel: build.current?.label ?? null,
     targetSha: raw?.targetSha || null,
     logs,
     updatedAt: raw?.updatedAt || null,

@@ -24,6 +24,7 @@ import {
   IconExternalLink,
   IconRefresh,
   IconRocket,
+  IconPlayerStop,
   IconTerminal2,
 } from "@tabler/icons-react";
 import classes from "./SettingsView.module.css";
@@ -35,7 +36,12 @@ import type { AuditEvent } from "@/app/lib/audit";
 import type { SnapshotFile } from "@/app/lib/backup-engine";
 import type { DatabaseStats } from "@/app/lib/db-maintenance";
 import type { BackupPolicy, LogRetentionPolicy } from "@/app/lib/settings";
-import { normalizeUpdateState, UPDATE_STEPS, type UpdateState } from "@/app/lib/update-status";
+import {
+  isCancellable,
+  normalizeUpdateState,
+  UPDATE_STEPS,
+  type UpdateState,
+} from "@/app/lib/update-status";
 import { setUpdateChannelAction } from "@/app/lib/update-channel-actions";
 import { SystemBackupCard } from "./SystemBackupCard";
 import { UserManagementCard } from "./UserManagementCard";
@@ -196,10 +202,22 @@ function UpdateProgress({ state, failIndex }: { state: UpdateState; failIndex: n
         })}
       </div>
       {state.status === "RUNNING" && (
-        <p className="text-xs text-dim">
-          {state.message || "…"}
-          {state.stage === "building" && " — genauer Fortschritt im Live-Log unten."}
-        </p>
+        <div className="flex flex-col gap-1">
+          <p className="text-xs text-dim">{state.message || "…"}</p>
+          {/* The build is the phase that takes minutes. Without its own step
+              count the bar sits still and the whole thing looks hung. */}
+          {state.buildStep && (
+            <p className="text-xs text-dim">
+              Build-Schritt <strong className="text-ink">{state.buildStep}</strong>
+              {state.buildLabel && (
+                <>
+                  {" · "}
+                  <span className="break-all">{state.buildLabel.slice(0, 90)}</span>
+                </>
+              )}
+            </p>
+          )}
+        </div>
       )}
     </div>
   );
@@ -254,6 +272,7 @@ function UpdateSettingsCard({
   // stepper (the raw "failed" stage carries no step). Kept in state for render
   // and mirrored to a ref for the SSE error handler.
   const [lastRunningStep, setLastRunningStep] = useState(0);
+  const [cancelling, setCancelling] = useState(false);
 
   const esRef = useRef<EventSource | null>(null);
   const sawRunningRef = useRef(false);
@@ -392,6 +411,32 @@ function UpdateSettingsCard({
     }
   }
 
+  function handleCancel() {
+    setCancelling(true);
+    void (async () => {
+      try {
+        const response = await fetch("/api/update/cancel", {
+          method: "POST",
+          headers: token ? { "x-update-token": token } : undefined,
+        });
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}));
+          // Not a failure of the update — a refusal to stop it. Surfaced in the
+          // same alert so it cannot be missed.
+          applyState(
+            normalizeUpdateState(
+              { stage: state?.stage ?? "building", message: data.error ?? "Abbruch nicht möglich." },
+              state?.logs ?? "",
+            ),
+          );
+        }
+        // On success the SSE stream delivers the cancelled state within ~1s.
+      } finally {
+        setCancelling(false);
+      }
+    })();
+  }
+
   function handleTrigger() {
     attachStream();
     setLogOpen(true);
@@ -438,9 +483,14 @@ function UpdateSettingsCard({
   const running = state?.status === "RUNNING";
   const succeeded = witnessedRunning && state?.status === "SUCCESS";
   const failed = witnessedRunning && state?.status === "ERROR";
+  // Cancelled is neither: nothing broke, the operator stopped it, and the old
+  // build is still serving. Showing it as a failure would send someone hunting
+  // through the log for a cause that is not there.
+  const cancelled = witnessedRunning && state?.status === "CANCELLED";
+  const canCancel = Boolean(state && isCancellable(state));
   // The progress block is global: it appears for anyone whose session witnessed
   // the run, independent of whether they clicked "check for updates".
-  const showProgress = Boolean(running || succeeded || failed);
+  const showProgress = Boolean(running || succeeded || failed || cancelled);
   const logs = state?.logs ?? "";
 
   return (
@@ -448,13 +498,15 @@ function UpdateSettingsCard({
       {showProgress && state && (
         <Alert
           className="mb-5"
-          tone={failed ? "risk" : succeeded ? "ok" : "info"}
+          tone={failed ? "risk" : succeeded ? "ok" : cancelled ? "watch" : "info"}
           role={failed ? "alert" : "status"}
           icon={
             running ? (
               <Spinner size={16} label="Update läuft" />
             ) : succeeded ? (
               <IconCircleCheck size={18} />
+            ) : cancelled ? (
+              <IconPlayerStop size={18} />
             ) : (
               <IconCircleX size={18} />
             )
@@ -464,7 +516,9 @@ function UpdateSettingsCard({
               ? "System-Update läuft…"
               : succeeded
                 ? "Update abgeschlossen"
-                : "Update fehlgeschlagen"
+                : cancelled
+                  ? "Update abgebrochen"
+                  : "Update fehlgeschlagen"
           }
         >
           <div className="flex flex-col gap-3" data-testid="update-progress">
@@ -473,10 +527,38 @@ function UpdateSettingsCard({
                 ? "Läuft global auf dem Server — der Fortschritt ist in allen geöffneten Sitzungen sichtbar und überdauert einen Reload."
                 : succeeded
                   ? "Die Seite lädt neu…"
-                  : state.error}
+                  : cancelled
+                    ? state.message ||
+                      "Abgebrochen. Die laufende Version wurde nicht verändert."
+                    : state.error}
             </p>
 
             <UpdateProgress state={state} failIndex={lastRunningStep} />
+
+            {canCancel && (
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  variant="danger"
+                  size="sm"
+                  disabled={cancelling}
+                  onClick={handleCancel}
+                  data-testid="update-cancel"
+                >
+                  <IconPlayerStop size={14} />
+                  {cancelling ? "Wird abgebrochen…" : "Update abbrechen"}
+                </Button>
+                <span className="text-xs text-dim">
+                  Bis einschließlich der Migration gefahrlos — die laufende Version bleibt aktiv.
+                </span>
+              </div>
+            )}
+
+            {running && !canCancel && (
+              <p className="text-xs text-dim">
+                Der Neustart läuft — ein Abbruch würde die Anwendung halb ausgetauscht
+                zurücklassen und ist deshalb ab hier gesperrt.
+              </p>
+            )}
 
             {running && state.stage === "restarting" && (
               <Button size="sm" onClick={() => window.location.reload()}>

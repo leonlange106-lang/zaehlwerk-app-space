@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { timingSafeEqual } from "node:crypto";
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ReleaseChannel } from "@zaehlwerk/updater";
 
@@ -12,6 +12,10 @@ import type { ReleaseChannel } from "@zaehlwerk/updater";
 // exactly one implementation, exercised by every update.
 
 const STATUS_FILE = process.env.UPDATE_STATUS_FILE ?? "/data/update-status.json";
+// Where the running deploy's process id is parked so the cancel endpoint can
+// find it. On the /data volume, not in memory: the whole point of this design is
+// that the container can be replaced mid-run.
+const PID_FILE = process.env.UPDATE_PID_FILE ?? "/data/update.pid";
 
 export type DeployMode = "update" | "rollback";
 
@@ -98,6 +102,10 @@ export async function startDeployRun(options: DeployRunOptions): Promise<void> {
   }
 
   const child = spawn("sh", [scriptPath()], {
+    // `detached` also makes the child a process-group LEADER, which is what
+    // lets cancelUpdateRun() kill the whole tree — `docker compose build` and
+    // everything under it — with one signal to -pid. Without the group, killing
+    // the shell would orphan a multi-minute build that keeps holding the disk.
     detached: true,
     stdio: "ignore",
     env: {
@@ -110,4 +118,63 @@ export async function startDeployRun(options: DeployRunOptions): Promise<void> {
     },
   });
   child.unref();
+
+  if (child.pid) {
+    try {
+      await writeFile(PID_FILE, String(child.pid));
+    } catch {
+      // /data not writable — cancelling is then unavailable, which the endpoint
+      // reports honestly rather than pretending to have stopped something.
+    }
+  }
+}
+
+/**
+ * Stop a running deploy.
+ *
+ * Signals the whole process group, so the build dies with the script. Returns
+ * false when there is nothing to signal — a stale pid file from a previous run,
+ * or a process that has already exited.
+ *
+ * The CALLER decides whether stopping is allowed at this stage (see
+ * `isCancellable`); this only carries it out.
+ */
+export async function cancelDeployRun(): Promise<boolean> {
+  let pid: number;
+  try {
+    pid = Number((await readFile(PID_FILE, "utf8")).trim());
+  } catch {
+    return false;
+  }
+  if (!Number.isInteger(pid) || pid <= 1) return false;
+
+  try {
+    // Negative pid = the process group. SIGTERM rather than SIGKILL so the
+    // script's trap can write its own "cancelled" status and docker gets a
+    // chance to tidy up its build containers.
+    process.kill(-pid, "SIGTERM");
+    return true;
+  } catch {
+    // ESRCH: already gone. Not an error worth surfacing — the run is over
+    // either way, which is what the caller wanted.
+    return false;
+  }
+}
+
+/** Write the terminal "cancelled" status, superseding whatever the dying script wrote. */
+export async function writeCancelledStatus(): Promise<void> {
+  try {
+    await writeFile(
+      STATUS_FILE,
+      JSON.stringify({
+        stage: "cancelled",
+        ok: false,
+        done: true,
+        message: "Update abgebrochen. Die laufende Version wurde nicht verändert.",
+        updatedAt: new Date().toISOString(),
+      }),
+    );
+  } catch {
+    // Nothing to do — the UI falls back to whatever the script left behind.
+  }
 }
