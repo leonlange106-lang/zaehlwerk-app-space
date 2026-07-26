@@ -26,27 +26,27 @@ enum Role {
 /// Anwendungsbenutzer für Login + Rollen (siehe apps/main-portal `auth.ts`).
 /// Passwörter werden ausschließlich als bcrypt-Hash gespeichert.
 model User {
-  id           String   @id @default(uuid())
-  email        String   @unique
-  passwordHash String
-  name         String?
-  role         Role     @default(USER)
+  id               String     @id @default(uuid())
+  email            String     @unique
+  passwordHash     String
+  name             String?
+  role             Role       @default(USER)
   /// TOTP-Secret (Base32), AES-GCM-verschlüsselt gespeichert — nie im Klartext.
   twoFactorSecret  String?
-  twoFactorEnabled Boolean @default(false)
+  twoFactorEnabled Boolean    @default(false)
   /// Wenn true, wurde der Account mit einem Temp-Passwort angelegt: der erste
   /// Login gelingt ohne Passwort (nur per E-Mail), danach MUSS sofort ein
   /// eigenes Passwort vergeben werden, bevor die App nutzbar ist. Wird beim
   /// Setzen des Passworts auf false gesetzt.
-  mustSetPassword  Boolean @default(false)
+  mustSetPassword  Boolean    @default(false)
   /// JSON-Array der App-IDs, die dieser Benutzer sehen/nutzen darf (z.B.
   /// ["zaehlwerk"]). Standardmäßig leer — neue Benutzer haben KEINE App-Freigabe
   /// und müssen von einem Admin freigeschaltet werden. Admins sehen stets alle
   /// Apps (rollenbasiert), unabhängig von diesem Feld.
-  allowedApps      String  @default("[]")
+  allowedApps      String     @default("[]")
   apiTokens        ApiToken[]
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
 
   @@map("users")
 }
@@ -125,20 +125,25 @@ model Location {
 /// Referenzprojekt: überlebt Zählertausche, die Historie steckt in
 /// `Ablesung`, nicht hier.
 model Zaehler {
-  id         String         @id @default(uuid())
-  name       String
-  kategorie  EnergyCategory
-  einheit    String
-  farbe      String         @default("#495a6c")
-  icon       String         @default("bolt")
-  aktiv      Boolean        @default(true)
-  sortIndex  Int            @default(0)
-  locationId String?
-  location   Location?      @relation(fields: [locationId], references: [id])
-  ablesungen Ablesung[]
-  tarife     Tarif[]
-  createdAt  DateTime       @default(now())
-  updatedAt  DateTime       @updatedAt
+  id                  String         @id @default(uuid())
+  name                String
+  kategorie           EnergyCategory
+  einheit             String
+  farbe               String         @default("#495a6c")
+  icon                String         @default("bolt")
+  aktiv               Boolean        @default(true)
+  sortIndex           Int            @default(0)
+  /// Erwarteter Ableseabstand in Tagen. **0 = aus**, wie bei den
+  /// Aufbewahrungsgrenzen: eine Erinnerung, die niemand bestellt hat, ist eine
+  /// Belästigung, und die Glocke verliert ihren Wert, wenn ständig etwas drin
+  /// steht. Nur gesetzte Intervalle erzeugen eine Meldung.
+  ableseIntervallTage Int            @default(0)
+  locationId          String?
+  location            Location?      @relation(fields: [locationId], references: [id])
+  ablesungen          Ablesung[]
+  tarife              Tarif[]
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
 
   @@index([locationId])
   // Deckt die Standardliste `where aktiv orderBy sortIndex` (listZaehler) ab.
@@ -206,52 +211,64 @@ model Tarif {
 /// tragen den ausgewerteten Pull-Status (verified/partial/invalid) und
 /// benutzerdefinierte Tags (real gefahrene Oktanzahl u.a.).
 model LogFile {
-  id         String   @id @default(uuid())
-  name       String
+  id             String    @id @default(uuid())
+  name           String
   /// Quelle: "upload" oder "remote".
-  source     String   @default("upload")
-  sourceUrl  String?
+  source         String    @default("upload")
+  sourceUrl      String?
   /// Roh-CSV; beim Öffnen erneut geparst (kein Verlust, kompakte Speicherung).
-  csv        String
-  rowCount   Int      @default(0)
+  csv            String
+  rowCount       Int       @default(0)
   /// Denormalisierte Header-Metadaten für die Übersicht.
-  vin        String?
-  vehicle    String?
-  mapVersion String?
-  software   String?
-  loggedAt   String?
+  vin            String?
+  vehicle        String?
+  mapVersion     String?
+  software       String?
+  loggedAt       String?
   /// Automatisch bewerteter Pull-Status: "verified" | "partial" | "invalid".
-  status     String   @default("invalid")
+  status         String    @default("invalid")
   /// Hardware-Health aus den Safety-Alerts: "safe" | "caution" | "danger".
-  health     String   @default("safe")
+  health         String    @default("safe")
   /// Fingerprint der Bewertungslogik+Grenzwerte, mit denen `status`/`health`
   /// zuletzt berechnet wurden (siehe `lib/evaluation-version.ts`). Stimmt er mit
   /// der aktuellen Version überein, gelten die Spalten als gültiger Cache und
   /// die Übersicht muss das Roh-CSV nicht erneut parsen; sonst wird der Log beim
   /// nächsten Lesen neu bewertet und die Spalten aktualisiert. NULL = unbewertet
   /// (z.B. vor Einführung der Spalte) und damit immer stale.
-  evalVersion String?
+  evalVersion    String?
   /// SHA-256 des Roh-CSV (hex) — zur Deduplizierung automatischer Importe
   /// (Ingestion-API / Watch-Folder). Manuelle Uploads setzen ihn ebenfalls.
-  contentHash String?
+  contentHash    String?
   /// Freitext-Notiz aus dem Ingestion-Request (optional).
-  notes       String?
+  notes          String?
   /// Aus dem Dateinamen geparster Fahr-Zeitpunkt (für chronologische Sortierung).
-  recordedAt DateTime?
+  recordedAt     DateTime?
   /// Frei vergebene Bezeichnung ("Stage 2 Referenzlauf"). Unterscheidet sich
   /// bewusst von `name`, das der Dateiname bleibt: NULL heißt „nie benannt".
   /// Nur benannte Logs erscheinen im Navigationsmenü — ein Menü mit jedem
   /// automatisch importierten Dateinamen wäre kein Menü mehr.
-  label      String?
+  label          String?
   /// Real gefahrene Oktanzahl / Kraftstoff (frei, z.B. "100 RON", "E85").
-  octane     String?
+  octane         String?
   /// Weitere frei gesetzte Tags, kommagetrennt.
-  tags       String   @default("")
-  createdAt  DateTime @default(now())
+  tags           String    @default("")
+  /// Das Fahrzeug, gegen das dieser Log bewertet wurde. NULL = vor Einführung
+  /// der Fahrzeug-Entität importiert (oder es existiert noch keins) — dann gilt
+  /// die Default-Spec, genau wie bisher. Ohne diese Referenz ist ein Bericht
+  /// nicht reproduzierbar: das aktive Profil kann sich seit der Bewertung
+  /// geändert haben.
+  /// Heißt `vehicleProfile`, nicht `vehicle`: `vehicle` ist bereits die
+  /// Freitext-Kopfzeile aus dem CSV ("Vehicle: …"). Das hier ist das gepflegte
+  /// Profil, gegen das bewertet wurde — zwei verschiedene Dinge, die sich einen
+  /// Namen zu teilen hätten, wäre eine Verwechslung mit Ansage.
+  vehicleId      String?
+  vehicleProfile Vehicle?  @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  createdAt      DateTime  @default(now())
 
   @@index([recordedAt])
   @@index([createdAt])
   @@index([contentHash])
+  @@index([vehicleId])
   @@map("log_files")
 }
 
@@ -271,4 +288,63 @@ model IngestionKey {
   createdAt  DateTime  @default(now())
 
   @@map("ingestion_keys")
+}
+
+/// Ein benanntes Fahrzeug — die Ablösung der zwei globalen localStorage-Profile.
+///
+/// Vorher hielten `spec-store.ts` und `dyno-store.ts` je **genau ein** Profil im
+/// Browser. Wer zwei Autos loggt, überschrieb sich damit selbst, und ein Bericht
+/// war nicht reproduzierbar: das Profil, gegen das er bewertet wurde, konnte
+/// inzwischen ein anderes sein. Ein Fahrzeug ist deshalb ein Datensatz, kein
+/// Konstanten-Eintrag und kein Browser-Zustand.
+///
+/// **Alle Spalten sind optional oder haben einen Default.** Das ist keine
+/// Bequemlichkeit: Ein Rollback überspringt die Migration bewusst (ein älteres
+/// Schema würde `prisma db push` dazu bringen, Spalten zu löschen), der alte
+/// Client läuft danach also gegen das neuere Schema weiter. Eine `NOT NULL`-Spalte
+/// ohne Default ist genau der Fall, den ein Rollback nicht überlebt.
+model Vehicle {
+  id     String  @id @default(uuid())
+  /// Frei vergeben ("E92 335i, Sommerreifen"). Der Name, unter dem das Fahrzeug
+  /// ausgewählt wird — deshalb Pflicht, aber ohne Eindeutigkeitszwang: zwei
+  /// gleich benannte Autos sind das Problem des Besitzers, nicht der Datenbank.
+  name   String
+  /// Genau eines ist aktiv. Als Flag statt als Setting-Zeile, damit „welches
+  /// Fahrzeug ist aktiv" nicht an zwei Orten stehen kann.
+  active Boolean @default(false)
+
+  // --- Fahrzeug-Spec (Bewertungsgrundlage des Analyzers) -------------------
+  /// Katalog-Ids; NULL heißt „nicht aus dem Katalog gewählt".
+  brand        String?
+  series       String?
+  vehicleModel String?
+  engineCode   String  @default("n54")
+  transmission String  @default("manual")
+  catType      String  @default("oem")
+  fuel         String  @default("ron98")
+  turbo        String  @default("stock")
+  hpfp         String  @default("oem")
+  stage        String  @default("stage1")
+
+  /// Benutzereigene Grenzwerte als JSON-Teilmenge von `SpecLimits`. Leeres
+  /// Objekt = alles abgeleitet. Nur die überschriebenen Schlüssel stehen drin,
+  /// damit eine Änderung an den abgeleiteten Tabellen weiterhin durchschlägt —
+  /// wer einen Wert nicht angefasst hat, bekommt weiter den gepflegten.
+  limitOverrides String @default("{}")
+
+  /// Fahrdynamik-Profil des virtuellen Prüfstands als JSON (`DynoProfile`).
+  /// NULL = noch keins hinterlegt, dann greift die Ableitung aus der Plattform.
+  dynoProfile String?
+
+  /// Woher die Prüfstandswerte stammen. Ein fremdes Profil ist die Schätzung
+  /// eines Fremden — der Prüfstand darf nicht so tun, als sei sie gemessen.
+  /// "own" | "preset" | "imported".
+  profileOrigin String @default("own")
+
+  logs      LogFile[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([active])
+  @@map("vehicles")
 }

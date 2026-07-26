@@ -510,7 +510,7 @@ mehrere Update-Runden für eine Sache.
 **Reihenfolge:** A → B → C → D → 🏁 **v3.0.0** → E → F → G → H → I → J
 
 **Stand 2026-07-26:** B und D sind ausgeklammert (reine Betriebsarbeit bzw. Folge
-von C). E und F sind umgesetzt; G–J stehen aus.
+von C). E, F und G sind umgesetzt; H–J stehen aus.
 
 ---
 
@@ -671,7 +671,7 @@ und eine nicht konfigurierte Aufbewahrung. Das sind Entscheidungen, keine Fehler
 — sie zu melden erzieht dazu, die Glocke zu ignorieren, und das kostet die
 Meldungen, auf die es ankommt.
 
-#### Paket G — Fahrzeuge als echte Daten 🔵 Schemaänderung
+#### Paket G — Fahrzeuge als echte Daten ✅ v3.3.0-beta.1 🔵 Schemaänderung
 
 - § 7.5 Profile pro Fahrzeug statt eines globalen im `localStorage`
 - § 7.6 eigene Referenzprofile anlegen
@@ -686,6 +686,34 @@ nur die Grenzwert-*Tabellen*. Benutzereigene Limits stehen nicht in diesem Hash 
 ohne Anpassung zeigen gespeicherte Logs veraltete Badges.
 **Größe:** das mit Abstand dickste Paket. Notfalls schneidbar in
 „Fahrzeug-Entität + Profile" und „eigene Grenzwerte", aber **eine** Migration.
+
+**Umgesetzt in einer Migration**, wie gefordert: `Vehicle` (Spec, eigene
+Grenzwerte, Prüfstandsprofil, Herkunft), `LogFile.vehicleId` und
+`Zaehler.ableseIntervallTage`. Alle neuen Spalten sind optional oder haben einen
+Default — ein Rollback überspringt die Migration bewusst, der ältere Client läuft
+also gegen das neuere Schema weiter, und genau eine `NOT NULL`-Spalte ohne
+Default würde das nicht überleben.
+
+**Gespeichert werden die Abweichungen, nicht die Grenzwerte.** Ein Fahrzeug hält
+nur die Schlüssel, die jemand wirklich geändert hat. Eine vollständige Kopie
+würde es auf den Tag seiner Anlage einfrieren: jede spätere Korrektur der
+Tabellen in `engines.ts`/`vehicle-spec.ts` erreichte es nicht mehr, und die
+gepflegten Vorgaben wären für alle, die das Formular je geöffnet haben, toter
+Code. Die Plausibilitätsgrenzen werden beim Schreiben **und** beim Lesen
+durchgesetzt — ein Tippfehler um eine Zehnerpotenz sieht auf dem Bildschirm nicht
+falsch aus, er stuft still jeden danach bewerteten Log um.
+
+**Der Bewertungs-Cache sieht eigene Grenzwerte jetzt.** Das war der im Backlog
+notierte nicht offensichtliche Punkt und er stimmte: der automatische Hash deckt
+die Grenzwert-*Tabellen* ab, ein benutzereigenes Limit war für ihn unsichtbar.
+`evaluationVersionFor(effectiveLimits(...))` ist der fahrzeugbezogene Schlüssel —
+die Abweichungen eines Fahrzeugs entwerten dessen eigene Logs und sonst keine.
+
+**Ableseintervall (§ 7.2 Phase 2).** `0 = aus`, wie bei den Aufbewahrungsgrenzen.
+Ein nie abgelesener Zähler gilt **nicht** als überfällig — das ist ein gerade
+angelegter Zähler, und ihn im selben Moment anzumahnen ist der Weg, wie eine
+Glocke ihr Publikum verliert. Anders als bei den geplanten Jobs gibt es hier
+keinen Kulanzfaktor: das Intervall ist das, worum jemand gebeten hat.
 
 #### Paket H — Auswertung erklären
 
@@ -751,6 +779,7 @@ decken den Fall möglicherweise schon ab.*
 | 2FA-Login-Hotfix (Cookie-Flag + PIN-Vollständigkeit) | ✅ v3.0.0-beta.12 |
 | Navigation & Auffindbarkeit (Paket E) | ✅ v3.1.0-beta.1 |
 | Zustand sichtbar machen (Paket F) | ✅ v3.2.0-beta.1 |
+| Fahrzeuge als echte Daten (Paket G) | ✅ v3.3.0-beta.1 |
 | Animationen (§ 8) | ✅ v3.0.0-beta.3 |
 
 **Offen aus § 3, aber nicht paketiert:** der GitHub-Aufbau mit `next` als

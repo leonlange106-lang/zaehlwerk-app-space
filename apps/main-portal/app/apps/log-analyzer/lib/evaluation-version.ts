@@ -44,10 +44,28 @@ function stableStringify(value: unknown): string {
   );
 }
 
-// Stored logs are always scored against DEFAULT_VEHICLE_SPEC (the repository has
-// no per-log spec), so the limits derived from exactly that spec are the whole
-// threshold surface the cached verdicts depend on.
 const THRESHOLD_FINGERPRINT = fnv1a(stableStringify(limitsForSpec(DEFAULT_VEHICLE_SPEC)));
 
-/** Value persisted alongside a log's cached status/health. */
+/**
+ * Value persisted alongside a log's cached status/health, for a log with no
+ * vehicle of its own — the default spec, exactly as before.
+ */
 export const EVALUATION_VERSION = `${EVALUATION_RULES_VERSION}-${THRESHOLD_FINGERPRINT}`;
+
+/**
+ * The same fingerprint for a log judged against a SPECIFIC vehicle.
+ *
+ * The two-part key above was complete only while every stored log was scored
+ * against `DEFAULT_VEHICLE_SPEC`. Once a vehicle can carry its own limits that
+ * stops being true, and the automatic hash cannot see them: a user who raises
+ * their EGT ceiling changes what the engine would say, while every stored log
+ * keeps the badge it was given — the exact failure the fingerprint exists to
+ * prevent, arriving through the one door it was not watching.
+ *
+ * So the effective limits go into the hash. A vehicle whose overrides change
+ * invalidates its own logs and nobody else's, because the hash is computed from
+ * the limits that log was actually judged by.
+ */
+export function evaluationVersionFor(limits: unknown): string {
+  return `${EVALUATION_RULES_VERSION}-${fnv1a(stableStringify(limits))}`;
+}

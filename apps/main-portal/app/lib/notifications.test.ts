@@ -14,6 +14,7 @@ function sources(patch: Partial<NotificationSources> = {}): NotificationSources 
     update: null,
     backup: { autoEnabled: false, intervalHours: 24, lastRunAt: null },
     maintenance: { lastRunAt: null, enabled: false },
+    meters: [],
     now: NOW,
     ...patch,
   };
@@ -180,6 +181,80 @@ describe("buildNotifications", () => {
       }),
     );
     expect(items).toHaveLength(3);
+  });
+});
+
+describe("readings due", () => {
+  const meter = (patch: Partial<NotificationSources["meters"][number]> = {}) => ({
+    id: "m1",
+    name: "Strom Hauptzähler",
+    intervalDays: 30,
+    lastReadingAt: new Date(NOW.getTime() - 40 * 24 * 60 * 60 * 1000).toISOString(),
+    ...patch,
+  });
+
+  it("reports a meter past its interval", () => {
+    const items = buildNotifications(sources({ meters: [meter()] }));
+    expect(items).toHaveLength(1);
+    expect(items[0].title).toContain("Strom Hauptzähler");
+    expect(items[0].href).toBe("/apps/zaehlwerk/zaehler/m1");
+  });
+
+  it("ignores a meter with no interval configured", () => {
+    // The column defaults to 0. A reminder nobody asked for is a nuisance, and
+    // it costs the bell the attention its real messages need.
+    expect(buildNotifications(sources({ meters: [meter({ intervalDays: 0 })] }))).toEqual([]);
+  });
+
+  it("does not fire before the interval is up", () => {
+    // No grace factor here, unlike the scheduled jobs: this is the interval a
+    // person asked to be reminded of, and doubling it silently would make a
+    // 30-day interval fire after 60.
+    const items = buildNotifications(
+      sources({
+        meters: [
+          meter({ lastReadingAt: new Date(NOW.getTime() - 20 * 24 * 60 * 60 * 1000).toISOString() }),
+        ],
+      }),
+    );
+    expect(items).toEqual([]);
+  });
+
+  it("fires the day after the interval elapses", () => {
+    const items = buildNotifications(
+      sources({
+        meters: [
+          meter({ lastReadingAt: new Date(NOW.getTime() - 31 * 24 * 60 * 60 * 1000).toISOString() }),
+        ],
+      }),
+    );
+    expect(items).toHaveLength(1);
+  });
+
+  it("says nothing about a meter that was never read", () => {
+    // That is a meter someone just created, not an overdue one. Nagging the
+    // moment it exists is how a bell loses its audience.
+    expect(buildNotifications(sources({ meters: [meter({ lastReadingAt: null })] }))).toEqual([]);
+  });
+
+  it("keys the id on the reading it is waiting for", () => {
+    // Entering a reading must end the item; a later overdue period is new.
+    const first = buildNotifications(sources({ meters: [meter()] }))[0];
+    const afterReading = buildNotifications(
+      sources({
+        meters: [
+          meter({ lastReadingAt: new Date(NOW.getTime() - 35 * 24 * 60 * 60 * 1000).toISOString() }),
+        ],
+      }),
+    )[0];
+    expect(first.id).not.toBe(afterReading.id);
+  });
+
+  it("reports each overdue meter separately", () => {
+    const items = buildNotifications(
+      sources({ meters: [meter(), meter({ id: "m2", name: "Gas" })] }),
+    );
+    expect(items).toHaveLength(2);
   });
 });
 

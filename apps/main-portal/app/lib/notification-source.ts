@@ -78,12 +78,17 @@ async function checkUpdate(): Promise<{ available: boolean; label: string | null
 /** Everything the bell has to say to this user, newest conditions first. */
 export async function listNotifications(
   userId: string,
+  { allowedAppIds }: { allowedAppIds: string[] } = { allowedAppIds: [] },
 ): Promise<{ items: NotificationItem[]; unread: number }> {
-  const [update, backup, retention, readIds] = await Promise.all([
+  const [update, backup, retention, readIds, meters] = await Promise.all([
     checkUpdate(),
     getBackupPolicy(),
     getLogRetentionPolicy(),
     readMarkers(userId),
+    // A due-reading notice names a meter. Offering it to an account without the
+    // Zählwerk app would tell it that meter exists — the same information leak
+    // the search route guards against, arriving through the bell instead.
+    allowedAppIds.includes("zaehlwerk") ? dueReadingSources() : Promise.resolve([]),
   ]);
 
   const items = sortNotifications(
@@ -100,11 +105,39 @@ export async function listNotifications(
         // maintenance sweep has nothing to do, so it cannot be overdue.
         enabled: retention.retentionDays > 0 || retention.maxCount > 0,
       },
+      meters,
       now: new Date(),
     }),
   );
 
   return { items, unread: unreadCount(items, readIds) };
+}
+
+/**
+ * Meters that ask to be read on a schedule, with their newest reading.
+ *
+ * Only meters with an interval are fetched — the column defaults to 0 ("no
+ * reminder"), so this stays empty on an instance that never configured one
+ * rather than reading every meter on every poll.
+ */
+async function dueReadingSources(): Promise<
+  { id: string; name: string; intervalDays: number; lastReadingAt: string | null }[]
+> {
+  const rows = await prisma.zaehler.findMany({
+    where: { aktiv: true, ableseIntervallTage: { gt: 0 } },
+    select: {
+      id: true,
+      name: true,
+      ableseIntervallTage: true,
+      ablesungen: { orderBy: { datum: "desc" }, take: 1, select: { datum: true } },
+    },
+  });
+  return rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    intervalDays: row.ableseIntervallTage,
+    lastReadingAt: row.ablesungen[0]?.datum.toISOString() ?? null,
+  }));
 }
 
 async function readMaintenanceRun(): Promise<string | null> {
@@ -130,8 +163,11 @@ async function readMarkers(userId: string): Promise<string[]> {
  * cannot mark an id that is not actually live — and the stored list is pruned to
  * the live conditions, which is what bounds its growth.
  */
-export async function markAllRead(userId: string): Promise<{ unread: number }> {
-  const { items } = await listNotifications(userId);
+export async function markAllRead(
+  userId: string,
+  options?: { allowedAppIds: string[] },
+): Promise<{ unread: number }> {
+  const { items } = await listNotifications(userId, options);
   const ids = pruneReadIds(items, items.map((item) => item.id));
   const value = JSON.stringify(ids);
   await prisma.setting.upsert({
