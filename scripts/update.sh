@@ -60,7 +60,14 @@ if : >"$LOG_FILE" 2>/dev/null; then
   exec >>"$LOG_FILE" 2>&1
 fi
 
+# Two clocks, one instant, two audiences.
+#   now()     — UTC, ISO 8601 with Z. Goes into the status JSON, where the client
+#               parses it and formats it locally. Must stay unambiguous.
+#   log_now() — local time with its zone name, for the lines a human reads in the
+#               live log. A German operator reading UTC timestamps reasonably
+#               concludes the server's clock is wrong when it is not.
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+log_now() { date +'%Y-%m-%d %H:%M:%S %Z'; }
 
 # Machine-readable progress for GET /api/update/status → the UI.
 # Args: <stage> <ok:true|false> <done:true|false> <message> [error] [targetSha]
@@ -71,7 +78,7 @@ write_status() {
 
 fail() {
   write_status failed false true "$1" "${2:-}" "${GIT_SHA:-}"
-  echo "[update] FAILED: $1 $(now)"
+  echo "[update] FAILED: $1 $(log_now)"
   exit 1
 }
 
@@ -82,7 +89,7 @@ fail() {
 # run this at all — belt and braces on the one file the UI believes.
 on_cancel() {
   write_status cancelled false true "Update abgebrochen. Die laufende Version wurde nicht verändert." "" "${GIT_SHA:-}"
-  echo "[update] CANCELLED $(now)"
+  echo "[update] CANCELLED $(log_now)"
   exit 143
 }
 trap on_cancel TERM INT
@@ -93,7 +100,7 @@ else
   VERB="Update"
 fi
 
-echo "===== $UPDATE_MODE $(now) ====="
+echo "===== $UPDATE_MODE $(log_now) ====="
 echo "[update] mode=$UPDATE_MODE ref=${UPDATE_REF:-<branch>} channel=$UPDATE_CHANNEL"
 write_status started true false "$VERB gestartet"
 
@@ -272,5 +279,5 @@ docker run -d --rm --name zaehlwerk-deployer \
   "${HOST_REPO}/scripts/deploy-swap.sh" \
   || fail "Deployer konnte nicht gestartet werden – Details im Log" "$GIT_SHA"
 
-echo "[update] deployer launched; this script exits, swap continues detached $(now)"
+echo "[update] deployer launched; this script exits, swap continues detached $(log_now)"
 exit 0

@@ -56,10 +56,21 @@ export function TwoFactorEnrolment({
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  function confirm() {
+  /**
+   * `submitted` is the value PinInput hands to `onComplete`, and it must be used.
+   *
+   * PinInput calls `onChange(next)` and then `onComplete(next)` in the same
+   * synchronous block, so at that moment React has not re-rendered and `code`
+   * still holds the PREVIOUS value — five digits. Reading state here instead of
+   * the argument submitted a five-digit code, which is rejected out of hand, and
+   * the error path then cleared the field: typing the sixth digit destroyed the
+   * entry every single time and enrolment was impossible.
+   */
+  function confirm(submitted?: string) {
+    const value = submitted ?? code;
     setError(null);
     startTransition(async () => {
-      const result = await confirmTwoFactor(code);
+      const result = await confirmTwoFactor(value);
       if (result.success) {
         onConfirmed();
       } else {
@@ -125,7 +136,12 @@ export function TwoFactorEnrolment({
         label="6-stelliger Code"
       />
 
-      <Button variant="primary" full disabled={isPending || code.length !== 6} onClick={confirm}>
+      <Button
+        variant="primary"
+        full
+        disabled={isPending || code.length !== 6}
+        onClick={() => confirm(code)}
+      >
         {isPending ? "Wird geprüft…" : "Aktivieren"}
       </Button>
 

@@ -78,10 +78,13 @@ export function SecurityCard({
     });
   }
 
-  function disable() {
+  // Takes the value PinInput passes to `onComplete` — see the note in
+  // TwoFactorEnrolment: reading `code` from state here would submit five digits.
+  function disable(submitted?: string) {
+    const value = submitted ?? code;
     setError(null);
     startTransition(async () => {
-      const result = await disableTwoFactor(code);
+      const result = await disableTwoFactor(value);
       if (result.success) {
         setDisableOpen(false);
         setCode("");
@@ -199,7 +202,7 @@ export function SecurityCard({
             variant="danger"
             full
             disabled={isPending || code.length !== 6}
-            onClick={disable}
+            onClick={() => disable(code)}
           >
             {isPending ? "Wird geprüft…" : "2FA deaktivieren"}
           </Button>

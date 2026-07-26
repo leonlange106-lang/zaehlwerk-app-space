@@ -22,7 +22,14 @@ export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-zaehlwerk}"
 # Append (never truncate) so the live log keeps the whole story across the swap.
 exec >>"$LOG_FILE" 2>&1
 
+# Two clocks, one instant, two audiences.
+#   now()     — UTC, ISO 8601 with Z. Goes into the status JSON, where the client
+#               parses it and formats it locally. Must stay unambiguous.
+#   log_now() — local time with its zone name, for the lines a human reads in the
+#               live log. A German operator reading UTC timestamps reasonably
+#               concludes the server's clock is wrong when it is not.
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+log_now() { date +'%Y-%m-%d %H:%M:%S %Z'; }
 write_status() {
   printf '{"stage":"%s","ok":%s,"done":%s,"message":"%s","error":"%s","targetSha":"%s","updatedAt":"%s"}\n' \
     "$1" "$2" "$3" "$4" "${5:-}" "${6:-}" "$(now)" >"$STATUS_FILE" 2>/dev/null || true
@@ -45,7 +52,7 @@ record_deploy() {
     >>"$HISTORY_FILE" 2>/dev/null || true
 }
 
-echo "[deploy] $(now) recreating main-portal (compose up -d --no-build)"
+echo "[deploy] $(log_now) recreating main-portal (compose up -d --no-build)"
 # Run from the repo root (this script lives in <repo>/scripts). The caller mounts
 # the repo at its real HOST path and sets that as the workdir, so compose's
 # `.:/repo` bind resolves correctly on the host daemon.
@@ -58,7 +65,7 @@ echo "[deploy] repo dir: $REPO_DIR"
 
 # --no-build: the image was already built in update.sh; this is just the swap.
 if docker compose -f "$COMPOSE_FILE" up -d --no-build; then
-  echo "[deploy] swap complete $(now)"
+  echo "[deploy] swap complete $(log_now)"
   record_deploy
   if [ "$UPDATE_MODE" = "rollback" ]; then
     write_status done true true "Rollback abgeschlossen" "" "${GIT_SHA:-}"
@@ -66,6 +73,6 @@ if docker compose -f "$COMPOSE_FILE" up -d --no-build; then
     write_status done true true "Update abgeschlossen" "" "${GIT_SHA:-}"
   fi
 else
-  echo "[deploy] swap FAILED $(now)"
+  echo "[deploy] swap FAILED $(log_now)"
   write_status failed false true "Neustart fehlgeschlagen – Details im Log" "" "${GIT_SHA:-}"
 fi

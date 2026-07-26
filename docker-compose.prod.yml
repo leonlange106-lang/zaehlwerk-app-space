@@ -30,6 +30,12 @@ services:
       - "3000:3000"
     environment:
       NODE_ENV: production
+      # Display timezone for everything the server renders (log timestamps, dates
+      # in server-rendered pages). Without it a container defaults to UTC and a
+      # German instance shows times two hours out, which reads as a broken clock.
+      # It is PRESENTATION only: the system clock is one instant either way, and
+      # TOTP/2FA works off Unix time and never sees a timezone at all.
+      TZ: ${TZ:-Europe/Berlin}
       DATABASE_URL: file:/data/zaehlwerk.db
       # Required for /api/update/check — this repo is private, so an
       # unauthenticated GitHub API call to it 404s. Fine-grained PAT with
