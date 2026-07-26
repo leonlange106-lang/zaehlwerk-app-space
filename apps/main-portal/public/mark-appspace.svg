@@ -1,7 +1,12 @@
 <svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="App Space">
   <!--
-    App Space mark: a hub with four satellites — literally the product's shape
-    (a hub-and-spoke root with apps hanging off it).
+    App Space mark — "Aurora-Ebenen": three offset panels, the front one solid,
+    the ones behind falling away in opacity.
+
+    It speaks the SAME language as the product. The whole interface is
+    translucent panels stacked over a deep deck, so the mark is the design
+    system's own primitive rather than a symbol bolted on top of it — and the
+    depth cue (offset + opacity) is exactly the one the panels themselves use.
 
     Deliberately a WHITE GLYPH ON TRANSPARENT rather than a self-contained tile.
     It is rendered inside the shell's accent-gradient chip, which supplies both
@@ -14,14 +19,15 @@
     surface this mark actually appears on. The inlined wordmark in
     components/BrandLogo.tsx does use currentColor — see the note there.
 
-    The connecting spokes are gone on purpose: at the 19px the header renders
-    this, a 2px line is sub-pixel and turns to mud. The orbit reads from the
-    placement alone, and the satellites' two opacities keep it from flattening
-    into a plus sign.
+    Built from FILLED shapes, never outlines. The header renders this at 19px,
+    where a 1.5px stroke is sub-pixel and turns to mud — the same reason the
+    previous mark had already dropped its connecting spokes. Offset and opacity
+    survive any scale; a hairline does not.
   -->
-  <rect x="23" y="23" width="18" height="18" rx="5.5" fill="#ffffff"/>
-  <rect x="27" y="4" width="10" height="10" rx="3.2" fill="#ffffff" opacity="0.92"/>
-  <rect x="50" y="27" width="10" height="10" rx="3.2" fill="#ffffff" opacity="0.72"/>
-  <rect x="27" y="50" width="10" height="10" rx="3.2" fill="#ffffff" opacity="0.92"/>
-  <rect x="4" y="27" width="10" height="10" rx="3.2" fill="#ffffff" opacity="0.72"/>
+  <!-- Back panel — furthest away, so the least present. -->
+  <rect x="20" y="8" width="36" height="26" rx="6" fill="#ffffff" opacity="0.34"/>
+  <!-- Middle panel. -->
+  <rect x="14" y="19" width="36" height="26" rx="6" fill="#ffffff" opacity="0.62"/>
+  <!-- Front panel — the one in focus, fully opaque. -->
+  <rect x="8" y="30" width="36" height="26" rx="6" fill="#ffffff"/>
 </svg>

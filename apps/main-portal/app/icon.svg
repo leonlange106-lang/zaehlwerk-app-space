@@ -2,8 +2,12 @@
   <!--
     Favicon. Unlike the header mark this one needs its own tile — a browser tab
     is not our surface, so it supplies the accent gradient itself.
-    Spokes are omitted for the same reason as in mark-appspace.svg: at 16px a
-    2px line is sub-pixel. The satellites' placement carries the orbit.
+    Filled panels for the same reason as in mark-appspace.svg: at 16px a
+    hairline is sub-pixel and disappears. Offset plus opacity still read.
+
+    The gradient is a hand-kept COPY of the dark --zw-accent/-2 pair: this file
+    is its own document (favicon), so page CSS never reaches it and a token
+    change here has to be made by hand. See the app-icon note in CLAUDE.md.
   -->
   <defs>
     <linearGradient id="as-bg" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
@@ -12,9 +16,9 @@
     </linearGradient>
   </defs>
   <rect width="64" height="64" rx="15" fill="url(#as-bg)"/>
-  <rect x="24" y="24" width="16" height="16" rx="5" fill="#ffffff"/>
-  <rect x="28" y="7" width="8" height="8" rx="2.6" fill="#ffffff" opacity="0.92"/>
-  <rect x="49" y="28" width="8" height="8" rx="2.6" fill="#ffffff" opacity="0.72"/>
-  <rect x="28" y="49" width="8" height="8" rx="2.6" fill="#ffffff" opacity="0.92"/>
-  <rect x="7" y="28" width="8" height="8" rx="2.6" fill="#ffffff" opacity="0.72"/>
+  <!-- Aurora-Ebenen, tile variant: the same three offset panels, scaled to sit
+       inside a 64px plate with even optical margins. -->
+  <rect x="21" y="12" width="30" height="21" rx="5" fill="#ffffff" opacity="0.34"/>
+  <rect x="17" y="21" width="30" height="21" rx="5" fill="#ffffff" opacity="0.62"/>
+  <rect x="13" y="30" width="30" height="21" rx="5" fill="#ffffff"/>
 </svg>

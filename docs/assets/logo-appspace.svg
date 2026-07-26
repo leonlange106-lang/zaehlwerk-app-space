@@ -1,23 +1,27 @@
 <svg width="248" height="64" viewBox="0 0 248 64" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="App Space">
+  <!--
+    App Space wordmark for the README.
+
+    A SEPARATE FILE from components/BrandLogo.tsx on purpose, and the one place
+    that duplication is correct: the in-app wordmark is inlined so its type can
+    use `currentColor` and follow the theme toggle. GitHub renders this one as a
+    referenced image, where neither CSS variables nor the page's colour scheme
+    reach it — so the type is a literal that has to stay legible on GitHub's
+    light AND dark canvas. Hence the mid-tone grey rather than near-black.
+
+    The gradient is a hand-kept copy of the dark --zw-accent/-2 pair, like the
+    app icons; see the note in CLAUDE.md about separate documents.
+  -->
   <defs>
-    <linearGradient id="asl-bg" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#586a7e"/>
-      <stop offset="1" stop-color="#3c4b5a"/>
+    <linearGradient id="as-word-bg" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#22d3ee"/>
+      <stop offset="1" stop-color="#4f7cff"/>
     </linearGradient>
   </defs>
-  <rect width="64" height="64" rx="15" fill="url(#asl-bg)"/>
-  <g stroke="#c9d1d9" stroke-width="2.4" stroke-linecap="round" opacity="0.85">
-    <line x1="32" y1="32" x2="18" y2="18"/>
-    <line x1="32" y1="32" x2="46" y2="18"/>
-    <line x1="32" y1="32" x2="18" y2="46"/>
-    <line x1="32" y1="32" x2="46" y2="46"/>
-  </g>
-  <circle cx="18" cy="18" r="6" fill="#e5e9ed"/>
-  <circle cx="46" cy="18" r="6" fill="#e5e9ed"/>
-  <circle cx="18" cy="46" r="6" fill="#e5e9ed"/>
-  <circle cx="46" cy="46" r="6" fill="#20c997"/>
-  <circle cx="32" cy="32" r="8.5" fill="#ffffff"/>
-  <text x="82" y="34" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="26" font-weight="700" fill="#3c4b5a">App</text>
-  <text x="140" y="34" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="26" font-weight="400" fill="#778ba0">Space</text>
-  <text x="82" y="50" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11" font-weight="600" letter-spacing="2.5" fill="#90a0b0">MODULARES&#160;PORTAL</text>
+  <rect width="64" height="64" rx="15" fill="url(#as-word-bg)"/>
+  <rect x="21" y="12" width="30" height="21" rx="5" fill="#ffffff" opacity="0.34"/>
+  <rect x="17" y="21" width="30" height="21" rx="5" fill="#ffffff" opacity="0.62"/>
+  <rect x="13" y="30" width="30" height="21" rx="5" fill="#ffffff"/>
+  <text x="82" y="42" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="26" font-weight="700" fill="#8b96a5" letter-spacing="-0.5">App</text>
+  <text x="140" y="42" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="26" font-weight="400" fill="#8b96a5" letter-spacing="-0.5">Space</text>
 </svg>

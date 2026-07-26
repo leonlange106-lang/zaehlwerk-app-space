@@ -510,7 +510,7 @@ mehrere Update-Runden für eine Sache.
 **Reihenfolge:** A → B → C → D → 🏁 **v3.0.0** → E → F → G → H → I → J
 
 **Stand 2026-07-26:** B und D sind ausgeklammert (reine Betriebsarbeit bzw. Folge
-von C). E–H sind umgesetzt; I und J stehen aus.
+von C). E–I sind umgesetzt; J steht aus.
 
 ---
 
@@ -742,7 +742,7 @@ Imperativ steht.
 Spalte im `ParameterPanel` aus § 6.1 fehlen noch — die Grenzwerte sind jetzt in
 der Bewertungskarte immer sichtbar, aber nicht im Diagramm eingezeichnet.
 
-#### Paket I — Marke
+#### Paket I — Marke ✅ v3.5.0-beta.1
 
 § 7.7: Zeichen überarbeiten und in die Kopfzeile holen, Favicon, Apple-Icon und
 Manifest mitziehen. Ablauf: mehrere Entwürfe in unterschiedlichen Designsprachen
@@ -766,8 +766,30 @@ Paket mit einem Termin.*
 | `docs/assets/logo-appspace.svg` | **alt** — Wortmarke, existiert **nur hier** | `README.md`-Kopf |
 | `docs/assets/mark-appspace.svg` | **alt** | von nichts referenziert |
 
-Bewusst *nicht* im Vorbeigehen repariert: die Bilder einzeln umzubiegen würde
-die Gestaltungsentscheidung vorwegnehmen, die hier ansteht. Beim Umsetzen
+**Gewählte Richtung: Aurora-Ebenen.** Drei versetzte Flächen, die vorderste
+deckend, die dahinter in der Deckkraft abfallend — das Zeichen spricht dieselbe
+Sprache wie die Oberfläche (durchscheinende Panels über tiefem Deck), statt ein
+Symbol daraufzusetzen. Aus **Flächen**, nie aus Linien: die Kopfzeile rendert das
+Zeichen mit 19px, wo eine Haarlinie sub-pixel ist und vermatscht — derselbe
+Grund, aus dem das alte Zeichen schon seine Speichen verloren hatte. Versatz und
+Deckkraft überleben jede Größe.
+
+Mitgezogen: `mark-appspace.svg`, `app/icon.svg` (Favicon), `apple-icon.tsx`
+(satori-Divs, von Hand nachgeführt — SVG lässt sich dort nicht importieren) und
+die inline gezeichnete Wortmarke in `BrandLogo.tsx`. Das Manifest zeigt bereits
+auf `icon.svg` und folgt damit von selbst.
+
+**`docs/assets/` aufgeräumt.** Die Repo-Startseite zeigte die *alte* Generation
+(Schiefer + Blitz/Lupe). Die App-Icons sind jetzt Kopien der ausgelieferten
+Dateien, `mark-appspace.svg` dort ist gelöscht (von nichts referenziert), und die
+Wortmarke — die es nur dort gab — ist neu gezeichnet. Sie bleibt bewusst eine
+eigene Datei: die App-Wortmarke ist inline, damit ihre Schrift `currentColor`
+folgen kann, während GitHub sie als referenziertes Bild rendert, wo weder
+CSS-Variablen noch das Farbschema der Seite ankommen.
+
+**Nicht angefasst:** § 7.7 behauptet, das Zeichen tauche „nur auf der Startseite"
+auf — das stimmte nicht mehr, `PortalShell` zeigt es längst im Akzent-Chip der
+Kopfzeile. Es war also nichts „in den Header zu holen". Beim Umsetzen
 mitnehmen: die Wortmarke hat keine aktuelle Entsprechung, `docs/assets/` sollte
 danach entweder auf die ausgelieferten Dateien zeigen oder verschwinden, und
 Icon-Hexwerte sind Kopien (siehe CLAUDE.md — separate Dokumente sehen die Token
@@ -797,6 +819,7 @@ decken den Fall möglicherweise schon ab.*
 | Zustand sichtbar machen (Paket F) | ✅ v3.2.0-beta.1 |
 | Fahrzeuge als echte Daten (Paket G) | ✅ v3.3.0-beta.1 |
 | Auswertung erklären (Paket H) | ✅ v3.4.0-beta.1 |
+| Marke (Paket I) | ✅ v3.5.0-beta.1 |
 | Animationen (§ 8) | ✅ v3.0.0-beta.3 |
 
 **Offen aus § 3, aber nicht paketiert:** der GitHub-Aufbau mit `next` als
