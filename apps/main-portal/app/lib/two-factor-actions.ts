@@ -6,6 +6,7 @@ import { prisma } from "@zaehlwerk/database";
 import type { ActionState } from "./action-state";
 import { getSessionUser } from "./auth-helpers";
 import { decryptSecret, encryptSecret } from "./crypto";
+import { getEnforceTwoFactor } from "./settings";
 import { generateTotpSecret, otpauthUri, verifyTotp } from "./totp";
 
 export type TwoFactorSetup = {
@@ -74,6 +75,17 @@ export async function confirmTwoFactor(code: string): Promise<ActionState> {
 export async function disableTwoFactor(code: string): Promise<ActionState> {
   const user = await getSessionUser();
   if (!user) return { success: false, error: "Nicht angemeldet." };
+
+  // While the instance requires a second factor, turning yours off is not a
+  // choice you have. Without this the policy is advisory: disable, get shown the
+  // enrolment gate, and the account is stuck in a loop it created itself.
+  if (await getEnforceTwoFactor()) {
+    return {
+      success: false,
+      error:
+        "Diese Instanz verlangt Zwei-Faktor-Authentifizierung. Die Pflicht muss zuerst in den Plattform-Einstellungen aufgehoben werden.",
+    };
+  }
 
   const record = await prisma.user.findUnique({
     where: { id: user.id },

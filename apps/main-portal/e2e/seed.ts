@@ -30,6 +30,14 @@ async function main() {
   await prisma.auditLog.deleteMany();
   await prisma.user.deleteMany();
 
+  // Instance settings survive the deletes above, and one of them can lock the
+  // whole suite out: with `security.enforceTwoFactor` left on, every page
+  // renders the 2FA enrolment gate instead of the app and the seeded admin —
+  // who has no second factor — fails every spec. A run that crashes midway
+  // through the enforcement spec would poison the reused database permanently,
+  // so the reset lives here rather than only in that spec's cleanup.
+  await prisma.setting.deleteMany({ where: { key: "security.enforceTwoFactor" } });
+
   await prisma.user.create({
     data: {
       email: E2E_ADMIN.email,

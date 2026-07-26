@@ -373,6 +373,7 @@ export function Switch({
   description,
   disabled,
   className,
+  "data-testid": testId,
 }: {
   checked: boolean;
   onChange: (checked: boolean) => void;
@@ -380,11 +381,22 @@ export function Switch({
   description?: ReactNode;
   disabled?: boolean;
   className?: string;
+  // Declared explicitly: TypeScript accepts any hyphenated prop on a component
+  // without complaint, so an undeclared `data-testid` is silently dropped and
+  // the E2E locator that depends on it fails only at runtime.
+  "data-testid"?: string;
 }) {
   return (
     <label
       className={cn(
-        "flex cursor-pointer items-start gap-3",
+        // `relative` is load-bearing: the input below is `sr-only`, i.e.
+        // `position: absolute`. Without a positioned label its containing block
+        // becomes the nearest positioned ancestor — usually the whole `panel` —
+        // and it then escapes any `overflow` in between. That is how
+        // SegmentedControl's hidden radios once put the phone into horizontal
+        // scroll. Costs nothing here and stops the same bug if a Switch ever
+        // lands inside a scrolling row.
+        "relative flex cursor-pointer items-start gap-3",
         disabled && "cursor-default opacity-55",
         className,
       )}
@@ -394,6 +406,7 @@ export function Switch({
         role="switch"
         checked={checked}
         disabled={disabled}
+        data-testid={testId}
         onChange={(event) => onChange(event.currentTarget.checked)}
         className="peer sr-only"
       />

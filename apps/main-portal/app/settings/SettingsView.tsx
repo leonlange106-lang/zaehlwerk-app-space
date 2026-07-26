@@ -74,9 +74,11 @@ export function SettingsView({
   ingestionKeys,
   governance,
   updateTokenRequired,
+  enforceTwoFactor,
 }: {
   versionInfo: LocalCommitInfo | null;
   updateChannel: ReleaseChannel;
+  enforceTwoFactor: boolean;
   currentUser: SessionUser | null;
   users: AppUser[];
   twoFactorEnabled: boolean;
@@ -94,7 +96,13 @@ export function SettingsView({
         description="System & Konten: Sicherheit, Benutzer, API-Zugriff, Backups und Updates. App-spezifische Optionen findest du in den jeweiligen App-Einstellungen."
       />
 
-      {currentUser && <SecurityCard twoFactorEnabled={twoFactorEnabled} />}
+      {currentUser && (
+        <SecurityCard
+          twoFactorEnabled={twoFactorEnabled}
+          enforceTwoFactor={enforceTwoFactor}
+          isAdmin={isAdmin}
+        />
+      )}
       {currentUser && <ApiTokenCard tokens={apiTokens} />}
       {isAdmin && <IngestionKeyCard keys={ingestionKeys} />}
       {isAdmin && currentUser && (
