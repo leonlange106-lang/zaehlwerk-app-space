@@ -12,7 +12,7 @@ import { TwoFactorEnrolment } from "@/app/components/TwoFactorEnrolment";
 import { setEnforceTwoFactorAction } from "@/app/lib/security-policy-actions";
 import { Button } from "@/app/components/ui/Button";
 import { Panel } from "@/app/components/ui/Panel";
-import { PinInput } from "@/app/components/ui/PinInput";
+import { isPinComplete, PinInput } from "@/app/components/ui/PinInput";
 import { ResponsiveDialog } from "@/app/components/ui/ResponsiveDialog";
 import { StatusBadge } from "@/app/components/ui/StatusBadge";
 import { useToast } from "@/app/components/ui/Toast";
@@ -201,7 +201,7 @@ export function SecurityCard({
           <Button
             variant="danger"
             full
-            disabled={isPending || code.length !== 6}
+            disabled={isPending || !isPinComplete(code)}
             onClick={() => disable(code)}
           >
             {isPending ? "Wird geprüft…" : "2FA deaktivieren"}
