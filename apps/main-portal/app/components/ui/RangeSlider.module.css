@@ -11,64 +11,109 @@
  */
 
 .root {
+  /* Hit area of a thumb. 44px is the WCAG 2.5.5 minimum and the size every
+     other control in this product uses on a phone. The VISIBLE circle is
+     smaller; see the thumb rules below. */
+  --thumb: 44px;
   position: relative;
   display: flex;
   align-items: center;
-  height: 44px; /* WCAG 2.5.5 target size for the thumbs */
+  height: var(--thumb);
+  /* Horizontal drags belong to the slider, vertical ones to the page. Without
+     this the browser claims the gesture and scrolls the page instead of moving
+     the thumb — which is what made dragging feel broken on a phone. */
+  touch-action: pan-y;
 }
 
+/* The track spans the thumb's TRAVEL, not the full width: a native range input
+   insets the thumb by half its width at each end, so a full-bleed track would
+   extend past where the thumb can actually go. */
 .track {
   position: absolute;
-  inset-inline: 0;
+  left: calc(var(--thumb) / 2);
+  right: calc(var(--thumb) / 2);
   height: 6px;
   border-radius: 999px;
   background: var(--zw-inset);
   box-shadow: inset 0 0 0 1px var(--zw-border);
 }
 
-/* The selected window, positioned from the component via custom properties. */
+/* The selected window. Positioned with the same inset the browser applies to
+   the thumb, so the fill's ends sit exactly under the thumb centres instead of
+   drifting away from them towards the extremes.
+   `--range-start` / `--range-end` are unitless fractions (0..1). */
 .fill {
   position: absolute;
   height: 6px;
   border-radius: 999px;
   background: linear-gradient(90deg, var(--zw-accent), var(--zw-accent-2));
-  left: var(--zw-range-start);
-  right: var(--zw-range-end);
+  left: calc(var(--thumb) / 2 + var(--range-start) * (100% - var(--thumb)));
+  right: calc(var(--thumb) / 2 + (1 - var(--range-end)) * (100% - var(--thumb)));
 }
 
 .input {
   position: absolute;
   inset-inline: 0;
   width: 100%;
-  height: 44px;
+  height: var(--thumb);
   margin: 0;
   background: transparent;
   appearance: none;
   -webkit-appearance: none;
   pointer-events: none; /* the track belongs to nobody; only thumbs are grabbable */
+  touch-action: pan-y;
+}
+
+/*
+ * Raised above its sibling so the START thumb stays grabbable once the window
+ * is collapsed against the right edge. The inputs are stacked in DOM order, so
+ * without this the END thumb sits on top everywhere and the start one is
+ * trapped underneath it — you could shrink the window but never move it back.
+ */
+.inputStartOnTop {
+  z-index: 1;
 }
 
 .input:focus-visible {
   outline: none;
 }
 
-/* --- Thumb: WebKit/Blink --- */
+/*
+ * The thumb box is the 44px TARGET; the visible circle is drawn inside it with
+ * a radial gradient. A 44px circle would be a lollipop, and the hit area cannot
+ * be grown past the box on a slider thumb — so the box is the target and the
+ * paint is decoration. Stops: filled centre to 7.5px, accent ring to 10px,
+ * nothing beyond.
+ */
 .input::-webkit-slider-thumb {
   appearance: none;
   -webkit-appearance: none;
   pointer-events: auto;
-  width: 20px;
-  height: 20px;
-  border-radius: 999px;
-  background: var(--zw-elevated);
-  border: 2px solid var(--zw-accent);
-  box-shadow: 0 1px 3px rgb(0 0 0 / 45%);
+  width: var(--thumb);
+  height: var(--thumb);
+  border: 0;
+  background: radial-gradient(
+    circle at 50% 50%,
+    var(--zw-elevated) 0 7.5px,
+    var(--zw-accent) 8px 10px,
+    transparent 10.5px
+  );
+  /* drop-shadow follows the painted circle; box-shadow would outline the
+     invisible 44px box instead. */
+  filter: drop-shadow(0 1px 2px rgb(0 0 0 / 45%));
   cursor: grab;
 }
 
 .input:focus-visible::-webkit-slider-thumb {
+  background: radial-gradient(
+    circle at 50% 50%,
+    var(--zw-elevated) 0 7.5px,
+    var(--zw-accent) 8px 10px,
+    transparent 10.5px
+  );
   outline: 2px solid var(--zw-accent);
-  outline-offset: 2px;
+  outline-offset: -12px;
+  border-radius: 999px;
 }
 
 .input:active::-webkit-slider-thumb {
@@ -77,24 +122,44 @@
 
 .input:disabled::-webkit-slider-thumb {
   cursor: default;
-  border-color: var(--zw-border-strong);
+  background: radial-gradient(
+    circle at 50% 50%,
+    var(--zw-elevated) 0 7.5px,
+    var(--zw-border-strong) 8px 10px,
+    transparent 10.5px
+  );
 }
 
 /* --- Thumb: Gecko --- */
 .input::-moz-range-thumb {
   pointer-events: auto;
-  width: 20px;
-  height: 20px;
-  border-radius: 999px;
-  background: var(--zw-elevated);
-  border: 2px solid var(--zw-accent);
-  box-shadow: 0 1px 3px rgb(0 0 0 / 45%);
+  width: var(--thumb);
+  height: var(--thumb);
+  border: 0;
+  background: radial-gradient(
+    circle at 50% 50%,
+    var(--zw-elevated) 0 7.5px,
+    var(--zw-accent) 8px 10px,
+    transparent 10.5px
+  );
+  filter: drop-shadow(0 1px 2px rgb(0 0 0 / 45%));
   cursor: grab;
 }
 
 .input:focus-visible::-moz-range-thumb {
   outline: 2px solid var(--zw-accent);
-  outline-offset: 2px;
+  outline-offset: -12px;
+  border-radius: 999px;
+}
+
+.input:disabled::-moz-range-thumb {
+  cursor: default;
+  background: radial-gradient(
+    circle at 50% 50%,
+    var(--zw-elevated) 0 7.5px,
+    var(--zw-border-strong) 8px 10px,
+    transparent 10.5px
+  );
 }
 
 .input::-moz-range-track {

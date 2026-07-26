@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   CartesianGrid,
   Label,
@@ -16,6 +16,7 @@ import {
 import { buildChartData, groupSelectedSeries } from "./lib/chart-data";
 import type { AxisSide, LogSeries, ParsedLog } from "./lib/types";
 import type { PullRange, Violation } from "./lib/evaluate-log-pull";
+import { CHART_TOOLTIP_PROPS, ChartReadout } from "./ChartLegend";
 import classes from "./LogAnalyzer.module.css";
 
 // A synchronized stack of line charts — one per parameter group that currently
@@ -49,6 +50,18 @@ const SHIFT_GREY = "var(--zw-neutral)";
 const GRID = "var(--zw-border)";
 const AXIS_TEXT = "var(--zw-text-dim)";
 
+/**
+ * A value for the readout strip. Kept to two decimals at most: a channel like
+ * lambda needs them, RPM does not, and a strip that changes width as you drag
+ * would jitter under the finger.
+ */
+function formatReadoutValue(raw: unknown, unit: string | undefined): string {
+  const num = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isFinite(num)) return "—";
+  const rounded = Math.abs(num) >= 100 ? Math.round(num) : Math.round(num * 100) / 100;
+  return `${rounded.toLocaleString("de-DE")}${unit ? ` ${unit}` : ""}`;
+}
+
 function formatX(value: number, unit: "s" | "#"): string {
   if (unit === "#") return String(Math.round(value));
   return `${value.toFixed(value < 10 ? 2 : 1)}s`;
@@ -65,6 +78,27 @@ export function LogCharts({
   violations,
   exclusionRanges,
 }: Props) {
+  // Index into `data` currently under the pointer, or null. Drives the readout
+  // strip under every chart, so scrubbing one plot updates all of them — which
+  // is what `syncId` already does for the cursor lines.
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+
+  /**
+   * Only the phone layout reads out below the plot; from `sm` up the floating
+   * tooltip does the job. Checked when the pointer MOVES, not while rendering:
+   * a `useMediaQuery` hook settles after mount and would reflow the page, and
+   * without the guard this would re-render every chart in the stack on every
+   * pixel of a desktop mouse move for a strip nobody can see.
+   */
+  const trackPointer = useCallback((raw: string | number | null | undefined) => {
+    if (typeof window === "undefined") return;
+    if (!window.matchMedia("(max-width: 39.9375rem)").matches) return;
+    // Recharts types activeTooltipIndex as string | number | null.
+    const index = typeof raw === "number" ? raw : raw != null ? Number(raw) : null;
+    const next = index !== null && Number.isFinite(index) ? index : null;
+    setActiveIndex((current) => (current === next ? current : next));
+  }, []);
+
   // Points (decimated) for the visible window, shared by every chart so the
   // syncId cursor lines up 1:1 across the stack.
   const data = useMemo(
@@ -88,6 +122,12 @@ export function LogCharts({
       </div>
     );
   }
+
+  // Resolved once: every chart in the stack reads the same index, because they
+  // all render the same `data` array.
+  const activePoint = activeIndex !== null ? data[activeIndex] : undefined;
+  const readoutX =
+    activePoint !== undefined ? `t = ${formatX(Number(activePoint.x), log.timeUnit)}` : "t = —";
 
   const colorFor = (s: LogSeries) => colorById[s.key] ?? s.color;
   const sideFor = (s: LogSeries): AxisSide => axisById[s.key] ?? "left";
@@ -125,6 +165,9 @@ export function LogCharts({
                     data={data}
                     syncId="log-analyzer"
                     margin={{ top: 4, right: 8, bottom: 4, left: 0 }}
+                    onMouseMove={(state) => trackPointer(state?.activeTooltipIndex ?? null)}
+                    onTouchMove={(state) => trackPointer(state?.activeTooltipIndex ?? null)}
+                    onMouseLeave={() => trackPointer(null)}
                   >
                     <CartesianGrid strokeDasharray="2 4" stroke={GRID} />
                     <XAxis
@@ -220,7 +263,7 @@ export function LogCharts({
                     })}
 
                     <Tooltip
-                      isAnimationActive={false}
+                      {...CHART_TOOLTIP_PROPS}
                       labelFormatter={(v) => `t = ${formatX(Number(v), log.timeUnit)}`}
                       formatter={(value, _name, item) => {
                         const s = series.find((x) => x.key === item.dataKey);
@@ -230,17 +273,6 @@ export function LogCharts({
                           s?.label ?? String(item.dataKey),
                         ];
                       }}
-                      // The tooltip is a raised plate like every other floating
-                      // surface: elevated fill, hairline outline, hard corners.
-                      contentStyle={{
-                        fontSize: 12,
-                        borderRadius: 4,
-                        background: "var(--zw-elevated)",
-                        border: "1px solid var(--zw-border)",
-                        color: "var(--zw-text)",
-                      }}
-                      labelStyle={{ color: "var(--zw-text-dim)" }}
-                      cursor={{ stroke: "var(--zw-border-strong)", strokeWidth: 1 }}
                     />
                     {series.map((s) => (
                       <Line
@@ -263,6 +295,20 @@ export function LogCharts({
                 </ResponsiveContainer>
               </div>
             </div>
+            {/* Phone-only: from `sm` up the floating tooltip is fine, because a
+                mouse pointer sits BESIDE the value it reads rather than on top
+                of it. Rendered on both breakpoints and hidden by CSS, never by
+                a hook — a hook resolves after mount and would reflow. */}
+            <ChartReadout
+              className="sm:hidden"
+              x={readoutX}
+              active={activeIndex !== null}
+              items={series.map((s) => ({
+                label: s.label,
+                color: colorFor(s),
+                value: formatReadoutValue(activePoint?.[s.key], s.unit ?? undefined),
+              }))}
+            />
           </div>
         );
       })}

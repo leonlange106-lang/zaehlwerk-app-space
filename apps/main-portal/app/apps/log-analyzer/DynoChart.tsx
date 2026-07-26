@@ -12,7 +12,7 @@ import {
   YAxis,
 } from "recharts";
 import type { DynoChartRow, DynoCurve, DynoOutput } from "./lib/dyno-engine";
-import { SERIES_COLORS } from "./ChartLegend";
+import { CHART_TOOLTIP_PROPS, SERIES_COLORS } from "./ChartLegend";
 import classes from "./LogAnalyzer.module.css";
 
 // The dyno plot: engine speed on X, power (PS) on the left axis and torque (Nm)
@@ -91,14 +91,13 @@ export function DynoChart({
             )}
 
             <Tooltip
-              isAnimationActive={false}
+              {...CHART_TOOLTIP_PROPS}
               labelFormatter={(v) => `${Math.round(Number(v))} 1/min`}
               formatter={(value, name) => {
                 const num = typeof value === "number" ? value : Number(value);
                 const unit = String(name).startsWith("Drehmoment") ? "Nm" : "PS";
                 return [`${Number.isFinite(num) ? num.toLocaleString("de-DE") : "—"} ${unit}`, name];
               }}
-              contentStyle={{ fontSize: 12, borderRadius: 8 }}
             />
 
             <Line

@@ -43,16 +43,21 @@ export function RangeSlider({
 }: RangeSliderProps) {
   const [start, end] = value;
   const span = Math.max(1, max - min);
-  const startPct = ((start - min) / span) * 100;
-  const endPct = ((end - min) / span) * 100;
+  // Unitless fractions, not percentages: the stylesheet has to combine them with
+  // the thumb's own width to line the fill up with the thumb centres.
+  const startFraction = (start - min) / span;
+  const endFraction = (end - min) / span;
+  // Past the halfway mark the start thumb risks being pinned under the end one
+  // against the right edge, where it could no longer be grabbed.
+  const startOnTop = startFraction > 0.5;
 
   return (
     <div
       className={cn(classes.root, disabled && "opacity-50", className)}
       style={
         {
-          "--zw-range-start": `${startPct}%`,
-          "--zw-range-end": `${100 - endPct}%`,
+          "--range-start": startFraction,
+          "--range-end": endFraction,
         } as React.CSSProperties
       }
     >
@@ -60,7 +65,7 @@ export function RangeSlider({
       <span aria-hidden className={classes.fill} />
       <input
         type="range"
-        className={classes.input}
+        className={cn(classes.input, startOnTop && classes.inputStartOnTop)}
         min={min}
         max={max}
         step={step}
