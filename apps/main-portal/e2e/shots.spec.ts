@@ -173,6 +173,15 @@ test.describe("2fa gate", () => {
       await page.waitForTimeout(400);
       await save(page, testInfo.project.name, scheme, "18-2fa-gate");
     });
+
+    test(`19-2fa-enrolment (${scheme})`, async ({ page }, testInfo) => {
+      await setScheme(page, scheme);
+      await page.goto("/");
+      await page.getByRole("button", { name: "2FA jetzt einrichten" }).click();
+      await expect(page.getByTestId("totp-secret")).toBeVisible();
+      await page.waitForTimeout(400);
+      await save(page, testInfo.project.name, scheme, "19-2fa-enrolment");
+    });
   }
 });
 
