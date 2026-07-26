@@ -254,6 +254,13 @@ Port 3000 is still open at this point — deliberately. Verify HTTPS works
 curl -kI https://zaehlwerk.fritz.box/api/health    # expect: HTTP/2 200
 ```
 
+**If the handshake fails with `tlsv1 alert internal error`:** that is the
+IP-address case, not a certificate problem. SNI may not carry an IP literal
+(RFC 6066), so clients connecting by IP send no server name at all and Caddy has
+nothing to match a site block against. The `default_sni` line in the `Caddyfile`
+global block handles it — make sure your `Caddyfile` has it and that
+`ZW_HOSTNAME` matches exactly what you type in the browser.
+
 **Certificate trust.** The LAN name is not publicly resolvable, so Let's Encrypt
 cannot validate it; Caddy issues from its own local CA instead. The encryption
 on the wire is identical — the only difference is who trusts the certificate.

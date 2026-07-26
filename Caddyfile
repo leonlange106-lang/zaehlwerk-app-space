@@ -9,6 +9,19 @@
 # Das `caddy_data`-Volume enthält die lokale CA. Geht es verloren, erzeugt Caddy
 # eine neue und JEDES Gerät muss erneut vertrauen — es gehört ins Backup.
 
+{
+	# Wer die App über eine IP-ADRESSE aufruft, sendet keinen Servernamen: SNI
+	# darf laut RFC 6066 kein IP-Literal enthalten, Browser und curl lassen das
+	# Feld also weg. Caddy hat damit nichts, woran es den Site-Block erkennen
+	# könnte, und bricht den Handshake mit "tlsv1 alert internal error" ab —
+	# eine Meldung, die nach einem Zertifikatsproblem klingt und keines ist.
+	#
+	# `default_sni` sagt Caddy, welche Site es annehmen soll, wenn kein Name
+	# mitkommt. Bei einem Hostnamen ist die Zeile wirkungslos, sie stört also
+	# nicht, wenn du später auf einen Namen wechselst.
+	default_sni {$ZW_HOSTNAME:zaehlwerk.local}
+}
+
 # Eine Definition, die sich beide Zugangswege teilen. Damit ist der zweite
 # Hostname später vier Zeilen und keine Kopie.
 (app) {
