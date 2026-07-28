@@ -67,7 +67,13 @@ jobs:
       # das WebKit-Ergebnis sieht — die beiden gehen regelmäßig getrennte Wege.
       fail-fast: false
       matrix:
-        project: ["Mobile Chrome", "Mobile Safari"]
+        # Der Browser gehoert in die Matrix, weil jeder Zweig genau einen
+        # braucht — siehe den Install-Schritt weiter unten.
+        include:
+          - project: "Mobile Chrome"
+            browser: chromium
+          - project: "Mobile Safari"
+            browser: webkit
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -85,8 +91,14 @@ jobs:
       # einem frueheren Build herumliegt.
       - name: Workspace-Pakete bauen
         run: pnpm --filter @zaehlwerk/database --filter @zaehlwerk/updater build
+      # NUR den Browser des jeweiligen Matrix-Zweigs. Beide zu installieren hat
+      # den Runner den Datentraeger gekostet: Der Safari-Lauf vom 26.07. brach
+      # nach 73 gruenen Tests mit "No space left on device" ab (Warnung davor:
+      # 71 MB frei). Kein Test war rot — der einzige Fehlschlag war beim Retry
+      # gruen —, der Job ist schlicht am vollen Datentraeger gestorben. WebKit
+      # allein sind ~100 MB, die der Chromium-Zweig nie anfasst.
       - name: Playwright-Browser installieren
-        run: pnpm --filter main-portal exec playwright install --with-deps chromium webkit
+        run: pnpm --filter main-portal exec playwright install --with-deps ${{ matrix.browser }}
       - name: E2E
         working-directory: apps/main-portal
         run: pnpm exec playwright test --project="${{ matrix.project }}"
