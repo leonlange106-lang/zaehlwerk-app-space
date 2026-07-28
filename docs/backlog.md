@@ -157,35 +157,18 @@ Sechs Zwänge bestimmen die Reihenfolge:
 
 | ID | Titel | Aufw. | Wert | Quelle |
 |---|---|---|---|---|
-| `BUG-01` | Fahrzeug-Kette verdrahten | S | 5 | Review |
-| `BUG-02` | Ingestion-Auth passiert den Edge-Guard nicht | XS | 4 | Review |
-| `BUG-03` | Gas-Brennwert als Annahme kenntlich machen | XS | 4 | Review |
 | `PLT-01` | **Zielbild**: eigenständige Dienste + Portal, Admin-/User-Ansicht | L | 5 | Review |
 
 ### NOW (3)
 
 | ID | Titel | Aufw. | Wert | Blockiert von |
 |---|---|---|---|---|
-| `CI-01` | PR #94 abschließen — GitHub Actions + Smoke-Test | S | 5 | — |
-| `OPS-01` | Prisma Migrate einführen + Baseline stempeln | M | 5 | `CI-01` |
-| `ZW-01` | Zweirichtungszähler (Register-Modell) | M | 5 | `OPS-01` |
 
 ### NEXT
 
 | ID | Titel | Aufw. | Wert | Blockiert von | Quelle |
 |---|---|---|---|---|---|
-| `ZW-02` | Gas-Faktoren zeitraumbezogen | S | 5 | `OPS-01` | Backlog |
-| `SEC-01` | Rate-Limit + Lockout auf `/login` | XS | 4 | — | Backlog |
-| `OPS-02` | SQLite-PRAGMAs (WAL, busy_timeout) | XS | 4 | — | AUDIT § 4.7 |
-| `ZW-03` | Soft-Delete + Änderungshistorie auf Ablesungen | S | 4 | `OPS-01` | Backlog |
-| `ZW-04` | Rollover-Erkennung + Plausibilitätswarnung | S | 4 | `OPS-01` | Backlog |
-| `API-01` | Einheitliches Fehlerformat (RFC 9457) | S | 4 | — | Backlog |
-| `API-02` | Schreibseite `/api/v1` + `updateTarifAction` | M | 4 | `API-01` | Review |
-| `QLT-01` | `listLogs()` paginieren | S | 4 | — | AUDIT § 4.6 |
 | `QLT-02` | E2E gegen Production-Build statt `next dev` | S | 4 | `CI-01` | AUDIT § 4.9 |
-| `ZW-09` | Ableseintervall in den Zählwerk-Einstellungen pflegbar | XS | 3 | — | Review |
-| `SEC-04` | `SECURITY.md` + Meldeweg | XS | 3 | — | Backlog |
-| `DOC-01` | Versionen, `CHANGELOG.md`, `AUDIT.md` begradigen | XS | 3 | — | Review |
 | `UI-02` | Ladezustände: Skeletons, Spinner, Fortschritt | S | 4 | — | Review |
 
 ### LATER
@@ -201,7 +184,6 @@ Sechs Zwänge bestimmen die Reihenfolge:
 | `SEC-05` | Cloudflare-Hardening (Access, Service-Tokens, WAF) | M | 4 | — | RELEASE § 5 |
 | `LA-01` | `ReferenceLine` + Grenzwertspalte im ParameterPanel | S | 4 | `BUG-01` | RELEASE § 6.1 |
 | `LA-02` | Prüfstand-Referenzprofile (3 von 25 Modellen) | M | 3 | `BUG-01` | RELEASE § 7.6 |
-| `QLT-03` | Migrations-Test mit DB-Snapshots | S | 5 | `OPS-01` | Backlog |
 | `QLT-04` | Restore-Test im CI | S | 4 | `CI-01` | Backlog |
 | `QLT-05` | CSV-Batching in `refreshStaleVerdicts()` | S | 3 | — | AUDIT § 4.5 |
 | `SEC-03` | Renovate + npm audit + Trivy + SBOM | S | 4 | `CI-01` | Backlog |
@@ -216,6 +198,42 @@ Sechs Zwänge bestimmen die Reihenfolge:
 | `VTR-01` | App Verträge & Abos | M | 4 | `ZW-02` | Backlog |
 | `TRF-01` | App Dynamischer Stromtarif-Optimizer | M | 4 | `ZW-01` | Backlog |
 | `LAB-01` | App Homelab-Statusboard | M | 4 | — | Backlog |
+
+
+### ERLEDIGT seit `68e02ea`
+
+Nicht aus Ordnungsliebe hier, sondern weil ein Backlog, der Erledigtes
+weiterführt, beim nächsten Mal wieder durchgelesen werden muss.
+
+| ID | Titel | Geliefert in |
+|---|---|---|
+| `CI-01` | GitHub Actions + Smoke-Test | #94 |
+| `BUG-01` | Fahrzeug-Kette verdrahtet | #99 |
+| `BUG-02` | Ingestion-Auth passiert den Edge-Guard | #100 |
+| `BUG-03` | Gas-Brennwert nicht mehr geraten | #101 + #117 |
+| `OPS-01` | Prisma Migrate statt `db push` | #102 |
+| `ZW-01` | Zweirichtungszähler (Register-Modell) | #103, #104, #105, #107, #114 |
+| `OPS-02` | SQLite-PRAGMAs (WAL, busy_timeout) | #110 |
+| `SEC-04` | `SECURITY.md` + Meldeweg | #111 |
+| `DOC-01` | Versionswahrheiten auf eine reduziert | #111 |
+| `ZW-09` | Ableseintervall pflegbar | #112 |
+| `ZW-04` | Rollover-Erkennung | #113 |
+| `SEC-01` | Rate-Limit + Lockout auf `/login` | #109 |
+| `API-01` | Einheitliches Fehlerformat (RFC 9457) | #115 |
+| `API-02` | Schreibseite `/api/v1` + `updateTarifAction` | #116 |
+| `ZW-02` | Gas-Faktoren zeitraumbezogen | #117 |
+| `QLT-01` | `listLogs()` paginiert | #118 |
+| `ZW-03` | Soft-Delete + Änderungshistorie | #119 |
+| `QLT-03` | Migrations-Test gegen echte Datenbestände | #120 |
+
+**`OPS-03`** ist neu vergeben: In der Historie steht darunter der Umbau des
+Deploys (#122–#126). Das ursprüngliche `OPS-03` (JSON-Logging) heißt jetzt
+`OPS-04` und ist offen.
+
+**`QLT-02` nur halb.** Der Smoke-Test läuft gegen den Production-Build, die
+E2E-Suite weiterhin gegen `next dev` (`playwright.config.ts`). Genau daher kam
+der Safari-Fehlschlag, den erst das Vorwärmen der Routen entschärft hat — das
+Item bleibt offen.
 
 ### ICEBOX
 
