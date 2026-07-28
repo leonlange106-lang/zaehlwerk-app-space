@@ -3,6 +3,12 @@ import { authenticateIngestion, ingestionUnauthorized } from "@/app/lib/ingestio
 import { ingestCsv } from "@/app/lib/log-ingest";
 import { AUDIT_ACTIONS, recordAuditEvent } from "@/app/lib/audit";
 import { clientIdentifier, rateLimit } from "@/app/lib/rate-limit";
+import {
+  problemResponse,
+  PROBLEM_TYPES,
+  rateLimitedProblem,
+  validationProblem,
+} from "@/app/lib/api-problem";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,12 +42,7 @@ export async function POST(request: NextRequest) {
     limit: RATE_LIMIT,
     windowMs: RATE_WINDOW_MS,
   });
-  if (!limit.ok) {
-    return NextResponse.json(
-      { success: false, error: "Zu viele Anfragen. Bitte später erneut versuchen." },
-      { status: 429, headers: { "Retry-After": String(limit.retryAfter) } },
-    );
-  }
+  if (!limit.ok) return rateLimitedProblem(limit.retryAfter);
 
   const principal = await authenticateIngestion(request);
   if (!principal) return ingestionUnauthorized();
@@ -65,9 +66,10 @@ export async function POST(request: NextRequest) {
         csv = file;
         name = pick(form, params, "name");
       } else {
-        return NextResponse.json(
-          { success: false, error: "Kein `file`-Feld im Formular gefunden." },
-          { status: 400 },
+        return validationProblem(
+          [{ field: "file", message: "Kein `file`-Feld im Formular gefunden." }],
+          "Kein `file`-Feld im Formular gefunden.",
+          { success: false },
         );
       }
     } else {
@@ -76,14 +78,26 @@ export async function POST(request: NextRequest) {
       name = pick(null, params, "name") ?? request.headers.get("x-filename");
     }
   } catch {
-    return NextResponse.json({ success: false, error: "Body konnte nicht gelesen werden." }, { status: 400 });
+    return validationProblem(
+      [{ field: "(body)", message: "Der Body konnte nicht gelesen werden." }],
+      "Der Body konnte nicht gelesen werden.",
+      { success: false },
+    );
   }
 
   if (!csv || !csv.trim()) {
-    return NextResponse.json({ success: false, error: "Leerer CSV-Inhalt." }, { status: 400 });
+    return validationProblem(
+      [{ field: "(body)", message: "Leerer CSV-Inhalt." }],
+      "Leerer CSV-Inhalt.",
+      { success: false },
+    );
   }
   if (csv.length > MAX_CSV_BYTES) {
-    return NextResponse.json({ success: false, error: "Datei ist zu groß." }, { status: 413 });
+    return problemResponse(PROBLEM_TYPES.payloadTooLarge, {
+      status: 413,
+      detail: `Die Datei ist zu groß (Grenze: ${MAX_CSV_BYTES} Zeichen).`,
+      extensions: { success: false, maxBytes: MAX_CSV_BYTES },
+    });
   }
 
   const finalName = name?.trim() || `ingest-${new Date().toISOString().replace(/[:.]/g, "-")}.csv`;
@@ -100,7 +114,13 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error("[logs/ingest]", error);
-    return NextResponse.json({ success: false, error: "Verarbeitung fehlgeschlagen." }, { status: 500 });
+    // `success: false` auch hier — ein Skript, das nur dieses Feld prueft, darf
+    // ausgerechnet beim Serverfehler nicht ins Leere greifen.
+    return problemResponse(PROBLEM_TYPES.internal, {
+      status: 500,
+      detail: "Die Verarbeitung ist fehlgeschlagen. Einzelheiten stehen im Server-Log.",
+      extensions: { success: false },
+    });
   }
 
   // Audit is best-effort — never block the ingest.

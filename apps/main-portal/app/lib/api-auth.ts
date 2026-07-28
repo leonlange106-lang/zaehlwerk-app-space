@@ -3,6 +3,7 @@ import { prisma } from "@zaehlwerk/database";
 import type { UserRole } from "@zaehlwerk/database/shared";
 import { auth } from "@/auth";
 import { hashToken } from "./crypto";
+import { unauthorizedProblem } from "./api-problem";
 
 export type ApiUser = {
   id: string;
@@ -48,6 +49,16 @@ export async function authenticateApiRequest(request: Request): Promise<ApiUser 
   return { id: record.user.id, email: record.user.email, role: record.user.role, via: "token" };
 }
 
+/**
+ * Die 401-Antwort aller API-Routen.
+ *
+ * Eine Stelle, damit die Umstellung aufs Problem-Format nicht an zwölf Orten
+ * einzeln nachgezogen werden muss — und damit sie an keinem davon vergessen
+ * wird. `error` bleibt enthalten, siehe `api-problem.ts`.
+ *
+ * Der Text sagt jetzt auch, WIE man sich ausweist. „Unauthorized" allein half
+ * niemandem, der sein Token im falschen Kopf mitschickte.
+ */
 export function unauthorizedResponse(): NextResponse {
-  return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  return unauthorizedProblem();
 }

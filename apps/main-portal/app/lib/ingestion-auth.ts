@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { PROBLEM_TYPES, problemResponse } from "./api-problem";
 import { prisma } from "@zaehlwerk/database";
 import { hashToken, safeEqual } from "./crypto";
 
@@ -64,9 +65,17 @@ export async function authenticateIngestion(request: Request): Promise<Ingestion
   return { id: record.id, name: record.name, via: "key" };
 }
 
+/**
+ * 401 fuer den unbeaufsichtigten Ingest.
+ *
+ * `success: false` bleibt zusaetzlich zum Problem-Format erhalten: Draussen
+ * laufen Skripte, die genau dieses Feld pruefen, und ihnen den Boden
+ * wegzuziehen faellt erst auf, wenn ohnehin schon etwas schiefgeht.
+ */
 export function ingestionUnauthorized(): NextResponse {
-  return NextResponse.json(
-    { success: false, error: "Ungültiger oder fehlender API-Key." },
-    { status: 401 },
-  );
+  return problemResponse(PROBLEM_TYPES.unauthorized, {
+    status: 401,
+    detail: "Ungültiger oder fehlender API-Key.",
+    extensions: { success: false },
+  });
 }

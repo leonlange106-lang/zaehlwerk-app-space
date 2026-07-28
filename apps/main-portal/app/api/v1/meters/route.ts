@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { prisma } from "@zaehlwerk/database";
 import { authenticateApiRequest, unauthorizedResponse } from "../../../lib/api-auth";
 import { clientIdentifier, rateLimit } from "../../../lib/rate-limit";
+import { rateLimitedProblem } from "../../../lib/api-problem";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,12 +33,7 @@ export async function GET(request: NextRequest) {
     limit: RATE_LIMIT,
     windowMs: RATE_WINDOW_MS,
   });
-  if (!limit.ok) {
-    return NextResponse.json(
-      { error: "Zu viele Anfragen. Bitte später erneut versuchen." },
-      { status: 429, headers: { "Retry-After": String(limit.retryAfter) } },
-    );
-  }
+  if (!limit.ok) return rateLimitedProblem(limit.retryAfter);
 
   const user = await authenticateApiRequest(request);
   if (!user) return unauthorizedResponse();

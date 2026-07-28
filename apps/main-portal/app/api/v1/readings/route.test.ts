@@ -93,6 +93,45 @@ describe("POST /api/v1/readings — validation", () => {
     expect(json.issues.length).toBeGreaterThan(0);
   });
 
+  it("antwortet im Problem-Format, ohne die alten Felder fallen zu lassen", async () => {
+    // Der Kern der Umstellung: Das neue Format kommt HINZU, es ersetzt nichts.
+    // Draussen laufen Automationen, die `error` und `issues` lesen — sie zu
+    // brechen faellt erst auf, wenn ohnehin schon etwas schiefgegangen ist.
+    const res = await POST(post({ meterId: "not-a-uuid", value: -5 }));
+
+    expect(res.headers.get("content-type")).toContain("application/problem+json");
+    const json = await res.json();
+    expect(json.type).toContain("validation-error");
+    expect(json.title).toBe("Ungültige Eingabe");
+    expect(json.status).toBe(400);
+    expect(typeof json.detail).toBe("string");
+
+    // Neue Form: `field` statt `path`.
+    expect(json.errors[0]).toEqual({ field: expect.any(String), message: expect.any(String) });
+    // Alte Form daneben, damit bestehende Aufrufer weiterlesen koennen.
+    expect(json.issues[0]).toEqual({ path: expect.any(String), message: expect.any(String) });
+    expect(json.error).toBe(json.detail);
+  });
+
+  it("nennt bei unbekannter OBIS-Kennziffer die bekannten", async () => {
+    // Der Unterschied zwischen „falsch" und „falsch, und hier stehen die
+    // richtigen" — als Feld, nicht nur im Satz, damit ein Client es auswerten
+    // kann, ohne deutschen Text zu zerlegen.
+    zaehlerFindUnique.mockResolvedValue({
+      id: METER,
+      name: "Hauptzähler",
+      einheit: "kWh",
+      aktiv: true,
+    });
+    const res = await POST(post({ meterId: METER, value: 10, obisCode: "1.9.0" }));
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.knownObisCodes).toContain("1.8.0");
+    expect(json.knownObisCodes).toContain("2.8.0");
+    expect(json.detail).toContain("1.9.0");
+  });
+
   it("returns 404 when the meter does not exist", async () => {
     zaehlerFindUnique.mockResolvedValue(null);
     const res = await POST(post({ meterId: METER, value: 100 }));

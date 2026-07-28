@@ -10,6 +10,13 @@ import {
 } from "@zaehlwerk/database";
 import { authenticateApiRequest, unauthorizedResponse } from "../../../lib/api-auth";
 import { clientIdentifier, rateLimit } from "../../../lib/rate-limit";
+import {
+  fieldErrorsFromZod,
+  notFoundProblem,
+  rateLimitedProblem,
+  unprocessableProblem,
+  validationProblem,
+} from "../../../lib/api-problem";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -45,12 +52,7 @@ export async function POST(request: NextRequest) {
     limit: RATE_LIMIT,
     windowMs: RATE_WINDOW_MS,
   });
-  if (!limit.ok) {
-    return NextResponse.json(
-      { error: "Zu viele Anfragen. Bitte später erneut versuchen." },
-      { status: 429, headers: { "Retry-After": String(limit.retryAfter) } },
-    );
-  }
+  if (!limit.ok) return rateLimitedProblem(limit.retryAfter);
 
   const user = await authenticateApiRequest(request);
   if (!user) return unauthorizedResponse();
@@ -59,24 +61,25 @@ export async function POST(request: NextRequest) {
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json(
-      { error: "Ungültiger JSON-Body." },
-      { status: 400 },
+    return validationProblem(
+      [{ field: "(body)", message: "Der Body ist kein gültiges JSON." }],
+      "Der Body ist kein gültiges JSON.",
     );
   }
 
   const parsed = apiReadingCreateSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json(
-      {
-        error: "Ungültige Eingabe.",
-        issues: parsed.error.issues.map((issue) => ({
-          path: issue.path.join("."),
-          message: issue.message,
-        })),
-      },
-      { status: 400 },
-    );
+    const errors = fieldErrorsFromZod(parsed.error);
+    // `issues` in der alten Form bleibt erhalten.
+    //
+    // Dieses Feld gab es hier — und nur hier — schon vorher, mit `path` statt
+    // `field`. Es umzubenennen und den alten Namen fallen zu lassen, wäre
+    // dieselbe unfreundliche Änderung wie bei `error`: Sie zeigt sich erst,
+    // wenn beim Aufrufer ohnehin etwas schiefgegangen ist. Veraltet, aber
+    // vorhanden; entfernbar, sobald die Doku eine Frist genannt hat.
+    return validationProblem(errors, undefined, {
+      issues: errors.map((entry) => ({ path: entry.field, message: entry.message })),
+    });
   }
 
   const {
@@ -96,7 +99,7 @@ export async function POST(request: NextRequest) {
     select: { id: true, name: true, einheit: true, aktiv: true },
   });
   if (!zaehler) {
-    return NextResponse.json({ error: "Zähler nicht gefunden." }, { status: 404 });
+    return notFoundProblem(`Kein Zähler mit der Id ${meterId}.`);
   }
 
   // ── Register auflösen ──────────────────────────────────────────────────────
@@ -107,12 +110,14 @@ export async function POST(request: NextRequest) {
   if (!described) {
     // Nicht stillschweigend anlegen: Ein Tippfehler eröffnete sonst eine zweite
     // Zeitreihe neben der richtigen, und das fällt erst Monate später auf.
-    return NextResponse.json(
-      {
-        error: `Unbekannte OBIS-Kennziffer "${code}".`,
-        knownObisCodes: knownObisCodes(),
-      },
-      { status: 400 },
+    // Die bekannten Kennziffern kommen mit — das ist der Unterschied zwischen
+    // „falsch" und „falsch, und hier stehen die richtigen". Als Erweiterungsfeld
+    // neben `detail`, damit ein Client sie auswerten kann, ohne einen deutschen
+    // Satz zu zerlegen.
+    return validationProblem(
+      [{ field: "obisCode", message: `Unbekannte OBIS-Kennziffer „${code}".` }],
+      `Unbekannte OBIS-Kennziffer „${code}". Bekannt sind: ${knownObisCodes().join(", ")}.`,
+      { knownObisCodes: knownObisCodes() },
     );
   }
 
@@ -161,18 +166,17 @@ export async function POST(request: NextRequest) {
   const isImplausible = newInterval !== null && newInterval.amount === null;
 
   if (isImplausible && !allowImplausible) {
-    return NextResponse.json(
+    return unprocessableProblem(
+      "Unplausibler Zählerstand: Der Verbrauch seit der vorherigen Ablesung wäre negativ. " +
+        "Bei einem Zählertausch `zaehlerGetauscht`/`startwertNeu` senden, oder `allowImplausible: true`.",
       {
-        error:
-          "Unplausibler Zählerstand: Der Verbrauch seit der vorherigen Ablesung wäre negativ. " +
-          "Bei einem Zählertausch `zaehlerGetauscht`/`startwertNeu` senden, oder `allowImplausible: true`.",
         plausibility: {
           from: newInterval?.from?.toISOString() ?? null,
           to: newInterval?.to.toISOString() ?? null,
           value,
+          register: register.obisCode,
         },
       },
-      { status: 422 },
     );
   }
 
