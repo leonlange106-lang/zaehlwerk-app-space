@@ -364,9 +364,12 @@ async function testLockedDatabase() {
     //     interaktive Transaktionen sonst nach 5s ab; die Sperre war dann weg,
     //     bevor `migrate deploy` ueberhaupt an die Reihe kam.
     //
-    // Gehalten wird HOLD_MS — lang genug fuer mehrere Wiederholungen, kurz
-    // genug, dass die Migration danach noch in ihr Budget passt.
-    const HOLD_MS = 12_000;
+    // Gehalten wird HOLD_MS — lang genug, dass die Sperre das lesende
+    // `migrate status` UND den Beginn von `migrate deploy` ueberdauert, und
+    // kurz genug, dass die Migration danach noch in ihr Budget passt. Mit 12s
+    // war es zu knapp: Der Halter war weg, bevor deploy ueberhaupt zugriff, und
+    // der Fall pruefte die Wiederholung gar nicht mehr.
+    const HOLD_MS = 30_000;
     const holder = spawn(
       process.execPath,
       [
@@ -683,8 +686,8 @@ async function testStopsTheApp() {
       path.join(bin, "docker"),
       `#!/bin/sh
 printf '%s\\n' "$*" >> ${JSON.stringify(calls)}
-# `+"`compose ps -q` "+`meldet eine Container-Id: die Anwendung laeuft.
-case "$*" in *" ps -q "*) echo "container123" ;; esac
+# docker inspect beantwortet die Frage, ob die Anwendung laeuft.
+case "$*" in *"inspect -f"*) echo "true" ;; esac
 exit 0
 `,
     );
@@ -700,7 +703,7 @@ exit 0
           PATH: `${bin}:${process.env.PATH}`,
           DATABASE_URL: `file:${dbPath}`,
           DOCKER_SOCK: sock,
-          REPO_DIR: repo,
+          APP_CONTAINER: "zaehlwerk-main-portal",
         },
         encoding: "utf8",
         stdio: "pipe",
@@ -713,11 +716,16 @@ exit 0
     }
 
     const aufrufe = existsSync(calls) ? readFileSync(calls, "utf8") : "";
-    const stopIdx = aufrufe.indexOf("stop main-portal");
-    const upIdx = aufrufe.indexOf("up -d --no-build main-portal");
+    const stopIdx = aufrufe.indexOf("stop zaehlwerk-main-portal");
+    const upIdx = aufrufe.indexOf("start zaehlwerk-main-portal");
 
     check("haelt die Anwendung an", stopIdx !== -1, aufrufe.replace(/\n/g, " | "));
-    check("sagt es auch im Protokoll", /halte main-portal an/.test(output), output.slice(-300));
+    check(
+      "sagt, dass das Update erneut gestartet werden muss",
+      /ERNEUT starten/.test(output),
+      "update.sh laeuft IM angehaltenen Container und stirbt mit ihm — das muss dastehen",
+    );
+    check("sagt es auch im Protokoll", /halte zaehlwerk-main-portal an/.test(output), output.slice(-300));
     check("Migration laeuft durch", ok, output.slice(-400));
     // Danach wieder hoch — auch nach Erfolg. Bricht der Aufrufer zwischen
     // Migration und Tausch ab, bliebe die Instanz sonst unten.
@@ -754,6 +762,53 @@ async function testRunsWithoutDocker() {
   });
 }
 
+// Ist nichts offen, darf NICHT angehalten werden: `update.sh` laeuft im
+// main-portal-Container und stirbt mit ihm. Bei jedem Update anzuhalten hiesse,
+// dass nie eines durchlaeuft.
+async function testDoesNotStopWhenNothingPending() {
+  console.log("\nNichts ausstehend: die Anwendung bleibt stehen");
+
+  const { createServer } = await import("node:net");
+  const { writeFileSync, chmodSync, mkdirSync, readFileSync, existsSync } = await import("node:fs");
+
+  await withTempDb(async (dbPath) => {
+    deploy(dbPath); // ALLES angewendet
+
+    const spielwiese = path.dirname(dbPath);
+    const sock = path.join(spielwiese, "docker.sock");
+    const server = createServer();
+    await new Promise((resolve) => server.listen(sock, resolve));
+
+    const bin = path.join(spielwiese, "bin");
+    mkdirSync(bin, { recursive: true });
+    const calls = path.join(spielwiese, "docker-calls.log");
+    writeFileSync(
+      path.join(bin, "docker"),
+      "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + JSON.stringify(calls) +
+        "\ncase \"$*\" in *\"inspect -f\"*) echo \"true\" ;; esac\nexit 0\n",
+    );
+    chmodSync(path.join(bin, "docker"), 0o755);
+
+    const output = execFileSync("sh", ["scripts/deploy-migrations.sh"], {
+      cwd: PACKAGE_ROOT,
+      env: {
+        ...process.env,
+        PATH: bin + ":" + process.env.PATH,
+        DATABASE_URL: `file:${dbPath}`,
+        DOCKER_SOCK: sock,
+        APP_CONTAINER: "zaehlwerk-main-portal",
+      },
+      encoding: "utf8",
+      stdio: "pipe",
+    });
+    server.close();
+
+    const aufrufe = existsSync(calls) ? readFileSync(calls, "utf8") : "";
+    check("haelt NICHT an", !aufrufe.includes("stop zaehlwerk-main-portal"), aufrufe.replace(/\n/g, " | "));
+    check("sagt warum", /nichts anzuwenden/.test(output), output.slice(-200));
+  });
+}
+
 console.log("Migrationen gegen echte Datenbestaende pruefen");
 await testFreshDatabase();
 await testExistingData();
@@ -765,6 +820,7 @@ await testLongReaderOnNonWalDatabase();
 await testWhatActuallyBlocksTheSchemaEngine();
 await testStopsTheApp();
 await testRunsWithoutDocker();
+await testDoesNotStopWhenNothingPending();
 
 console.log(`\n${checks - failures} von ${checks} Pruefungen bestanden.`);
 if (failures > 0) {

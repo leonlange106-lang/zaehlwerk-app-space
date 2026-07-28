@@ -164,8 +164,13 @@ services:
       DATABASE_URL: file:/data/zaehlwerk.db
       # Damit ein `docker compose stop main-portal` von hier aus dasselbe
       # Projekt trifft wie ein Aufruf vom Host.
-      COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-zaehlwerk}
-      COMPOSE_FILE_NAME: ${COMPOSE_FILE_NAME:-docker-compose.prod.yml}
+      # Der Container wird ueber seinen NAMEN angehalten, nicht ueber Compose.
+      # Compose braeuchte die Projektdatei, und ein `- .:/repo` dafuer war genau
+      # der Fehler: Bind-Mount-Quellen loest der HOST-Daemon auf, update.sh
+      # laeuft aber IM Container mit cwd=/repo — der Daemon bekam einen Pfad,
+      # den es auf dem Host nicht gibt, und ueberdeckte das Image-Verzeichnis
+      # mit einem leeren. Ein Name hat dieses Problem nicht.
+      APP_CONTAINER: ${APP_CONTAINER:-zaehlwerk-main-portal}
     volumes:
       - zaehlwerk-db:/data
       # Die Migration muss die Anwendung anhalten koennen, sonst laeuft sie
@@ -178,8 +183,6 @@ services:
       # durch dieselbe Admin-Handlung gestartet. Keine neue Angriffsflaeche,
       # aber es ist und bleibt Root auf dem Host — siehe DEPLOYMENT.md.
       - /var/run/docker.sock:/var/run/docker.sock
-      # Compose braucht die Datei, gegen die es `stop` ausfuehrt.
-      - .:/repo
     command: ["sh", "-c", "cd packages/database && pnpm db:deploy"]
 
   # TLS-Terminierung. Erst hinter HTTPS laeuft das Session-Cookie nicht mehr im
