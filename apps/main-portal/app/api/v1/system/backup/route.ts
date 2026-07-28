@@ -10,12 +10,18 @@ import {
   readSnapshot,
 } from "../../../../lib/backup-engine";
 import { getBackupPolicy, markBackupRun } from "../../../../lib/settings";
+import {
+  forbiddenProblem,
+  internalProblem,
+  notFoundProblem,
+  rateLimitedProblem,
+} from "../../../../lib/api-problem";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 function forbidden(): NextResponse {
-  return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  return forbiddenProblem("Diese Aktion ist Administratoren vorbehalten.");
 }
 
 /**
@@ -42,7 +48,7 @@ export async function GET(request: Request) {
   if (file) {
     if (user.role !== "ADMIN") return forbidden();
     const buffer = await readSnapshot(file);
-    if (!buffer) return NextResponse.json({ error: "Snapshot nicht gefunden." }, { status: 404 });
+    if (!buffer) return notFoundProblem(`Kein Sicherungspunkt namens „${file}".`);
     const isJson = file.endsWith(".json");
     return new Response(new Uint8Array(buffer), {
       headers: {
@@ -75,9 +81,9 @@ export async function POST(request: Request) {
     windowMs: 60_000,
   });
   if (!limit.ok) {
-    return NextResponse.json(
-      { error: "Zu viele Backup-Anfragen. Bitte später erneut versuchen." },
-      { status: 429, headers: { "Retry-After": String(limit.retryAfter) } },
+    return rateLimitedProblem(
+      limit.retryAfter,
+      `Zu viele Backup-Anfragen. Bitte in ${Math.max(1, Math.ceil(limit.retryAfter))} Sekunden erneut versuchen.`,
     );
   }
 
@@ -110,6 +116,6 @@ export async function POST(request: Request) {
     );
   } catch (error) {
     console.error("[POST /api/v1/system/backup]", error);
-    return NextResponse.json({ error: "Backup fehlgeschlagen." }, { status: 500 });
+    return internalProblem("Das Backup ist fehlgeschlagen. Einzelheiten stehen im Server-Log.");
   }
 }
