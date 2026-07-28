@@ -463,12 +463,129 @@ async function testBaselineStampedOnce() {
   });
 }
 
+// ── Fall 6: Datenbank ohne WAL, lang lesende Anwendung ─────────────────────
+// DER Fall, an dem das Update wirklich gescheitert ist. Fall 4 hat ihn nicht
+// gefunden, weil der Halter dort selbst auf WAL stellte.
+//
+// Entscheidend ist nicht „ein Leser", sondern ein LANGE OFFENER Leser. Kurze
+// Abfragen geben die Sperre zwischen den Anweisungen frei, da findet ein
+// Schreiber immer eine Luecke — das wurde nachgemessen, der Fall besteht auch
+// ohne Fix. Eine lange Lesetransaktion tut das nicht: Im `delete`-Modus sperrt
+// sie die ganze Datei ueber ihre volle Laufzeit gegen jeden Schreiber.
+//
+// Genau so eine laeuft hier regelmaessig: `VACUUM INTO` des automatischen
+// Backups liest die Quelle waehrend der kompletten Kopie. Trifft eine Migration
+// darauf, hilft Wiederholen NICHT — jeder Versuch wird abgewiesen, bis das
+// Budget alle ist. Nachgestellt und bestaetigt, mit demselben Fehlerbild wie im
+// Protokoll der Instanz.
+//
+// Der Ausweg ist der WAL-Modus: Dort stoeren Leser Schreiber ueberhaupt nicht.
+// `ensure-wal.mjs` stellt deshalb VOR der Migration um.
+//
+// Was dieser Wechsel NICHT kann: einen bereits laufenden Leser aussitzen.
+// SQLite gibt bei einem Moduswechsel sofort SQLITE_BUSY zurueck, ohne den
+// Busy-Handler zu fragen — ein `busy_timeout` aendert daran nichts, das wurde
+// gemessen. Der Wechsel gelingt nur auf einer im Moment freien Datenbank.
+//
+// Deshalb zwei getrennte Faelle statt eines vermischten:
+//   6a  freie Datenbank  -> der Wechsel gelingt, und ab dann ist Ruhe
+//   6b  langer Leser     -> das Budget der Wiederholung traegt ihn aus
+async function testWalSwitchOnQuietDatabase() {
+  console.log("\nDatenbank ohne WAL, frei");
+  await withTempDb(async (dbPath) => {
+    deploy(dbPath, { upTo: migrationNames()[1] });
+
+    // Zurueck in den Standardmodus — so sieht eine Instanz aus, auf der das
+    // Umstellen beim Start nie geklappt hat.
+    await query(dbPath, "PRAGMA journal_mode = DELETE");
+    const vorher = (await query(dbPath, "PRAGMA journal_mode"))[0].journal_mode;
+    check("Ausgangslage: kein WAL", String(vorher).toLowerCase() === "delete", String(vorher));
+
+    const output = execFileSync("sh", ["scripts/deploy-migrations.sh"], {
+      cwd: PACKAGE_ROOT,
+      env: { ...process.env, DATABASE_URL: `file:${dbPath}` },
+      encoding: "utf8",
+      stdio: "pipe",
+    });
+
+    check("Skript stellt auf WAL um", /\[wal\].*auf wal umgestellt/.test(output), output.slice(-300));
+
+    const nachher = (await query(dbPath, "PRAGMA journal_mode"))[0].journal_mode;
+    check("Modus steht dauerhaft in der Datei", String(nachher).toLowerCase() === "wal", String(nachher));
+  });
+}
+
+async function testLongReaderOnNonWalDatabase() {
+  console.log("\nDatenbank ohne WAL, lang lesende Anwendung (Backup)");
+  await withTempDb(async (dbPath) => {
+    deploy(dbPath, { upTo: migrationNames()[1] });
+    await query(dbPath, "PRAGMA journal_mode = DELETE");
+
+    // Modell fuer `VACUUM INTO` des automatischen Backups: eine Lesetransaktion,
+    // die ueber die ganze Kopie offen bleibt. Kurze Einzelabfragen taeten es
+    // NICHT — die geben die Sperre zwischen den Anweisungen frei, und der Fall
+    // bestuende auch ohne Fix. Nachgemessen.
+    const HOLD_MS = 12_000;
+    const reader = spawn(
+      process.execPath,
+      [
+        "-e",
+        `import("${path.join(PACKAGE_ROOT, "generated/client/index.js")}").then(async ({ PrismaClient }) => {
+           const db = new PrismaClient({ datasourceUrl: "file:${dbPath}" });
+           await db.$queryRawUnsafe("PRAGMA busy_timeout = 5000");
+           await db.$transaction(async (tx) => {
+             await tx.$queryRawUnsafe("SELECT COUNT(*) AS c FROM ablesungen");
+             console.log("READING");
+             await new Promise((r) => setTimeout(r, ${HOLD_MS}));
+           }, { timeout: ${HOLD_MS + 15_000}, maxWait: 10_000 }).catch(() => {});
+           await db.$disconnect();
+           process.exit(0);
+         })`,
+      ],
+      { stdio: ["ignore", "pipe", "ignore"] },
+    );
+
+    const laeuft = await waitForLine(reader, "READING", 20_000);
+    check("Leser haelt eine offene Lesetransaktion", laeuft, "Vorbedingung nicht hergestellt");
+
+    let ok = true;
+    let output = "";
+    try {
+      output = execFileSync("sh", ["scripts/deploy-migrations.sh"], {
+        cwd: PACKAGE_ROOT,
+        env: { ...process.env, DATABASE_URL: `file:${dbPath}`, LOCK_WAIT: "3" },
+        encoding: "utf8",
+        stdio: "pipe",
+      });
+    } catch (error) {
+      ok = false;
+      output = `${error.stdout ?? ""}${error.stderr ?? ""}`;
+    } finally {
+      reader.kill();
+    }
+
+    // Der Kern: Das Skript darf hier NICHT aufgeben. Ohne das Budget bricht es
+    // ab — genau das Fehlerbild aus dem Protokoll der Instanz.
+    check("wartet den Leser aus, statt aufzugeben", /gesperrt — Versuch/.test(output), output.slice(-300));
+    check("Migration laeuft trotz offener Lesetransaktion durch", ok, output.slice(-600));
+
+    if (ok) {
+      const spalten = (await query(dbPath, "SELECT name FROM pragma_table_info('ablesungen')")).map(
+        (row) => row.name,
+      );
+      check("alle Migrationen sind angekommen", spalten.includes("geloeschtAm"));
+    }
+  });
+}
+
 console.log("Migrationen gegen echte Datenbestaende pruefen");
 await testFreshDatabase();
 await testExistingData();
 await testIdempotence();
 await testLockedDatabase();
 await testBaselineStampedOnce();
+await testWalSwitchOnQuietDatabase();
+await testLongReaderOnNonWalDatabase();
 
 console.log(`\n${checks - failures} von ${checks} Pruefungen bestanden.`);
 if (failures > 0) {

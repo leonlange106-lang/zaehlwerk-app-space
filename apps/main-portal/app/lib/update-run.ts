@@ -161,6 +161,43 @@ export async function cancelDeployRun(): Promise<boolean> {
   }
 }
 
+// Ein Deploy laeuft keine zwei Stunden. Eine aeltere Statusdatei stammt von
+// einem Lauf, der abgestuerzt ist, ohne `done` zu setzen — sie darf die
+// Hintergrunddienste nicht dauerhaft stilllegen.
+const DEPLOY_STALE_MS = 2 * 60 * 60 * 1000;
+
+/**
+ * Laeuft gerade ein Deploy?
+ *
+ * Gefragt wird das von den Hintergrunddiensten (Backup, Wartung), und der Grund
+ * ist konkret: Das automatische Backup kopiert die Datenbank mit `VACUUM INTO`
+ * und haelt dabei eine Lesetransaktion ueber die ganze Kopie offen. Ist die
+ * Datei nicht im WAL-Modus, sperrt eine offene Lesetransaktion jeden Schreiber
+ * aus — auch die Migration des Updates, die absichtlich neben der laufenden
+ * Anwendung arbeitet. Nachgestellt und bestaetigt: Wiederholen hilft dagegen
+ * nicht, jeder Versuch wird abgewiesen, bis das Budget alle ist.
+ *
+ * Ein aufgeschobenes Backup kostet nichts — der Deploy sichert die Datenbank
+ * ohnehin selbst, bevor er sie anfasst, und der naechste Weckruf holt es nach.
+ */
+export async function deployInProgress(): Promise<boolean> {
+  try {
+    const raw = await readFile(STATUS_FILE, "utf8");
+    const status = JSON.parse(raw) as { done?: unknown; updatedAt?: unknown };
+    if (status.done !== false) return false;
+
+    // Ohne brauchbaren Zeitstempel im Zweifel FUER das Pausieren: Ein
+    // verschobenes Backup ist harmloser als ein abgebrochenes Update.
+    if (typeof status.updatedAt !== "string") return true;
+    const age = Date.now() - new Date(status.updatedAt).getTime();
+    return Number.isFinite(age) ? age < DEPLOY_STALE_MS : true;
+  } catch {
+    // Keine Statusdatei, unlesbar oder kein JSON — dann laeuft auch kein Deploy,
+    // den wir kennen. Im Normalfall sollen die Dienste arbeiten.
+    return false;
+  }
+}
+
 /** Write the terminal "cancelled" status, superseding whatever the dying script wrote. */
 export async function writeCancelledStatus(): Promise<void> {
   try {

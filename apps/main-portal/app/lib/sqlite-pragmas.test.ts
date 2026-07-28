@@ -10,6 +10,53 @@ beforeEach(() => {
 });
 
 describe("applySqlitePragmas", () => {
+  it("setzt busy_timeout VOR journal_mode", async () => {
+    // Der Wechsel des journal_mode ist die eine Anweisung hier, die an einer
+    // benutzten Datenbank scheitern kann. Stand er vorn, lief ausgerechnet er
+    // ohne Geduld.
+    await applySqlitePragmas();
+    const reihenfolge = queryRawUnsafe.mock.calls.map((call) => String(call[0]));
+    expect(reihenfolge.findIndex((s) => s.includes("busy_timeout"))).toBeLessThan(
+      reihenfolge.findIndex((s) => s.includes("journal_mode")),
+    );
+  });
+
+  it("meldet einen abgelehnten WAL-Wechsel als Fehlschlag", async () => {
+    // `PRAGMA journal_mode` wirft NICHT, wenn der Wechsel abgelehnt wird — es
+    // antwortet mit dem Modus, der danach gilt. Ohne diese Pruefung meldete der
+    // Start WAL, obwohl die Datei im delete-Modus blieb, und niemand konnte es
+    // wissen. Der Unterschied ist gross: Dort sperrt schon eine offene
+    // Lesetransaktion jeden Schreiber aus — auch die Migration eines Updates.
+    queryRawUnsafe.mockImplementation(async (statement: string) =>
+      statement.includes("journal_mode") ? [{ journal_mode: "delete" }] : [],
+    );
+
+    const { applied, failed } = await applySqlitePragmas();
+
+    expect(failed).toEqual(["PRAGMA journal_mode = WAL"]);
+    expect(applied).toHaveLength(3);
+  });
+
+  it("nimmt einen erfolgreichen Wechsel an", async () => {
+    queryRawUnsafe.mockImplementation(async (statement: string) =>
+      statement.includes("journal_mode") ? [{ journal_mode: "wal" }] : [],
+    );
+
+    const { failed } = await applySqlitePragmas();
+
+    expect(failed).toEqual([]);
+  });
+
+  it("wertet eine unbekannte Antwortform nicht als Fehlschlag", async () => {
+    // Der Modus laesst sich dann nicht beurteilen. Ein falscher Alarm bei jedem
+    // Start waere schlimmer als die fehlende Auskunft.
+    queryRawUnsafe.mockResolvedValue(undefined);
+
+    const { failed } = await applySqlitePragmas();
+
+    expect(failed).toEqual([]);
+  });
+
   it("setzt WAL, busy_timeout, synchronous und foreign_keys", async () => {
     const { applied, failed } = await applySqlitePragmas();
 

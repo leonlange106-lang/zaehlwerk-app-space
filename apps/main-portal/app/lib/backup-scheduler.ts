@@ -16,6 +16,20 @@ async function runDueBackup(): Promise<void> {
   const { getBackupPolicy, markBackupRun } = await import("./settings");
   const { createSnapshot, pruneSnapshots } = await import("./backup-engine");
   const { recordAuditEvent, AUDIT_ACTIONS } = await import("./audit");
+  const { deployInProgress } = await import("./update-run");
+
+  // Nicht waehrend eines Deploys. `createSnapshot` kopiert die Datenbank mit
+  // `VACUUM INTO` und haelt dabei eine Lesetransaktion ueber die ganze Kopie
+  // offen — ohne WAL sperrt das jeden Schreiber aus, auch die Migration des
+  // Updates, die absichtlich neben der laufenden Anwendung arbeitet. Genau so
+  // ist ein Update gescheitert.
+  //
+  // Verschieben kostet nichts: Der Deploy sichert die Datei ohnehin selbst,
+  // bevor er sie anfasst, und der naechste Weckruf holt das Backup nach.
+  if (await deployInProgress()) {
+    console.info("[backup-scheduler] Deploy laeuft — Backup wird verschoben");
+    return;
+  }
 
   const policy = await getBackupPolicy();
   if (!policy.autoEnabled) return;

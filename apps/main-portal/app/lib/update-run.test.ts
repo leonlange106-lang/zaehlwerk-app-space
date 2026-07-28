@@ -1,5 +1,64 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { sanitizeDeployLabel, updateTokenAccepted, updateTokenRequired } from "./update-run";
+
+// `deployInProgress` liest die Statusdatei, deren Pfad beim Laden des Moduls
+// aus der Umgebung festgelegt wird — also Umgebung setzen, DANN importieren.
+async function askDeployInProgress(status: unknown | null): Promise<boolean> {
+  const dir = mkdtempSync(path.join(tmpdir(), "zw-update-"));
+  const file = path.join(dir, "update-status.json");
+  if (status !== null) {
+    writeFileSync(file, typeof status === "string" ? status : JSON.stringify(status));
+  }
+  try {
+    vi.stubEnv("UPDATE_STATUS_FILE", file);
+    vi.resetModules();
+    const { deployInProgress } = await import("./update-run");
+    return await deployInProgress();
+  } finally {
+    vi.unstubAllEnvs();
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// Warum das Ganze: Das automatische Backup kopiert die Datenbank mit
+// `VACUUM INTO` und haelt dabei eine Lesetransaktion ueber die ganze Kopie
+// offen. Ohne WAL sperrt das jeden Schreiber aus — auch die Migration eines
+// Updates, die absichtlich neben der laufenden Anwendung arbeitet. Genau so ist
+// ein Update gescheitert, und Wiederholen half nicht: Es gibt keine Luecke.
+describe("deployInProgress", () => {
+  it("meldet einen laufenden Deploy", async () => {
+    expect(await askDeployInProgress({ done: false, updatedAt: new Date().toISOString() })).toBe(true);
+  });
+
+  it("meldet einen abgeschlossenen Deploy nicht", async () => {
+    expect(await askDeployInProgress({ done: true, updatedAt: new Date().toISOString() })).toBe(false);
+  });
+
+  it("ohne Statusdatei laeuft kein Deploy", async () => {
+    // Der Normalfall auf jeder Instanz, die noch nie aktualisiert hat. Hier
+    // „ja" zu sagen legte Backup und Wartung fuer immer stumm.
+    expect(await askDeployInProgress(null)).toBe(false);
+  });
+
+  it("eine unlesbare Statusdatei blockiert die Dienste nicht", async () => {
+    expect(await askDeployInProgress("{kaputt")).toBe(false);
+  });
+
+  it("haelt einen abgestuerzten Lauf nicht ewig fuer laufend", async () => {
+    // `done: false` und drei Stunden alt: Der Lauf ist gestorben, ohne seinen
+    // Status zu schliessen. Ohne diese Grenze bliebe das Backup fuer immer aus.
+    const drei = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
+    expect(await askDeployInProgress({ done: false, updatedAt: drei })).toBe(false);
+  });
+
+  it("ohne Zeitstempel im Zweifel fuer das Pausieren", async () => {
+    // Ein verschobenes Backup ist harmloser als ein abgebrochenes Update.
+    expect(await askDeployInProgress({ done: false })).toBe(true);
+  });
+});
 
 describe("sanitizeDeployLabel", () => {
   it("leaves an ordinary release name alone", () => {

@@ -41,17 +41,46 @@ export interface PragmaResult {
  * waeren damit Dekoration. Prisma setzt das je Verbindung selbst, aber nicht
  * fuer rohe Abfragen — und die Wartung nutzt genau solche.
  */
+// Die Reihenfolge ist Teil der Sache, nicht Geschmack.
+//
+// `busy_timeout` steht ZUERST. Der Wechsel des `journal_mode` braucht selbst
+// kurz die exklusive Sperre — er ist die eine Anweisung hier, die an einer
+// benutzten Datenbank scheitern kann. Stand er vorn, lief ausgerechnet er mit
+// Timeout 0 und gab beim ersten Zusammentreffen sofort auf.
 const PRAGMAS = [
-  "PRAGMA journal_mode = WAL",
   "PRAGMA busy_timeout = 5000",
+  "PRAGMA journal_mode = WAL",
   "PRAGMA synchronous = NORMAL",
   "PRAGMA foreign_keys = ON",
 ] as const;
 
 /**
+ * `PRAGMA journal_mode` ist die Ausnahme unter den Einstellungen hier: Es wirft
+ * NICHT, wenn der Wechsel abgelehnt wird — es antwortet mit dem Modus, der
+ * danach gilt. Ein `delete` in dieser Antwort heisst „nicht gewechselt".
+ *
+ * Ohne diese Pruefung meldete der Start WAL, obwohl nichts geschehen war, und
+ * niemand konnte es wissen. Der Unterschied ist nicht kosmetisch: Im
+ * `delete`-Modus sperrt schon jeder LESER die Datei gegen Schreiber. Eine
+ * Migration, die neben der laufenden Anwendung arbeitet, findet dann keine
+ * Luecke mehr — genau daran ist ein Update gescheitert.
+ */
+function journalModeSwitched(statement: string, rows: unknown): boolean {
+  if (!statement.includes("journal_mode")) return true;
+  const mode = Array.isArray(rows)
+    ? (rows[0] as Record<string, unknown> | undefined)?.journal_mode
+    : undefined;
+  // Unbekannte Antwortform nicht als Fehlschlag werten: Der Modus laesst sich
+  // dann nicht beurteilen, und ein falscher Alarm bei jedem Start waere
+  // schlimmer als die fehlende Auskunft.
+  if (typeof mode !== "string") return true;
+  return mode.toLowerCase() === "wal";
+}
+
+/**
  * Einmal je Prozess anwenden. Fehler sind nicht toedlich: Eine Datenbank ohne
  * WAL laeuft langsamer, aber sie laeuft — den Serverstart daran scheitern zu
- * lassen waere die schlechtere Zusicherung.
+ * lassen waere die schlechtere Zusicherung. Auffallen muessen sie trotzdem.
  */
 export async function applySqlitePragmas(): Promise<PragmaResult> {
   const result: PragmaResult = { applied: [], failed: [] };
@@ -59,8 +88,12 @@ export async function applySqlitePragmas(): Promise<PragmaResult> {
     try {
       // `$queryRawUnsafe`, nicht `$executeRawUnsafe`: `PRAGMA journal_mode`
       // ANTWORTET mit dem gesetzten Modus, und execute erwartet keine Zeilen.
-      await prisma.$queryRawUnsafe(statement);
-      result.applied.push(statement);
+      const rows = await prisma.$queryRawUnsafe(statement);
+      if (journalModeSwitched(statement, rows)) {
+        result.applied.push(statement);
+      } else {
+        result.failed.push(statement);
+      }
     } catch {
       result.failed.push(statement);
     }

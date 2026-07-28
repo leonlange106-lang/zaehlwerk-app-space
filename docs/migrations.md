@@ -88,14 +88,40 @@ unterschiedlich um:
 Dem Schema-Engine lässt sich kein `busy_timeout` mitgeben — weder über
 `socket_timeout` noch über `connection_limit` in der URL; beides wurde
 ausprobiert. Bleibt: es noch einmal versuchen. Das Skript wiederholt einen an
-einer Sperre gescheiterten Aufruf `LOCK_RETRIES` mal (Standard 10) im Abstand
-von `LOCK_WAIT` Sekunden (Standard 6). Schreibzugriffe dieser Anwendung dauern
-Millisekunden, ein Heimserver hat einen Benutzer — über eine Minute verteilt
-trifft man das Fenster.
+einer Sperre gescheiterten Aufruf `LOCK_RETRIES` mal (Standard 30) im Abstand
+von `LOCK_WAIT` Sekunden (Standard 6). Wiederholt wird **nur** bei
+`database is locked` — ein Syntaxfehler in einer Migration wird durchs Warten
+nicht besser.
 
-Wiederholt wird **nur** bei `database is locked`. Ein Syntaxfehler in einer
-Migration wird durchs Warten nicht besser, und ihn zehnmal zu versuchen
-verschleiert nur, was wirklich kaputt ist.
+#### Der Fall, gegen den Wiederholen allein nicht hilft
+
+Kurze Schreibzugriffe geben die Sperre sofort wieder frei; über drei Minuten
+verteilt trifft man das Fenster. Eine **lang offene Transaktion** hat aber gar
+kein Fenster: Ohne WAL sperrt sie die ganze Datei über ihre volle Laufzeit —
+auch eine *lesende*. Jeder Versuch wird dann abgewiesen, bis das Budget alle
+ist. Genau so ist ein Update auf 3.12.0-beta.5 gescheitert; der lange Leser war
+das automatische Backup, denn `VACUUM INTO` liest die Quelle während der
+gesamten Kopie.
+
+Drei Dinge wirken dagegen, jedes an seiner Stelle:
+
+1. **`ensure-wal.mjs`** stellt vor der Migration auf WAL um — dort stören Leser
+   Schreiber überhaupt nicht mehr. Das ist die eigentliche Abhilfe, greift aber
+   nur auf einer im Moment freien Datenbank: SQLite gibt bei einem Moduswechsel
+   sofort `SQLITE_BUSY` zurück, **ohne den Busy-Handler zu fragen**. Ein
+   `busy_timeout` ändert daran nichts — nachgemessen. Scheitert der Wechsel,
+   bricht der Deploy nicht ab; er wartet dann eben.
+2. **Die Anwendung verschiebt Backup und Wartung**, solange ein Deploy läuft
+   (`deployInProgress()` in `update-run.ts`). So entsteht der lange Leser gar
+   nicht erst. Ein aufgeschobenes Backup kostet nichts — der Deploy sichert die
+   Datei ohnehin selbst, und der nächste stündliche Weckruf holt es nach.
+3. **Das Retry-Budget** für alles, was trotzdem durchrutscht.
+
+Warum die Datei überhaupt ohne WAL sein kann, obwohl OPS-02 es setzt:
+`PRAGMA journal_mode` wirft nicht, wenn der Wechsel abgelehnt wird — es
+*antwortet* mit dem Modus, der danach gilt. Diese Antwort wurde nie angesehen,
+also meldete der Start WAL, ohne dass etwas geschehen war. Seit OPS-03 wird sie
+geprüft, und `busy_timeout` steht in der Liste **vor** `journal_mode`.
 
 ### Warum erst fragen, dann schreiben
 
@@ -104,13 +130,17 @@ vermerkt") wurde hinterher als unbedenklich eingestuft. Das war zweimal falsch:
 Es nahm jedes Mal grundlos einen Schreiblock — die häufigste Gelegenheit für
 die Kollision oben —, und es unterschied „schon gestempelt" nicht von
 „gesperrt". Im zweiten Fall brach das Update ab, obwohl gar nichts zu tun
-gewesen wäre. Genau so ist ein Update auf 3.12.0-beta.4 gescheitert.
+gewesen wäre. Genau so ist der erste Versuch auf 3.12.0-beta.4 gescheitert; der
+zweite dann an der Sperre selbst — siehe oben.
 
 `migrate status` ist lesend und beantwortet die Frage genau: Die Baseline steht
 nur dann als offen in der Liste, wenn sie wirklich noch fehlt.
 
-Beide Fälle sind in `packages/database/scripts/test-migrations.mjs` abgedeckt —
-mit einem echten zweiten Prozess, der eine Schreibtransaktion offen hält.
+Alle Fälle oben sind in `packages/database/scripts/test-migrations.mjs`
+abgedeckt — mit echten Nebenprozessen, die eine Schreib- bzw. Lesetransaktion
+offen halten. Der Unterschied ist dort ausdrücklich festgehalten: Wiederholte
+kurze Abfragen reichen als Nachstellung *nicht*, weil sie die Sperre zwischen
+den Anweisungen freigeben.
 
 ## Rollback
 
