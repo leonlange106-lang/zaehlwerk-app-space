@@ -6,8 +6,9 @@ import {
   LAMBDA_VALID_MIN,
   toLambda,
 } from "./engineProfiles";
+import { effectiveLimits, type LimitOverrides } from "./limit-overrides";
 import type { LogSeries, ParsedLog } from "./types";
-import { limitsForSpec, WOT_THRESHOLD_PCT, type SpecLimits, type VehicleSpec } from "./vehicle-spec";
+import { WOT_THRESHOLD_PCT, type SpecLimits, type VehicleSpec } from "./vehicle-spec";
 
 // The automated log-pull evaluation engine — the analytical heart of the
 // analyzer. Given a parsed log and the vehicle's engine/hardware spec it answers:
@@ -1008,9 +1009,19 @@ function findAlerts(
  * Evaluate a single log pull against a vehicle's engine & hardware spec. Pure,
  * total, and defensive: an empty or channel-less log yields an "invalid" verdict
  * rather than throwing.
+ *
+ * `overrides` are the vehicle's own limits, the sparse patch from
+ * `limit-overrides.ts`. It is optional and defaults to "none", so a caller that
+ * only has a spec keeps the derived thresholds — but a caller that HAS a
+ * vehicle must pass them, or the numbers someone maintained do not reach the
+ * engine. That was the case everywhere until this was wired up.
  */
-export function evaluateLogPull(log: ParsedLog, spec: VehicleSpec): LogPullEvaluation {
-  const limits = limitsForSpec(spec);
+export function evaluateLogPull(
+  log: ParsedLog,
+  spec: VehicleSpec,
+  overrides: LimitOverrides = {},
+): LogPullEvaluation {
+  const limits = effectiveLimits(spec, overrides);
   const ch = resolveChannels(log);
   const pull = detectPull(log, ch);
   const window = pull.window;

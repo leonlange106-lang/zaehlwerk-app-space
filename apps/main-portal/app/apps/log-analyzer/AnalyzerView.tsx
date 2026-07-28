@@ -26,8 +26,9 @@ import { defaultSelection } from "./lib/selection";
 import { setActiveLogId, takeActiveLogId } from "./lib/log-store";
 import { fetchLog, uploadLogs, type LogRecordDTO } from "./lib/log-api";
 import { evaluateLogPull } from "./lib/evaluate-log-pull";
-import { loadVehicleSpec } from "./lib/spec-store";
 import { DEFAULT_VEHICLE_SPEC, type VehicleSpec } from "./lib/vehicle-spec";
+import type { LimitOverrides } from "./lib/limit-overrides";
+import { getActiveVehicleAction } from "@/app/lib/vehicle-actions";
 import { loadDynoProfile } from "./lib/dyno-store";
 import { DEFAULT_DYNO_PROFILE, type DynoProfile } from "./lib/dyno-spec";
 import type { ParsedLog } from "./lib/types";
@@ -71,6 +72,10 @@ export function AnalyzerView() {
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const [spec, setSpec] = useState<VehicleSpec>(DEFAULT_VEHICLE_SPEC);
+  // The vehicle's own limits, kept beside the spec rather than folded into it:
+  // a spec describes what the car IS, an override is what its owner knows
+  // better. The evaluation needs both.
+  const [limitOverrides, setLimitOverrides] = useState<LimitOverrides>({});
   const [dynoProfile, setDynoProfile] = useState<DynoProfile>(DEFAULT_DYNO_PROFILE);
   const [exportOpen, setExportOpen] = useState(false);
   // Phones reach the full parameter panel through a bottom sheet; the chip bar
@@ -80,16 +85,32 @@ export function AnalyzerView() {
   const [axisById, setAxisById] = useState<Record<string, AxisSide>>({});
   const [colorById, setColorById] = useState<Record<string, string>>({});
 
-  // The vehicle/hardware profile lives in localStorage (client-only). Read it on
-  // mount so the evaluation is judged against the user's actual setup.
+  // The maintained vehicle comes from the SERVER. It used to be read from
+  // localStorage, but nothing has written that store since the form moved to the
+  // database — so every log was silently judged against DEFAULT_VEHICLE_SPEC and
+  // a carefully maintained EGT ceiling changed no verdict at all.
+  //
+  // No vehicle at all is a legitimate state (fresh instance): the defaults then
+  // apply, which is what the initial state already holds.
   useEffect(() => {
-    const loaded = loadVehicleSpec();
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setSpec(loaded);
-    // The dyno profile is only needed for the optional power section of an
-    // exported report, but it lives in the same client-only storage — and it is
-    // derived from the vehicle when the user has not saved one of their own.
-    setDynoProfile(loadDynoProfile(loaded).profile);
+    let cancelled = false;
+    void (async () => {
+      try {
+        const vehicle = await getActiveVehicleAction();
+        if (cancelled || !vehicle) return;
+        setSpec(vehicle.spec);
+        setLimitOverrides(vehicle.limitOverrides);
+        // The dyno profile is only needed for the optional power section of an
+        // exported report. The vehicle's own wins; otherwise it is derived from
+        // the spec, as before.
+        setDynoProfile(vehicle.dynoProfile ?? loadDynoProfile(vehicle.spec).profile);
+      } catch {
+        // A failed lookup must not take the analyzer down — the defaults stand.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Open a stored log record: re-parse its CSV and set it active.
@@ -252,8 +273,8 @@ export function AnalyzerView() {
   // Automated pull rating / safety / parameter-completeness evaluation. Pure and
   // cheap; recomputed only when the log or the vehicle profile changes.
   const evaluation = useMemo(
-    () => (active ? evaluateLogPull(active.log, spec) : null),
-    [active, spec],
+    () => (active ? evaluateLogPull(active.log, spec, limitOverrides) : null),
+    [active, spec, limitOverrides],
   );
 
   // How many chart panels the stack will render — needed up front so the
