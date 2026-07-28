@@ -10,6 +10,7 @@ export * from "./categories";
 export * from "./schemas";
 export * from "./consumption";
 export * from "./gas";
+export * from "./obis";
 export * from "./tariff";
 export * from "./projection";
 export * from "./backup";

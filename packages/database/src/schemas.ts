@@ -127,6 +127,18 @@ export type AblesungUpdateInput = z.infer<typeof ablesungUpdateSchema>;
 export const apiReadingCreateSchema = z
   .object({
     meterId: z.string().uuid("meterId muss eine gültige UUID sein."),
+    // OBIS-Kennziffer des Registers, z. B. "2.8.0" für die Einspeisung.
+    //
+    // OPTIONAL, und das ist der Punkt: Jede bestehende Smart-Home-Automation
+    // meldet ohne dieses Feld unverändert weiter. Fehlt es, landet der Stand
+    // auf dem Standardregister des Zählers — genau dort, wo er vorher auch
+    // landete. Ein Pflichtfeld hätte am Tag der Einführung jede laufende
+    // Automation stillgelegt.
+    obisCode: z
+      .string()
+      .trim()
+      .regex(/^\d+\.\d+\.\d+$/, "obisCode muss die Form 1.8.0 haben.")
+      .optional(),
     value: z.coerce.number().finite().nonnegative().max(MAX_METER_VALUE),
     // Fehlt der Zeitstempel, setzt die Route „jetzt" ein (siehe Route-Handler).
     timestamp: z.coerce.date().optional(),

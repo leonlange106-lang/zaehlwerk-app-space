@@ -4,14 +4,19 @@ import { NextRequest } from "next/server";
 // Auth is mocked so we can drive the authorization outcome directly; the Zod
 // schema and consumption math stay REAL (imported from the shared entry) so the
 // route's validation and plausibility logic are exercised for real.
-const { authenticateApiRequest, zaehlerFindUnique, ablesungFindMany, ablesungCreate } = vi.hoisted(
-  () => ({
-    authenticateApiRequest: vi.fn(),
-    zaehlerFindUnique: vi.fn(),
-    ablesungFindMany: vi.fn(),
-    ablesungCreate: vi.fn(),
-  }),
-);
+const {
+  authenticateApiRequest,
+  zaehlerFindUnique,
+  ablesungFindMany,
+  ablesungCreate,
+  registerUpsert,
+} = vi.hoisted(() => ({
+  authenticateApiRequest: vi.fn(),
+  zaehlerFindUnique: vi.fn(),
+  ablesungFindMany: vi.fn(),
+  ablesungCreate: vi.fn(),
+  registerUpsert: vi.fn(),
+}));
 vi.mock("../../../lib/api-auth", () => ({
   authenticateApiRequest,
   unauthorizedResponse: () =>
@@ -29,6 +34,7 @@ vi.mock("@zaehlwerk/database", async () => {
     prisma: {
       zaehler: { findUnique: zaehlerFindUnique },
       ablesung: { findMany: ablesungFindMany, create: ablesungCreate },
+      meterRegister: { upsert: registerUpsert },
     },
   };
 });
@@ -50,6 +56,15 @@ beforeEach(() => {
   __resetRateLimits();
   authenticateApiRequest.mockReset();
   zaehlerFindUnique.mockReset();
+  registerUpsert.mockReset();
+  // Standard: der Bezug. Jeder Test, der ein anderes Register braucht, setzt
+  // ihn selbst — so bleibt sichtbar, welcher Fall gerade geprueft wird.
+  registerUpsert.mockImplementation(async ({ create }: { create: Record<string, unknown> }) => ({
+    id: `reg-${create.obisCode}`,
+    obisCode: create.obisCode,
+    richtung: create.richtung,
+    label: create.label,
+  }));
   ablesungFindMany.mockReset().mockResolvedValue([]);
   ablesungCreate.mockReset();
   authenticateApiRequest.mockResolvedValue({ id: "u1", email: "dev@b.de", role: "USER", via: "token" });
@@ -157,5 +172,70 @@ describe("POST /api/v1/readings — rate limiting", () => {
     expect(res.headers.get("Retry-After")).toBeTruthy();
     // The limiter short-circuits before auth/DB work.
     expect(authenticateApiRequest).not.toHaveBeenCalled();
+  });
+});
+
+// Der Zweirichtungszaehler fuehrt Bezug und Einspeisung gleichzeitig. Beide
+// Reihen zaehlen unabhaengig hoch — sie zu vermischen macht aus jedem zweiten
+// Stand einen scheinbar negativen Verbrauch.
+describe("POST /api/v1/readings — Register", () => {
+  beforeEach(() => {
+    authenticateApiRequest.mockResolvedValue({ id: "t1", name: "Token" });
+    zaehlerFindUnique.mockResolvedValue({
+      id: METER,
+      name: "Strom",
+      einheit: "kWh",
+      aktiv: true,
+    });
+    ablesungFindMany.mockResolvedValue([]);
+    ablesungCreate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
+      id: "a1",
+      datum: data.datum,
+      wert: data.wert,
+      quelle: data.quelle,
+    }));
+  });
+
+  it("legt ohne Angabe auf dem Bezug ab — bestehende Automationen brechen nicht", async () => {
+    const res = await POST(post({ meterId: METER, value: 1000 }));
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body.reading.register.obisCode).toBe("1.8.0");
+    expect(body.reading.register.direction).toBe("BEZUG");
+  });
+
+  it("nimmt die Einspeisung auf und legt ihr Register bei Bedarf an", async () => {
+    const res = await POST(post({ meterId: METER, obisCode: "2.8.0", value: 42 }));
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body.reading.register.direction).toBe("EINSPEISUNG");
+    expect(registerUpsert.mock.calls[0][0].create).toMatchObject({
+      obisCode: "2.8.0",
+      richtung: "EINSPEISUNG",
+      einheit: "kWh",
+    });
+  });
+
+  it("weist eine unbekannte Kennziffer ab, statt eine zweite Reihe zu eroeffnen", async () => {
+    const res = await POST(post({ meterId: METER, obisCode: "1.9.0", value: 5 }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).knownObisCodes).toContain("2.8.0");
+    expect(registerUpsert).not.toHaveBeenCalled();
+  });
+
+  it("prueft die Plausibilitaet NUR gegen das eigene Register", async () => {
+    // Der eigentliche Fehler, den diese Trennung verhindert: Der Bezug steht bei
+    // 9000, die Einspeisung faengt bei 40 an. Ueber den ganzen Zaehler gerechnet
+    // waere das ein negativer Verbrauch und der Stand wuerde abgelehnt.
+    await POST(post({ meterId: METER, obisCode: "2.8.0", value: 40 }));
+    expect(ablesungFindMany.mock.calls[0][0].where).toEqual({ registerId: "reg-2.8.0" });
+  });
+
+  it("zaehlt registerlose Altstaende zum Bezug — der Fall nach einem Rollback", async () => {
+    await POST(post({ meterId: METER, value: 1000 }));
+    expect(ablesungFindMany.mock.calls[0][0].where).toMatchObject({
+      zaehlerId: METER,
+      OR: [{ registerId: "reg-1.8.0" }, { registerId: null }],
+    });
   });
 });
