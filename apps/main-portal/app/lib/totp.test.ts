@@ -116,10 +116,28 @@ describe("totpDriftSeconds", () => {
   });
 
   it("does not search so wide that a foreign code lands inside the window", () => {
+    // Same trap as above, and a good deal likelier: 25 foreign codes against a
+    // 41-step window are 1025 chances of a one-in-a-million collision — about
+    // one run in a thousand.
+    //
+    // A collision is not what this test is about. It asks whether the window is
+    // too WIDE, and a foreign code that happens to equal a genuinely valid one
+    // says nothing about width — it is the birthday problem, not a bug. Such a
+    // code is therefore skipped rather than counted, and the assertion still
+    // fails for the thing it exists to catch: a window so wide that unrelated
+    // codes routinely fall inside it.
+    const validNow = new Set(
+      Array.from({ length: 41 }, (_, i) =>
+        totp.generate({ timestamp: Date.now() + (i - 20) * 30_000 }),
+      ),
+    );
     const other = new OTPAuth.TOTP({ secret: OTPAuth.Secret.fromBase32(generateTotpSecret()) });
     const falsePositives = Array.from({ length: 25 }, (_, i) =>
-      totpDriftSeconds(secret, other.generate({ timestamp: Date.now() + i * 30_000 })),
-    ).filter((drift) => drift !== null);
+      other.generate({ timestamp: Date.now() + i * 30_000 }),
+    )
+      .filter((code) => !validNow.has(code))
+      .map((code) => totpDriftSeconds(secret, code))
+      .filter((drift) => drift !== null);
 
     expect(falsePositives).toHaveLength(0);
   });
