@@ -188,6 +188,63 @@ export const apiReadingCreateSchema = z
 
 export type ApiReadingCreateInput = z.infer<typeof apiReadingCreateSchema>;
 
+/**
+ * Änderungen an einer bestehenden Ablesung (`PATCH /api/v1/readings/[id]`).
+ *
+ * Alle Felder optional — PATCH heißt, dass nur das Genannte sich ändert.
+ *
+ * `nullish` statt `optional` bei `note`, `cost` und `startwertNeu` ist der
+ * Punkt: Nur so lässt sich „Notiz löschen" (`null`) von „Notiz nicht anfassen"
+ * (fehlt) unterscheiden. Mit `optional` allein gäbe es keinen Weg, ein Feld
+ * über die API wieder zu leeren.
+ */
+export const apiReadingPatchSchema = z.object({
+  value: z.coerce.number().finite().nonnegative().max(MAX_METER_VALUE).optional(),
+  timestamp: z.coerce.date().optional(),
+  note: z.string().trim().max(500).nullish(),
+  cost: z.coerce.number().finite().nonnegative().max(MAX_COST).nullish(),
+  zaehlerGetauscht: z.coerce.boolean().optional(),
+  startwertNeu: z.coerce.number().finite().nonnegative().max(MAX_METER_VALUE).nullish(),
+  allowImplausible: z.coerce.boolean().optional().default(false),
+});
+
+export type ApiReadingPatchInput = z.infer<typeof apiReadingPatchSchema>;
+
+/** Zähler über die API anlegen. Spiegelt `zaehlerCreateSchema` im API-Vokabular. */
+export const apiMeterCreateSchema = z.object({
+  name: nameField,
+  category: z.enum(ENERGY_CATEGORIES),
+  unit: einheitField,
+  locationId: optionalLocationId,
+  color: z.string().trim().min(1).max(20).optional(),
+  icon: z.string().trim().min(1).max(40).optional(),
+  /** Stellenzahl des Zählwerks — Grundlage der Überlauferkennung. */
+  digits: z.coerce.number().int().min(1).max(12).optional(),
+  readingIntervalDays: ableseIntervallField,
+});
+
+export type ApiMeterCreateInput = z.infer<typeof apiMeterCreateSchema>;
+
+/** Zähler ändern. Alle Felder optional; `id` steht im Pfad, nicht im Body. */
+export const apiMeterPatchSchema = z.object({
+  name: nameField.optional(),
+  category: z.enum(ENERGY_CATEGORIES).optional(),
+  unit: einheitField.optional(),
+  locationId: z
+    .string()
+    .uuid()
+    .nullish()
+    .or(z.literal(""))
+    .transform((value) => (value === "" ? null : value)),
+  color: z.string().trim().min(1).max(20).optional(),
+  icon: z.string().trim().min(1).max(40).optional(),
+  digits: z.coerce.number().int().min(1).max(12).nullish(),
+  readingIntervalDays: ableseIntervallField,
+  active: z.coerce.boolean().optional(),
+});
+
+export type ApiMeterPatchInput = z.infer<typeof apiMeterPatchSchema>;
+
 export const tarifCreateSchema = z
   .object({
     zaehlerId: z.string().uuid(),
@@ -225,6 +282,55 @@ export const tarifCreateSchema = z
   });
 
 export type TarifCreateInput = z.infer<typeof tarifCreateSchema>;
+
+/**
+ * Bearbeiten eines bestehenden Tarifs.
+ *
+ * Bislang gab es nur Anlegen und Löschen. Ein Tarif liess sich also ersetzen,
+ * aber nicht korrigieren — und wer einen Tippfehler im Arbeitspreis fand, musste
+ * loeschen und neu anlegen, wobei die Id wechselte und jeder Verweis darauf ins
+ * Leere ging.
+ *
+ * Wie beim Anlegen, aber per `id` adressiert und ohne `zaehlerId`: Ein Tarif
+ * wandert nie zu einem anderen Zaehler. Duerfte er das, verschoebe eine
+ * Verwechslung im Formular die Kostenrechnung zweier Zaehler auf einmal.
+ */
+export const tarifUpdateSchema = z
+  .object({
+    id: z.string().uuid(),
+    anbieter: z
+      .string()
+      .trim()
+      .max(120)
+      .optional()
+      .or(z.literal(""))
+      .transform((value) => (value ? value : undefined)),
+    produkt: z
+      .string()
+      .trim()
+      .max(120)
+      .optional()
+      .or(z.literal(""))
+      .transform((value) => (value ? value : undefined)),
+    gueltigAb: z.coerce.date(),
+    gueltigBis: z.coerce.date().optional(),
+    arbeitspreisCtNetto: z.coerce.number().finite().nonnegative().max(100_000),
+    grundpreisJahrNetto: z.coerce.number().finite().nonnegative().max(100_000).optional().default(0),
+    mwstProzent: z.coerce.number().finite().min(0).max(100).optional().default(19),
+    notiz: z
+      .string()
+      .trim()
+      .max(500)
+      .optional()
+      .or(z.literal(""))
+      .transform((value) => (value ? value : undefined)),
+  })
+  .refine((data) => !data.gueltigBis || data.gueltigBis >= data.gueltigAb, {
+    path: ["gueltigBis"],
+    message: "„Gültig bis“ darf nicht vor „Gültig ab“ liegen.",
+  });
+
+export type TarifUpdateInput = z.infer<typeof tarifUpdateSchema>;
 
 export const locationCreateSchema = z.object({
   name: nameField,

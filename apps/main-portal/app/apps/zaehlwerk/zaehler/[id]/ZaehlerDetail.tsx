@@ -50,6 +50,7 @@ import {
   updateUmrechnungsfaktorAction,
   deleteTarifAction,
   deleteZaehlerAction,
+  updateTarifAction,
   updateZaehlerAction,
 } from "@/app/lib/zaehler-actions";
 import { initialActionState } from "@/app/lib/action-state";
@@ -573,9 +574,13 @@ function EditZaehlerForm({
   );
 }
 
+type TarifRow = ZaehlerWithHistory["tarife"][number];
+
 function TarifeCard({ zaehler }: { zaehler: ZaehlerWithHistory }) {
+  const router = useRouter();
   const [createState, createAction, creating] = useActionState(createTarifAction, initialActionState);
   const [deleteState, deleteAction] = useActionState(deleteTarifAction, initialActionState);
+  const [editTarif, setEditTarif] = useState<TarifRow | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const today = new Date().toISOString().slice(0, 10);
   const einheit = zaehler.kategorie === "GAS" ? "kWh" : zaehler.einheit;
@@ -619,15 +624,30 @@ function TarifeCard({ zaehler }: { zaehler: ZaehlerWithHistory }) {
                   · {perDayFormatter.format(tarif.mwstProzent)} % MwSt
                 </p>
               </div>
-              <form action={deleteAction} className="flex-none">
-                <input type="hidden" name="id" value={tarif.id} />
-                <input type="hidden" name="zaehlerId" value={zaehler.id} />
-                <Tooltip label="Tarif löschen">
-                  <Button type="submit" variant="danger" size="sm" aria-label="Tarif löschen">
-                    <IconTrash size={16} />
+              <span className="flex flex-none gap-1">
+                {/* Bearbeiten statt loeschen-und-neu: Ein Tippfehler im
+                    Arbeitspreis kostete bislang die Id des Tarifs, und damit
+                    die Nachvollziehbarkeit, welcher Tarif wann galt. */}
+                <Tooltip label="Tarif bearbeiten">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setEditTarif(tarif)}
+                    aria-label="Tarif bearbeiten"
+                  >
+                    <IconPencil size={16} />
                   </Button>
                 </Tooltip>
-              </form>
+                <form action={deleteAction}>
+                  <input type="hidden" name="id" value={tarif.id} />
+                  <input type="hidden" name="zaehlerId" value={zaehler.id} />
+                  <Tooltip label="Tarif löschen">
+                    <Button type="submit" variant="danger" size="sm" aria-label="Tarif löschen">
+                      <IconTrash size={16} />
+                    </Button>
+                  </Tooltip>
+                </form>
+              </span>
             </div>
           ))}
         </div>
@@ -709,7 +729,135 @@ function TarifeCard({ zaehler }: { zaehler: ZaehlerWithHistory }) {
           {creating ? "Wird gespeichert…" : "Tarif hinzufügen"}
         </Button>
       </form>
+
+      <ResponsiveDialog
+        opened={editTarif !== null}
+        onClose={() => setEditTarif(null)}
+        title="Tarif bearbeiten"
+      >
+        {editTarif && (
+          <EditTarifForm
+            tarif={editTarif}
+            einheit={einheit}
+            onDone={() => {
+              setEditTarif(null);
+              router.refresh();
+            }}
+          />
+        )}
+      </ResponsiveDialog>
     </Panel>
+  );
+}
+
+function EditTarifForm({
+  tarif,
+  einheit,
+  onDone,
+}: {
+  tarif: TarifRow;
+  einheit: string;
+  onDone: () => void;
+}) {
+  const [state, formAction, pending] = useActionState(updateTarifAction, initialActionState);
+
+  useEffect(() => {
+    if (state.success) onDone();
+  }, [state.success, onDone]);
+
+  const isoDate = (value: Date | null) => (value ? value.toISOString().slice(0, 10) : "");
+
+  return (
+    <form action={formAction} key={tarif.id} className="flex flex-col gap-3">
+      {/* Nur die Id — der Zaehler wechselt beim Bearbeiten nie, und ihn
+          entgegenzunehmen hiesse, eine Verwechslung im Formular koennte die
+          Kostenrechnung zweier Zaehler auf einmal verschieben. */}
+      <input type="hidden" name="id" value={tarif.id} />
+      <Field label="Produkt / Tarifname">
+        {({ id }) => <TextInput id={id} name="produkt" defaultValue={tarif.produkt ?? ""} />}
+      </Field>
+      <Field label="Anbieter">
+        {({ id }) => <TextInput id={id} name="anbieter" defaultValue={tarif.anbieter ?? ""} />}
+      </Field>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="Gültig ab" required>
+          {({ id }) => (
+            <TextInput
+              id={id}
+              name="gueltigAb"
+              type="date"
+              defaultValue={isoDate(tarif.gueltigAb)}
+              required
+            />
+          )}
+        </Field>
+        <Field label="Gültig bis (optional)">
+          {({ id }) => (
+            <TextInput
+              id={id}
+              name="gueltigBis"
+              type="date"
+              defaultValue={isoDate(tarif.gueltigBis)}
+            />
+          )}
+        </Field>
+      </div>
+      <Field label={`Arbeitspreis (ct/${einheit}, netto)`} required>
+        {({ id }) => (
+          <NumberInput
+            id={id}
+            name="arbeitspreisCtNetto"
+            defaultValue={tarif.arbeitspreisCtNetto}
+            min={0}
+            step="0.0001"
+            required
+          />
+        )}
+      </Field>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="Grundpreis (€/Jahr, netto)">
+          {({ id }) => (
+            <NumberInput
+              id={id}
+              name="grundpreisJahrNetto"
+              defaultValue={tarif.grundpreisJahrNetto}
+              min={0}
+              step="0.01"
+            />
+          )}
+        </Field>
+        <Field label="MwSt %">
+          {({ id }) => (
+            <NumberInput
+              id={id}
+              name="mwstProzent"
+              defaultValue={tarif.mwstProzent}
+              min={0}
+              max={100}
+              step="0.1"
+            />
+          )}
+        </Field>
+      </div>
+      <Field label="Notiz (optional)">
+        {({ id }) => <TextInput id={id} name="notiz" defaultValue={tarif.notiz ?? ""} />}
+      </Field>
+
+      {state.error && (
+        <Alert tone="risk" role="alert" icon={<IconAlertCircle size={16} />}>
+          {state.error}
+        </Alert>
+      )}
+
+      <div className="mt-1 flex justify-end gap-2">
+        <Button type="button" onClick={onDone} disabled={pending}>
+          Abbrechen
+        </Button>
+        <Button type="submit" variant="primary" disabled={pending}>
+          {pending ? "Wird gespeichert…" : "Speichern"}
+        </Button>
+      </div>
+    </form>
   );
 }
 

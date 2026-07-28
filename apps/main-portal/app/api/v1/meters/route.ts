@@ -1,8 +1,13 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { prisma } from "@zaehlwerk/database";
+import { apiMeterCreateSchema, DEFAULT_OBIS_CODE, Prisma, prisma } from "@zaehlwerk/database";
 import { authenticateApiRequest, unauthorizedResponse } from "../../../lib/api-auth";
 import { clientIdentifier, rateLimit } from "../../../lib/rate-limit";
-import { rateLimitedProblem } from "../../../lib/api-problem";
+import {
+  fieldErrorsFromZod,
+  rateLimitedProblem,
+  validationProblem,
+} from "../../../lib/api-problem";
+import { AUDIT_ACTIONS, recordAuditEvent } from "../../../lib/audit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -150,5 +155,122 @@ export async function GET(request: NextRequest) {
     // Kein Zwischenspeicher: eine Integration fragt, weil sie den aktuellen
     // Stand will, und eine gecachte Antwort wäre genau das nicht.
     { headers: { "Cache-Control": "no-store" } },
+  );
+}
+
+/**
+ * Einen Zähler anlegen.
+ *
+ * Zusammen mit seinem Standardregister, in EINER Transaktion. Ein Zähler ohne
+ * Register wäre kein halbfertiger Datensatz, sondern ein stiller: Der erste
+ * gemeldete Stand legte sich sein Register selbst an — aber erst dann, und bis
+ * dahin sähe ein Client einen Zähler ohne jede Reihe und wüsste nicht, ob das
+ * Absicht ist.
+ */
+export async function POST(request: NextRequest) {
+  const limit = rateLimit({
+    key: `meter-write:${clientIdentifier(request)}`,
+    limit: 60,
+    windowMs: RATE_WINDOW_MS,
+  });
+  if (!limit.ok) return rateLimitedProblem(limit.retryAfter);
+
+  const user = await authenticateApiRequest(request);
+  if (!user) return unauthorizedResponse();
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return validationProblem(
+      [{ field: "(body)", message: "Der Body ist kein gültiges JSON." }],
+      "Der Body ist kein gültiges JSON.",
+    );
+  }
+
+  const parsed = apiMeterCreateSchema.safeParse(body);
+  if (!parsed.success) return validationProblem(fieldErrorsFromZod(parsed.error));
+
+  const input = parsed.data;
+
+  let created;
+  try {
+    created = await prisma.zaehler.create({
+      data: {
+        name: input.name,
+        kategorie: input.category,
+        einheit: input.unit,
+        locationId: input.locationId ?? null,
+        ...(input.color ? { farbe: input.color } : {}),
+        ...(input.icon ? { icon: input.icon } : {}),
+        ...(input.digits === undefined ? {} : { stellen: input.digits }),
+        ...(input.readingIntervalDays === undefined
+          ? {}
+          : { ableseIntervallTage: input.readingIntervalDays }),
+        // Das Standardregister gleich mit — siehe oben.
+        register: {
+          create: {
+            obisCode: DEFAULT_OBIS_CODE,
+            richtung: "BEZUG",
+            einheit: input.unit,
+            label: "Bezug",
+            sortIndex: 0,
+          },
+        },
+      },
+      select: {
+        id: true,
+        name: true,
+        kategorie: true,
+        einheit: true,
+        farbe: true,
+        icon: true,
+        aktiv: true,
+        locationId: true,
+        stellen: true,
+        ableseIntervallTage: true,
+        register: { select: { id: true, obisCode: true, richtung: true, label: true } },
+      },
+    });
+  } catch (error) {
+    // Ein Standort, den es nicht gibt. Als Feldfehler, nicht als 500 — der
+    // Aufrufer hat einen Wert geschickt, nicht der Server einen Fehler gemacht.
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2003") {
+      return validationProblem(
+        [{ field: "locationId", message: "Dieser Standort existiert nicht." }],
+        "Dieser Standort existiert nicht.",
+      );
+    }
+    throw error;
+  }
+
+  void recordAuditEvent(
+    AUDIT_ACTIONS.apiMeterCreate,
+    `${user.email} (${user.via})`,
+    `Zähler ${created.id} (${created.name}, ${created.kategorie})`,
+  ).catch(() => {});
+
+  return NextResponse.json(
+    {
+      meter: {
+        id: created.id,
+        name: created.name,
+        category: created.kategorie,
+        unit: created.einheit,
+        color: created.farbe,
+        icon: created.icon,
+        active: created.aktiv,
+        locationId: created.locationId,
+        digits: created.stellen,
+        readingIntervalDays: created.ableseIntervallTage,
+        registers: created.register.map((entry) => ({
+          id: entry.id,
+          obisCode: entry.obisCode,
+          direction: entry.richtung,
+          label: entry.label,
+        })),
+      },
+    },
+    { status: 201 },
   );
 }

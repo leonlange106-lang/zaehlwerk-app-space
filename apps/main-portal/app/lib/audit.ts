@@ -41,6 +41,18 @@ export const AUDIT_ACTIONS = {
   dbOptimize: "db.optimize",
   logPrune: "loganalyzer.prune",
   logRetentionPolicy: "loganalyzer.retention",
+  // Schreibende Zugriffe ueber die oeffentliche API.
+  //
+  // Eigene Aktionen, nicht `data.import`: Eine Automation, die eine Ablesung
+  // korrigiert oder loescht, aendert die Zahlen einer Abrechnung. Wenn spaeter
+  // jemand fragt, warum der Maerz anders aussieht als erinnert, muss die
+  // Antwort ohne Prosa-Suche im Log auffindbar sein — und ohne den Zugriff mit
+  // einem Restore zu verwechseln.
+  apiMeterCreate: "api.meter_create",
+  apiMeterUpdate: "api.meter_update",
+  apiMeterDelete: "api.meter_delete",
+  apiReadingUpdate: "api.reading_update",
+  apiReadingDelete: "api.reading_delete",
 } as const;
 
 export type AuditEvent = {
