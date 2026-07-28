@@ -121,43 +121,25 @@ else
   echo "[migrate] keine bestehende Datenbank — nichts zu sichern"
 fi
 
-# ── Die Anwendung anhalten ─────────────────────────────────────────────────
-# Der eigentliche Fix, und er steht ABSICHTLICH hier und nicht nur in
-# deploy-swap.sh.
+# ── Die Anwendung anhalten: Vorbereitung ───────────────────────────────────
+# Warum ueberhaupt: Prismas Schema-Engine vertraegt neben sich keine offene
+# Transaktion — auch keine lesende, auch im WAL-Modus (gemessen, siehe
+# docs/migrations.md). Eine laufende Anwendung hat staendig welche.
 #
-# Grund ist ein Henne-Ei-Problem: `update.sh` wird aus dem laufenden IMAGE
-# geladen (`COPY /repo/scripts ./scripts` im Dockerfile), nicht aus dem
-# Checkout. Eine Aenderung dort greift also erst beim UEBERNAECHSTEN Update —
-# und dorthin kommt man nicht, wenn das naechste scheitert. Dieses Skript
-# dagegen steckt im `db-migrate`-Image, das bei jedem Update frisch aus dem
-# neuen Stand gebaut wird. Es ist der einzige Ort, an dem eine Aenderung schon
-# beim naechsten Update wirkt.
+# Warum hier und nicht nur in deploy-swap.sh: `update.sh` wird aus dem
+# laufenden IMAGE geladen, nicht aus dem Checkout. Eine Aenderung dort greift
+# erst beim uebernaechsten Update. Dieses Skript steckt im db-migrate-Image,
+# das jedes Update frisch baut.
 #
-# Was angehalten wird, haelt sonst die Datenbank: Prismas Schema-Engine
-# vertraegt neben sich keine offene Transaktion — auch keine lesende, auch im
-# WAL-Modus. Nachgemessen, siehe docs/migrations.md.
-#
-# Sauber rueckabwickelbar: Angehalten wird nur, was lief, und wieder gestartet
-# wird IMMER, wenn wir es selbst angehalten haben — auch nach einer geglueckten
-# Migration.
-#
-# Das kostet einen ueberfluessigen Start (der Deployer tauscht gleich darauf
-# ohnehin), spart aber den einen Fall, der wirklich weh taete: Bricht der
-# Aufrufer zwischen Migration und Tausch ab, bliebe die Instanz sonst unten. Die
-# alte Anwendung kurz auf dem neueren Schema laufen zu lassen ist unbedenklich —
-# das ist genau die Zusicherung, auf der auch der Rollback beruht (jede neue
-# Spalte ist optional oder hat einen Default, siehe docs/migrations.md).
-# Ueber den NAMEN, nicht ueber Compose. Compose braeuchte die Projektdatei im
-# Container, und ein `- .:/repo` dafuer war genau der Fehler: Bind-Mount-Quellen
-# loest der HOST-Daemon auf, update.sh laeuft aber IM Container mit cwd=/repo.
-# Der Daemon bekam einen Pfad, den es auf dem Host nicht gibt, und ueberdeckte
-# das Image-Verzeichnis mit einem leeren — `cd packages/database` scheiterte.
+# Ueber den NAMEN, nicht ueber Compose: Compose braeuchte die Projektdatei im
+# Container, und ein `- .:/repo` dafuer war genau der Fehler, an dem ein Update
+# starb — Bind-Mount-Quellen loest der HOST-Daemon auf, update.sh laeuft aber IM
+# Container mit cwd=/repo.
 APP_CONTAINER="${APP_CONTAINER:-zaehlwerk-main-portal}"
 DOCKER_SOCK="${DOCKER_SOCK:-/var/run/docker.sock}"
+UPDATE_STATUS_FILE="${UPDATE_STATUS_FILE:-$(dirname "$DB_PATH")/update-status.json}"
 WE_STOPPED_IT=0
 
-# Nur wenn wir ueberhaupt koennen. Ohne Socket oder ohne CLI — beim Testen, bei
-# einem Handstart — soll das Skript unveraendert weiterlaufen statt zu scheitern.
 app_kann_angehalten_werden() {
   [ -S "$DOCKER_SOCK" ] || return 1
   command -v docker >/dev/null 2>&1 || return 1
@@ -176,24 +158,7 @@ app_wieder_hoch() {
     || echo "[migrate] WARNUNG: $APP_CONTAINER kam nicht zurueck" >&2
 }
 
-# Scheitert alles Weitere — auch durch ein Signal —, darf die Anwendung nicht
-# unten bleiben.
 trap app_wieder_hoch EXIT HUP INT TERM
-
-if [ -f "$DB_PATH" ] && app_kann_angehalten_werden; then
-  if app_laeuft; then
-    echo "[migrate] halte $APP_CONTAINER an — die Migration braucht die Datenbank allein"
-    if docker stop "$APP_CONTAINER" >/dev/null 2>&1; then
-      WE_STOPPED_IT=1
-    else
-      echo "[migrate] WARNUNG: $APP_CONTAINER liess sich nicht anhalten — versuche es trotzdem" >&2
-    fi
-  else
-    echo "[migrate] $APP_CONTAINER laeuft nicht — nichts anzuhalten"
-  fi
-else
-  echo "[migrate] kein Zugriff auf Docker — migriere ohne die Anwendung anzuhalten"
-fi
 
 # ── Journal-Modus sicherstellen ────────────────────────────────────────────
 # Nach der Sicherung (es wird geschrieben) und vor allem anderen: Ohne WAL
@@ -251,5 +216,43 @@ fi
 # behandelt die Migration als Vorbedingung: Der Tausch findet dann nicht statt,
 # die alte Anwendung laeuft weiter, und niemand landet auf einer halb
 # migrierten Datenbank.
+# NUR ANHALTEN, WENN ES ETWAS ZU TUN GIBT.
+#
+# Das Anhalten hat einen Preis, den man kennen muss: `update.sh` laeuft IM
+# main-portal-Container. Wer ihn anhaelt, killt den laufenden Updater. Fuer die
+# Migration ist das unvermeidbar — sie kommt sonst nicht an die Datenbank —,
+# aber es darf nicht bei JEDEM Update passieren, sondern nur bei dem einen, das
+# wirklich migriert. Ist nichts offen, bleibt die Anwendung stehen und das
+# Update laeuft normal durch.
+#
+# `migrate status` ist lesend und beantwortet genau das.
+if $PRISMA migrate status 2>&1 | grep -q "have not yet been applied"; then
+  if app_kann_angehalten_werden && app_laeuft; then
+    echo "[migrate] halte $APP_CONTAINER an — die Migration braucht die Datenbank allein"
+    echo "[migrate] HINWEIS: Damit endet der laufende Update-Vorgang. Nach der"
+    echo "[migrate]          Migration das Update bitte ERNEUT starten; dann"
+    echo "[migrate]          laeuft es ohne Unterbrechung durch."
+    if docker stop "$APP_CONTAINER" >/dev/null 2>&1; then
+      WE_STOPPED_IT=1
+    else
+      echo "[migrate] WARNUNG: $APP_CONTAINER liess sich nicht anhalten — versuche es trotzdem" >&2
+    fi
+  else
+    echo "[migrate] kein Zugriff auf Docker — migriere ohne die Anwendung anzuhalten"
+  fi
+else
+  echo "[migrate] nichts anzuwenden — die Anwendung bleibt stehen"
+fi
+
 echo "[migrate] wende ausstehende Migrationen an"
 retry_on_lock "Migrationen anwenden" $PRISMA migrate deploy
+
+# Haben wir die Anwendung angehalten, ist der Updater mit ihr gestorben: Er
+# schreibt keinen Endstand mehr, und die Oberflaeche haenge sonst ewig auf
+# "wird migriert". Also schreiben wir ihn hier — ehrlich, mit dem naechsten
+# Schritt darin.
+if [ "$WE_STOPPED_IT" = "1" ]; then
+  printf '{"stage":"failed","ok":false,"done":true,"message":"%s","error":"","targetSha":"","mode":"update","startedAt":"","updatedAt":"%s"}\n' \
+    "Datenbank migriert. Die Anwendung wurde dafür kurz angehalten — bitte das Update erneut starten." \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$UPDATE_STATUS_FILE" 2>/dev/null || true
+fi
