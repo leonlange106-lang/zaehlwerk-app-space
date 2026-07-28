@@ -46,7 +46,7 @@ function check(label, condition, detail = "") {
  * nachgemachte Aufruf mit 1. So wird eine gescheiterte Migration erzeugt, ohne
  * dass irgendetwas Echtes scheitern muss.
  */
-function playground({ failOn = null, missingPrevImage = false } = {}) {
+function playground({ failOn = null, missingPrevImage = false, hangOn = null } = {}) {
   const dir = mkdtempSync(path.join(tmpdir(), "zw-swap-"));
   const repo = path.join(dir, "repo");
   mkdirSync(path.join(repo, "scripts"), { recursive: true });
@@ -91,6 +91,7 @@ case "$*" in
     ${missingPrevImage ? 'case "$*" in *previous*) exit 1 ;; esac' : ":"}
     exit 0 ;;
 esac
+${hangOn ? `case "$*" in *${hangOn}*) sleep 60 ;; esac` : ""}
 ${failOn ? `case "$*" in *${failOn}*) exit 1 ;; esac` : ""}
 exit 0
 `,
@@ -237,11 +238,68 @@ function testMissingPreviousImage() {
   rmSync(pg.dir, { recursive: true, force: true });
 }
 
+// ── Fall 5: der Deployer stirbt, waehrend die Anwendung steht ──────────────
+// Zwischen „angehalten" und „wieder hochgefahren" liegt das einzige Fenster,
+// in dem die Instanz keine Anwendung hat. Wird der Deployer dort abgeschossen —
+// OOM, Neustart des Hosts, ein Signal —, bliebe sie unten: `stop` schaltet auch
+// `restart: unless-stopped` ab, von selbst kommt nichts zurueck.
+//
+// Geprueft wird der Trap: Nach dem Signal muss noch ein `up` kommen.
+async function testEmergencyExitOnSignal() {
+  console.log("\nDeployer wird abgeschossen, waehrend die Anwendung steht");
+  // Die Migration haengt, damit das Signal sicher IN das Fenster faellt.
+  const pg = playground({ hangOn: "db-migrate" });
+
+  const child = (await import("node:child_process")).spawn(
+    "sh",
+    [path.join(pg.repo, "scripts", "deploy-swap.sh")],
+    {
+      cwd: pg.repo,
+      stdio: "ignore",
+      env: {
+        ...process.env,
+        PATH: `${pg.bin}:${process.env.PATH}`,
+        UPDATE_STATUS_FILE: path.join(pg.dir, "update-status.json"),
+        UPDATE_LOG_FILE: path.join(pg.dir, "update.log"),
+        DEPLOY_HISTORY_FILE: path.join(pg.dir, "deploy-history.jsonl"),
+        GIT_SHA: "deadbeef",
+        PREV_HEAD: pg.prevHead,
+        NEEDS_MIGRATION: "1",
+      },
+    },
+  );
+
+  // Warten, bis das Anhalten wirklich passiert ist — sonst trifft das Signal
+  // womoeglich davor, und der Fall pruefte nichts.
+  const bisGestoppt = Date.now() + 15_000;
+  const gestoppt = () =>
+    existsSync(pg.calls) && readFileSync(pg.calls, "utf8").includes("stop main-portal");
+  while (!gestoppt() && Date.now() < bisGestoppt) {
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  check("Vorbedingung: die Anwendung wurde angehalten", gestoppt());
+
+  child.kill("SIGTERM");
+  await new Promise((resolve) => child.on("exit", resolve));
+
+  const calls = readFileSync(pg.calls, "utf8").trim().split("\n").filter(Boolean);
+  const stop = calls.findIndex((c) => c.includes("stop main-portal"));
+  const upDanach = calls.findIndex((c, i) => i > stop && c.includes("up -d --no-build"));
+  check(
+    "faehrt nach dem Signal trotzdem hoch",
+    upDanach !== -1,
+    `ohne das bliebe die Instanz ohne Anwendung — Aufrufe: ${calls.join(" | ")}`,
+  );
+
+  rmSync(pg.dir, { recursive: true, force: true });
+}
+
 console.log("deploy-swap.sh pruefen");
 testHappyPath();
 testMigrationFails();
 testRollbackSkipsMigration();
 testMissingPreviousImage();
+await testEmergencyExitOnSignal();
 
 console.log(`\n${checks - failures} von ${checks} Pruefungen bestanden.`);
 if (failures > 0) {

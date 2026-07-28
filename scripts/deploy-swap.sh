@@ -89,7 +89,6 @@ record_deploy() {
     >>"$HISTORY_FILE" 2>/dev/null || true
 }
 
-echo "[deploy] $(log_now) recreating main-portal (compose up -d --no-build)"
 # Run from the repo root (this script lives in <repo>/scripts). The caller mounts
 # the repo at its real HOST path and sets that as the workdir, so compose's
 # `.:/repo` bind resolves correctly on the host daemon.
@@ -129,7 +128,27 @@ restore_previous() {
   docker compose -f "$COMPOSE_FILE" up -d --no-build \
     && echo "[deploy] vorherige Version laeuft wieder" \
     || echo "[deploy] WARNUNG: die vorherige Version kam nicht hoch" >&2
+  # Versucht — ob geglueckt oder nicht, der Notausgang soll es nicht ein
+  # zweites Mal probieren.
+  STOPPED=0
 }
+
+# ── Notausgang ─────────────────────────────────────────────────────────────
+# Zwischen „angehalten" und „wieder hochgefahren" liegt das einzige Fenster,
+# in dem diese Instanz keine Anwendung hat. Stirbt der Deployer genau dort —
+# OOM, Neustart des Hosts, ein Signal —, bliebe sie unten: `stop` schaltet auch
+# `restart: unless-stopped` ab, es kommt also von selbst nichts zurueck.
+#
+# Deshalb ein Trap. Er greift nur, wenn angehalten wurde und der regulaere Weg
+# das Hochfahren nicht mehr erreicht hat; im Normalfall ist STOPPED wieder 0 und
+# hier passiert nichts. Lieber die alte Version unerwartet laufen als gar keine.
+STOPPED=0
+notausgang() {
+  [ "$STOPPED" = "1" ] || return 0
+  echo "[deploy] NOTAUSGANG: abgebrochen, waehrend die Anwendung stand — fahre hoch" >&2
+  docker compose -f "$COMPOSE_FILE" up -d --no-build >/dev/null 2>&1 || true
+}
+trap notausgang EXIT HUP INT TERM
 
 # ── 1) Anwendung anhalten ──────────────────────────────────────────────────
 # Nur main-portal. Caddy bleibt stehen und liefert weiter eine Fehlerseite
@@ -137,6 +156,7 @@ restore_previous() {
 if [ "$NEEDS_MIGRATION" = "1" ]; then
   echo "[deploy] $(log_now) halte main-portal an (die Migration braucht die Datenbank allein)"
   write_status migrating true false "Anwendung wird kurz angehalten" "" "${GIT_SHA:-}"
+  STOPPED=1
   docker compose -f "$COMPOSE_FILE" stop main-portal \
     || echo "[deploy] WARNUNG: main-portal liess sich nicht anhalten — migriere trotzdem" >&2
 
@@ -145,7 +165,7 @@ if [ "$NEEDS_MIGRATION" = "1" ]; then
   # Minuten, und die gehoeren nicht in das Fenster, in dem nichts bedient.
   echo "[deploy] migriere die Datenbank"
   write_status migrating true false "Datenbank wird migriert" "" "${GIT_SHA:-}"
-  if ! GIT_SHA="${GIT_SHA:-}" docker compose -f "$COMPOSE_FILE" run --rm db-migrate; then
+  if ! GIT_SHA="${GIT_SHA:-}" docker compose -f "$COMPOSE_FILE" --profile tools run --rm db-migrate; then
     echo "[deploy] MIGRATION FEHLGESCHLAGEN $(log_now)"
     restore_previous
     write_status failed false true \
@@ -161,6 +181,7 @@ write_status restarting true false "Anwendung wird gestartet" "" "${GIT_SHA:-}"
 
 # --no-build: the image was already built in update.sh; this is just the swap.
 if docker compose -f "$COMPOSE_FILE" up -d --no-build; then
+  STOPPED=0
   echo "[deploy] swap complete $(log_now)"
   record_deploy
   if [ "$UPDATE_MODE" = "rollback" ]; then

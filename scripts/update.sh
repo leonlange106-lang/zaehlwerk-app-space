@@ -335,7 +335,11 @@ if [ "$UPDATE_MODE" = "rollback" ]; then
 else
   echo "[update] building migration image (migration runs in the deployer)"
   write_status migrating true false "Migration wird vorbereitet" "" "$GIT_SHA"
-  GIT_SHA="$GIT_SHA" docker compose -f "$COMPOSE_FILE" build db-migrate \
+  # `--profile tools`, weil db-migrate hinter genau diesem Profil liegt. `run`
+  # aktiviert einen genannten Dienst von sich aus, `build` verlaesst sich nicht
+  # darauf — ohne das Flag hiesse es womoeglich "no such service", und zwar
+  # ausgerechnet auf der Instanz und nicht hier.
+  GIT_SHA="$GIT_SHA" docker compose -f "$COMPOSE_FILE" --profile tools build db-migrate \
     || fail "Migrations-Image konnte nicht gebaut werden – Details im Log" "$GIT_SHA"
   NEEDS_MIGRATION=1
 fi
