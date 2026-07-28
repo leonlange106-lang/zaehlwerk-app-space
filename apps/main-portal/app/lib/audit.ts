@@ -15,6 +15,12 @@ export const AUDIT_ACTIONS = {
   // without parsing free text out of the update entries.
   systemRollback: "system.rollback",
   securityPolicy: "security.policy",
+  // Fehlgeschlagene Anmeldung. Einzeln uninteressant — jeder vertippt sich —,
+  // in Serie die einzige Spur, die einen Rateversuch ueberhaupt sichtbar macht.
+  // Deshalb eine eigene Aktion statt Prosa unter `security.policy`.
+  loginFailed: "security.login_failed",
+  /** Abgewiesen, weil das Limit erreicht war — die Bremse hat gegriffen. */
+  loginBlocked: "security.login_blocked",
   userCreate: "user.create",
   userDelete: "user.delete",
   userRole: "user.role",

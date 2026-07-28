@@ -6,6 +6,14 @@ import { authConfig } from "./auth.config";
 import { CHALLENGE_COOKIE } from "./app/lib/auth-constants";
 import { decryptSecret, verifyChallenge } from "./app/lib/crypto";
 import { verifyTotp } from "./app/lib/totp";
+import { AUDIT_ACTIONS, recordAuditEvent } from "./app/lib/audit";
+import {
+  callerIdentity,
+  checkLoginAttempt,
+  checkTotpAttempt,
+  noteLoginSuccess,
+  noteTotpSuccess,
+} from "./app/lib/login-throttle";
 
 // Full (Node-runtime) Auth.js config. Uses the shared edge-safe base and adds
 // the Credentials provider, whose authorize() reaches Prisma + bcrypt — which
@@ -49,13 +57,29 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           const user = await prisma.user.findUnique({ where: { id: payload.sub } });
           if (!user || !user.twoFactorEnabled || !user.twoFactorSecret) return null;
 
+          // Bremse VOR der Pruefung. Ein TOTP-Code hat eine Million
+          // Moeglichkeiten, und das Suchfenster akzeptiert 41 davon gleichzeitig
+          // — ohne Grenze ist das in Reichweite eines Skripts, das das Passwort
+          // bereits hat. Die Begruendung liefert diagnoseTwoFactorFailure nach;
+          // authorize() kann nur Benutzer oder null zurueckgeben.
+          const caller = callerIdentity(request?.headers ?? new Headers());
+          if (!checkTotpAttempt(caller, user.id).allowed) {
+            void recordAuditEvent(AUDIT_ACTIONS.loginBlocked, user.email, `2FA, IP ${caller}`);
+            return null;
+          }
+
           let secret: string;
           try {
             secret = decryptSecret(user.twoFactorSecret);
           } catch {
             return null;
           }
-          if (!verifyTotp(secret, String(credentials?.code ?? ""))) return null;
+          if (!verifyTotp(secret, String(credentials?.code ?? ""))) {
+            void recordAuditEvent(AUDIT_ACTIONS.loginFailed, user.email, `2FA, IP ${caller}`);
+            return null;
+          }
+
+          noteTotpSuccess(user.id);
 
           return {
             id: user.id,
@@ -90,9 +114,28 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const password = String(credentials?.password ?? "");
         if (!email || !password) return null;
 
+        // Bremse auch HIER, nicht nur in beginLoginAction.
+        //
+        // Die Oberflaeche fragt erst dort an und kommt nur bei richtigem Passwort
+        // hierher — ein Skript aber muss diesen Weg nicht gehen. Es kann direkt
+        // gegen `POST /api/auth/callback/credentials` schiessen und laesst die
+        // vorgelagerte Pruefung dabei einfach aus. Waere die Bremse nur dort,
+        // stuende die Tuer, die sie schliessen soll, daneben weiter offen.
+        //
+        // Doppelt zaehlt das im Normalfall nicht: Der geglueckte Versuch in
+        // beginLoginAction hat den Kontozaehler schon geleert, und ein
+        // gescheiterter kommt hier gar nicht erst an.
+        const caller = callerIdentity(request?.headers ?? new Headers());
+        if (!checkLoginAttempt(caller, email).allowed) {
+          void recordAuditEvent(AUDIT_ACTIONS.loginBlocked, email, `IP ${caller}`);
+          return null;
+        }
+
         const user = await prisma.user.findUnique({ where: { email } });
         if (!user) return null;
         if (!(await bcrypt.compare(password, user.passwordHash))) return null;
+
+        noteLoginSuccess(email);
 
         // If 2FA is enabled, the password alone must NOT create a session — the
         // client is expected to complete the second factor at /login/2fa.

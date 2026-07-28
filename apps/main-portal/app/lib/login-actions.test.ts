@@ -2,16 +2,31 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // Prisma and the session helper are mocked; bcrypt stays real so the hash write
 // on the happy path is exercised end to end.
-const { userFindUnique, userUpdate, getSessionUser } = vi.hoisted(() => ({
+const { userFindUnique, userUpdate, getSessionUser, auditCreate } = vi.hoisted(() => ({
   userFindUnique: vi.fn(),
   userUpdate: vi.fn(),
   getSessionUser: vi.fn(),
+  auditCreate: vi.fn(),
 }));
 
 vi.mock("@zaehlwerk/database", () => ({
-  prisma: { user: { findUnique: userFindUnique, update: userUpdate } },
+  prisma: {
+    user: { findUnique: userFindUnique, update: userUpdate },
+    // Die Anmeldung schreibt Fehlversuche mit — ohne das greift der Audit-Pfad
+    // ins Leere und der Test bricht an einer Stelle ab, die er nicht prueft.
+    auditLog: { create: auditCreate, count: vi.fn(), findMany: vi.fn(), deleteMany: vi.fn() },
+  },
 }));
 vi.mock("./auth-helpers", () => ({ getSessionUser }));
+
+// `headers()`/`cookies()` gibt es ausserhalb einer Anfrage nicht. Die Bremse
+// liest die Absenderadresse aus den Kopfzeilen, deshalb hier ein leerer Satz —
+// der faellt in callerIdentity() auf "unknown" zurueck, was fuer diese Tests
+// genau richtig ist: Sie pruefen die Anmeldelogik, nicht die Zaehlung.
+vi.mock("next/headers", () => ({
+  headers: async () => new Headers(),
+  cookies: async () => ({ set: vi.fn(), get: vi.fn(), delete: vi.fn() }),
+}));
 
 import { beginLoginAction, completePasswordSetupAction } from "./login-actions";
 

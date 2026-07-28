@@ -8,6 +8,13 @@ import { decryptSecret, signChallenge, verifyChallenge } from "./crypto";
 import { getSessionUser } from "./auth-helpers";
 import { totpDriftSeconds, verifyTotp } from "./totp";
 import type { ActionState } from "./action-state";
+import { AUDIT_ACTIONS, recordAuditEvent } from "./audit";
+import {
+  callerIdentity,
+  checkLoginAttempt,
+  noteLoginSuccess,
+  peekTotpThrottle,
+} from "./login-throttle";
 
 const BCRYPT_ROUNDS = 12;
 
@@ -16,6 +23,17 @@ export type LoginPrecheck = {
   twoFactorRequired?: boolean;
   /** Temp-password account: log in without a password, then set one. */
   mustSetPassword?: boolean;
+  /**
+   * Zu viele Versuche. Bewusst UNTERSCHIEDEN von `ok: false`.
+   *
+   * Beides als "falsche Zugangsdaten" auszugeben waere dieselbe Sackgasse, die
+   * `diagnoseTwoFactorFailure` beim zweiten Faktor aufloest: Wer richtig tippt
+   * und trotzdem abgewiesen wird, tippt es noch zehnmal. Die Sperre verraet
+   * nichts — sie gilt fuer existierende wie nicht existierende Konten gleich.
+   */
+  lockedOut?: boolean;
+  /** Sekunden bis zum naechsten Versuch. Nur bei `lockedOut`. */
+  retryAfter?: number;
 };
 
 /**
@@ -30,8 +48,23 @@ export type LoginPrecheck = {
  */
 export async function beginLoginAction(email: string, password: string): Promise<LoginPrecheck> {
   const normalized = String(email).trim().toLowerCase();
+
+  // Bremse VOR der Datenbank: Ein abgewiesener Versuch soll nichts kosten und
+  // nichts verraten — insbesondere nicht ueber die Antwortzeit, ob das Konto
+  // existiert. bcrypt.compare ist absichtlich langsam; ein Angreifer haette es
+  // sonst als Zeitorakel.
+  const caller = callerIdentity(await headers());
+  const verdict = checkLoginAttempt(caller, normalized);
+  if (!verdict.allowed) {
+    void recordAuditEvent(AUDIT_ACTIONS.loginBlocked, normalized, `IP ${caller}`);
+    return { ok: false, lockedOut: true, retryAfter: verdict.retryAfter };
+  }
+
   const user = await prisma.user.findUnique({ where: { email: normalized } });
-  if (!user) return { ok: false };
+  if (!user) {
+    void recordAuditEvent(AUDIT_ACTIONS.loginFailed, normalized, `IP ${caller} (unbekannt)`);
+    return { ok: false };
+  }
 
   // Temp-password account → passwordless first login (no bcrypt check).
   if (user.mustSetPassword) {
@@ -39,7 +72,14 @@ export async function beginLoginAction(email: string, password: string): Promise
   }
 
   const valid = await bcrypt.compare(String(password), user.passwordHash);
-  if (!valid) return { ok: false };
+  if (!valid) {
+    void recordAuditEvent(AUDIT_ACTIONS.loginFailed, normalized, `IP ${caller}`);
+    return { ok: false };
+  }
+
+  // Das Passwort stimmt — Kontozaehler zuruecksetzen, auch wenn gleich noch der
+  // zweite Faktor folgt. Bewiesen ist bewiesen; der zweite Faktor zaehlt eigens.
+  noteLoginSuccess(normalized);
 
   if (user.twoFactorEnabled) {
     const token = signChallenge({ sub: user.id }, CHALLENGE_TTL_SECONDS);
@@ -94,6 +134,16 @@ export async function diagnoseTwoFactorFailure(code: string): Promise<string> {
 
     const payload = verifyChallenge<{ sub?: string }>(challenge);
     if (!payload?.sub) return RESTART;
+
+    // Zuerst die Bremse — sie ist der einzige Ablehnungsgrund, bei dem auch ein
+    // vollkommen richtiger Code scheitert. Das zu verschweigen waere genau die
+    // Sackgasse, die diese Funktion aufloesen soll. `peek`, nicht `check`: Eine
+    // Nachfrage darf den Zaehler nicht weiterdrehen.
+    const throttle = peekTotpThrottle(callerIdentity(await headers()), payload.sub);
+    if (!throttle.allowed) {
+      const minutes = Math.max(1, Math.round(throttle.retryAfter / 60));
+      return `Zu viele Versuche. Bitte in etwa ${minutes} Minute(n) erneut versuchen.`;
+    }
 
     const user = await prisma.user.findUnique({
       where: { id: payload.sub },
