@@ -3,17 +3,22 @@ import {
   calculateTariffCost,
   computeConsumptionStats,
   pickTariffForDate,
+  GAS_BRENNWERT,
+  GAS_KWH_FACTOR,
+  GAS_ZUSTANDSZAHL,
   type EnergyCategoryValue,
   type TariffInput,
 } from "@zaehlwerk/database/shared";
 
-// Gas m³ → kWh = Verbrauch × Brennwert × Zustandszahl. Werte aus dem
-// Original-Projekt (Za_hler.xlsm, m_html.bas, Stand 2021+). Ideal wäre ein
-// zähler-/periodenspezifischer Brennwert; bis wir den je Zähler speichern,
-// nutzen wir diese dokumentierten Konstanten (effektiver Faktor ≈ 9,92).
-export const GAS_BRENNWERT = 10.312; // kWh/m³
-export const GAS_ZUSTANDSZAHL = 0.9622;
-export const GAS_KWH_FACTOR = GAS_BRENNWERT * GAS_ZUSTANDSZAHL;
+// Gas m³ → kWh = Verbrauch × Brennwert × Zustandszahl.
+//
+// Die Konstanten kommen aus `packages/database/src/gas.ts` und werden hier
+// bewusst NICHT noch einmal geschrieben. Sie standen als zweite Kopie in dieser
+// Datei, obwohl die kanonische Datei von sich sagt, der PDF-Report nutze sie —
+// zwei Wahrheiten, von denen bei der ersten Korrektur eine zurückgeblieben
+// wäre. Der Report weist den verwendeten Faktor in der Fußzeile aus; sobald er
+// je Zähler und Zeitraum gepflegt wird, muss diese Anzeige mitwandern.
+export { GAS_BRENNWERT, GAS_KWH_FACTOR, GAS_ZUSTANDSZAHL };
 
 // Vor der Euro-Bargeldeinführung galt in den Altdaten DM (Original-Grenze:
 // 18.09.2001). Kostenbeträge davor werden in DM ausgewiesen.

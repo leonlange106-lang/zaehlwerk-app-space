@@ -32,6 +32,8 @@ import {
   calculateTariffCost,
   computeConsumptionStats,
   gasM3ToKwh,
+  GAS_BRENNWERT,
+  GAS_ZUSTANDSZAHL,
   pickTariffForDate,
   type ConsumptionProjection,
 } from "@zaehlwerk/database/client";
@@ -455,6 +457,21 @@ function TarifeCard({ zaehler }: { zaehler: ZaehlerWithHistory }) {
 
   return (
     <Panel title="Tarife" icon={<IconReceipt2 size={17} stroke={1.7} />}>
+      {/* Gaskosten entstehen aus einer UMRECHNUNG, nicht aus einer Messung: der
+          Zähler misst m³, abgerechnet wird kWh. Brennwert und Zustandszahl
+          stehen auf jeder Jahresrechnung und schwanken — der Brennwert sogar
+          monatlich. Bis beide je Zähler und Zeitraum gepflegt werden, rechnet
+          Zählwerk mit einem festen Faktor von 2021, und der darf nicht als
+          Messwert durchgehen. Der PDF-Report weist ihn längst aus; die
+          Oberfläche schwieg. Bewusst `text-dim` ohne Statusfarbe: eine Fußnote,
+          keine Warnung. */}
+      {zaehler.kategorie === "GAS" && (
+        <p className="mb-4 text-xs text-dim">
+          Umrechnung m³ → kWh mit Brennwert {GAS_BRENNWERT.toLocaleString("de-DE")} und Zustandszahl{" "}
+          {GAS_ZUSTANDSZAHL.toLocaleString("de-DE")} — feste Annahme (Stand 2021), noch nicht je
+          Zähler und Abrechnungszeitraum gepflegt.
+        </p>
+      )}
       {zaehler.tarife.length === 0 ? (
         <p className="mb-4 text-sm text-dim">
           Noch kein Tarif hinterlegt. Ohne Tarif werden Kosten nur aus erfassten Beträgen angezeigt.
