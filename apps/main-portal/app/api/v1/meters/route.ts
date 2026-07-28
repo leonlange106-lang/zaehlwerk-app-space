@@ -67,11 +67,33 @@ export async function GET(request: NextRequest) {
         take: Math.max(1, history),
         select: { id: true, datum: true, wert: true, quelle: true },
       },
+      register: {
+        orderBy: { sortIndex: "asc" },
+        select: {
+          id: true,
+          obisCode: true,
+          richtung: true,
+          label: true,
+          einheit: true,
+          ablesungen: {
+            orderBy: { datum: "desc" },
+            take: Math.max(1, history),
+            select: { datum: true, wert: true, quelle: true },
+          },
+        },
+      },
     },
   });
 
   const meters = rows.map((row) => {
-    const latest = row.ablesungen[0] ?? null;
+    // `current` bleibt der BEZUG — nicht einfach die neueste Ablesung des
+    // Zählers. Mit einem zweiten Register wäre das sonst mal der Bezug und mal
+    // die Einspeisung, je nachdem, welcher Wert zuletzt eintraf: Dasselbe Feld
+    // hätte von Tag zu Tag eine andere Bedeutung, ohne dass ein Aufrufer es
+    // merkt. Erst wenn es gar keine Register gibt (Zähler, auf den seit der
+    // Migration nichts geschrieben wurde), gilt die neueste Ablesung.
+    const bezug = row.register.find((reg) => reg.richtung === "BEZUG") ?? null;
+    const latest = bezug ? (bezug.ablesungen[0] ?? null) : (row.ablesungen[0] ?? null);
     return {
       id: row.id,
       name: row.name,
@@ -84,11 +106,40 @@ export async function GET(request: NextRequest) {
       current: latest
         ? { value: latest.wert, at: latest.datum.toISOString(), source: latest.quelle }
         : null,
+      // Die Register einzeln — nie saldiert. Bezug und Einspeisung sind zwei
+      // eigenständige Reihen; eine Differenz daraus zu bilden wäre eine
+      // Interpretation, die der Aufrufer selbst treffen soll. Für das
+      // HA-Energie-Dashboard sind es ohnehin getrennte Sensoren.
+      registers: row.register.map((reg) => {
+        const regLatest = reg.ablesungen[0] ?? null;
+        return {
+          obisCode: reg.obisCode,
+          direction: reg.richtung,
+          label: reg.label,
+          unit: reg.einheit,
+          current: regLatest
+            ? {
+                value: regLatest.wert,
+                at: regLatest.datum.toISOString(),
+                source: regLatest.quelle,
+              }
+            : null,
+          ...(history > 0
+            ? {
+                history: reg.ablesungen.map((entry) => ({
+                  value: entry.wert,
+                  at: entry.datum.toISOString(),
+                  source: entry.quelle,
+                })),
+              }
+            : {}),
+        };
+      }),
       // Nur wenn angefragt — sonst bliebe das Feld eine leere Liste, die wie
       // "keine Ablesungen" aussieht statt wie "nicht abgefragt".
       ...(history > 0
         ? {
-            history: row.ablesungen.map((entry) => ({
+            history: (bezug ? bezug.ablesungen : row.ablesungen).map((entry) => ({
               value: entry.wert,
               at: entry.datum.toISOString(),
               source: entry.quelle,
