@@ -8,6 +8,13 @@ Die App zeigt zusätzlich einen **live aus der Git-Historie generierten
 Changelog** unter `/changelog` (mit Filter, Suche und Markierung des aktuell
 laufenden Commits).
 
+> **Ab 3.0 sind die [GitHub-Releases](https://github.com/leonlange106-lang/zaehlwerk-app-space/releases)
+> die maßgebliche Quelle.** Sie tragen das Pre-Release-Kennzeichen, das den
+> Update-Kanal (`stable`/`beta`) bestimmt — diese Datei kann das nicht abbilden
+> und lief deshalb auseinander: Sie endete bei 1.0.0, während die Tags bei 3.8
+> standen. Statt eine zweite, notorisch veraltete Liste zu pflegen, hält sie ab
+> hier nur noch fest, wo die erste steht.
+
 ## [1.0.0] – 2026-07-23
 
 Erstes stabiles Release. Fasst die Phasen 1–6 zusammen: vom Monorepo-Bootstrap
