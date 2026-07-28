@@ -6,6 +6,8 @@ import { authConfig } from "./auth.config";
 import { CHALLENGE_COOKIE } from "./app/lib/auth-constants";
 import { decryptSecret, verifyChallenge } from "./app/lib/crypto";
 import { verifyTotp } from "./app/lib/totp";
+import { AUDIT_ACTIONS, recordAuditEvent } from "./app/lib/audit";
+import { callerIdentity, checkTotpAttempt } from "./app/lib/login-throttle";
 
 // Full (Node-runtime) Auth.js config. Uses the shared edge-safe base and adds
 // the Credentials provider, whose authorize() reaches Prisma + bcrypt — which
@@ -49,13 +51,27 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           const user = await prisma.user.findUnique({ where: { id: payload.sub } });
           if (!user || !user.twoFactorEnabled || !user.twoFactorSecret) return null;
 
+          // Bremse VOR der Pruefung. Ein TOTP-Code hat eine Million
+          // Moeglichkeiten, und das Suchfenster akzeptiert 41 davon gleichzeitig
+          // — ohne Grenze ist das in Reichweite eines Skripts, das das Passwort
+          // bereits hat. Die Begruendung liefert diagnoseTwoFactorFailure nach;
+          // authorize() kann nur Benutzer oder null zurueckgeben.
+          const caller = callerIdentity(request?.headers ?? new Headers());
+          if (!checkTotpAttempt(caller, user.id).allowed) {
+            void recordAuditEvent(AUDIT_ACTIONS.loginBlocked, user.email, `2FA, IP ${caller}`);
+            return null;
+          }
+
           let secret: string;
           try {
             secret = decryptSecret(user.twoFactorSecret);
           } catch {
             return null;
           }
-          if (!verifyTotp(secret, String(credentials?.code ?? ""))) return null;
+          if (!verifyTotp(secret, String(credentials?.code ?? ""))) {
+            void recordAuditEvent(AUDIT_ACTIONS.loginFailed, user.email, `2FA, IP ${caller}`);
+            return null;
+          }
 
           return {
             id: user.id,

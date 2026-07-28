@@ -44,6 +44,14 @@ export interface RateLimitOptions {
   windowMs: number;
   /** Injectable clock for deterministic tests. */
   now?: number;
+  /**
+   * Nur nachsehen, nicht mitzaehlen.
+   *
+   * Fuer den Fall, dass jemand NACH einer Ablehnung wissen muss, ob die Bremse
+   * der Grund war — eine Diagnose darf den Zaehler nicht weiterdrehen, sonst
+   * sperrt sich der Nutzer durchs Nachfragen selbst aus.
+   */
+  peek?: boolean;
 }
 
 /**
@@ -51,10 +59,23 @@ export interface RateLimitOptions {
  * `windowMs`. The first request in a window starts the clock; subsequent hits
  * increment until the window rolls over.
  */
-export function rateLimit({ key, limit, windowMs, now = Date.now() }: RateLimitOptions): RateLimitResult {
+export function rateLimit({ key, limit, windowMs, now = Date.now(), peek = false }: RateLimitOptions): RateLimitResult {
   if (Math.random() < SWEEP_PROBABILITY) sweep(now);
 
   const existing = buckets.get(key);
+
+  if (peek) {
+    if (!existing || existing.resetAt <= now) {
+      return { ok: true, remaining: limit, resetAt: now + windowMs, retryAfter: 0 };
+    }
+    return {
+      ok: existing.count <= limit,
+      remaining: Math.max(0, limit - existing.count),
+      resetAt: existing.resetAt,
+      retryAfter: Math.max(0, Math.ceil((existing.resetAt - now) / 1000)),
+    };
+  }
+
   if (!existing || existing.resetAt <= now) {
     const resetAt = now + windowMs;
     buckets.set(key, { count: 1, resetAt });
