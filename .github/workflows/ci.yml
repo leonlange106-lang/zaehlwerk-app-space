@@ -67,7 +67,17 @@ jobs:
       # das WebKit-Ergebnis sieht — die beiden gehen regelmäßig getrennte Wege.
       fail-fast: false
       matrix:
-        project: ["Mobile Chrome", "Mobile Safari"]
+        # Die Browser gehoeren in die Matrix, aber NICHT einer je Zweig: Beide
+        # Projekte haengen an `setup` (auth.setup.ts), und das Setup-Projekt hat
+        # in playwright.config.ts keinen `use`-Block — es laeuft also unter
+        # Playwrights Default, Chromium. Der Safari-Zweig braucht Chromium
+        # deshalb ebenfalls, sonst scheitert die Anmeldung und 111 Tests laufen
+        # gar nicht erst an. Nur der Chromium-Zweig spart WebKit ein.
+        include:
+          - project: "Mobile Chrome"
+            browsers: chromium
+          - project: "Mobile Safari"
+            browsers: chromium webkit
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -85,8 +95,23 @@ jobs:
       # einem frueheren Build herumliegt.
       - name: Workspace-Pakete bauen
         run: pnpm --filter @zaehlwerk/database --filter @zaehlwerk/updater build
+      # Platz schaffen, bevor die Browser kommen. Der Safari-Lauf vom 26.07.
+      # brach nach 73 gruenen Tests mit "No space left on device" ab (Warnung
+      # davor: 71 MB frei). Kein Test war rot — der einzige Fehlschlag war beim
+      # Retry gruen —, der Job ist am vollen Datentraeger gestorben.
+      #
+      # Die vorinstallierten SDKs sind hier gegenstandslos und zusammen
+      # zweistellig in GB. Das ist die eigentliche Reserve. Das Weglassen von
+      # WebKit im Chromium-Zweig (siehe Matrix) spart daneben nur ~100 MB und
+      # traegt den Job allein nicht — der Safari-Zweig braucht ohnehin beide.
+      - name: Platz auf dem Runner schaffen
+        run: |
+          df -h / | tail -1
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /usr/local/share/boost /usr/local/.ghcup || true
+          df -h / | tail -1
       - name: Playwright-Browser installieren
-        run: pnpm --filter main-portal exec playwright install --with-deps chromium webkit
+        run: pnpm --filter main-portal exec playwright install --with-deps ${{ matrix.browsers }}
       - name: E2E
         working-directory: apps/main-portal
         run: pnpm exec playwright test --project="${{ matrix.project }}"
