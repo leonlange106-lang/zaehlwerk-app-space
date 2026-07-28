@@ -2,6 +2,10 @@ import { type NextRequest, NextResponse } from "next/server";
 import {
   apiReadingCreateSchema,
   calculateConsumption,
+  DEFAULT_OBIS_CODE,
+  describeObisCode,
+  knownObisCodes,
+  obisSortIndex,
   prisma,
 } from "@zaehlwerk/database";
 import { authenticateApiRequest, unauthorizedResponse } from "../../../lib/api-auth";
@@ -75,8 +79,16 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { meterId, value, timestamp, note, zaehlerGetauscht, startwertNeu, allowImplausible } =
-    parsed.data;
+  const {
+    meterId,
+    obisCode,
+    value,
+    timestamp,
+    note,
+    zaehlerGetauscht,
+    startwertNeu,
+    allowImplausible,
+  } = parsed.data;
   const datum = timestamp ?? new Date();
 
   const zaehler = await prisma.zaehler.findUnique({
@@ -87,10 +99,58 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Zähler nicht gefunden." }, { status: 404 });
   }
 
+  // ── Register auflösen ──────────────────────────────────────────────────────
+  // Ohne Angabe gilt der Bezug: Genau dorthin schrieb jede bestehende
+  // Automation vorher auch, und sie soll ohne Änderung weitermelden können.
+  const code = obisCode ?? DEFAULT_OBIS_CODE;
+  const described = describeObisCode(code);
+  if (!described) {
+    // Nicht stillschweigend anlegen: Ein Tippfehler eröffnete sonst eine zweite
+    // Zeitreihe neben der richtigen, und das fällt erst Monate später auf.
+    return NextResponse.json(
+      {
+        error: `Unbekannte OBIS-Kennziffer "${code}".`,
+        knownObisCodes: knownObisCodes(),
+      },
+      { status: 400 },
+    );
+  }
+
+  // Bekannte Kennziffer, aber noch kein Register: anlegen. Das ist der Weg, auf
+  // dem die Einspeisung in Betrieb geht, ohne dass vorher jemand ein Formular
+  // ausfüllen muss — der Zähler zählt bereits, und was jetzt nicht erfasst
+  // wird, fehlt dauerhaft.
+  const register = await prisma.meterRegister.upsert({
+    where: { zaehlerId_obisCode: { zaehlerId: meterId, obisCode: code } },
+    update: {},
+    create: {
+      zaehlerId: meterId,
+      obisCode: code,
+      richtung: described.richtung,
+      tarif: described.tarif,
+      einheit: zaehler.einheit,
+      label: described.label,
+      sortIndex: obisSortIndex(code),
+    },
+    select: { id: true, obisCode: true, richtung: true, label: true },
+  });
+
   // Plausibilitätsprüfung über die bestehende Verbrauchslogik: den neuen Stand
   // provisorisch in die Historie einfügen und das dazugehörige Intervall prüfen.
+  //
+  // Auf DIESES Register begrenzt. Über den ganzen Zähler gerechnet liefen Bezug
+  // und Einspeisung ineinander, und da beide unabhängig hochzählen, sähe fast
+  // jeder Stand nach negativem Verbrauch aus — die Prüfung würde genau das
+  // ablehnen, was sie schützen soll.
+  //
+  // `registerId: null` zählt zum Standardregister mit: Nach einem Rollback
+  // schreibt die ältere Anwendung wieder ohne Registerbezug, und diese Stände
+  // gehören derselben Reihe an.
   const existing = await prisma.ablesung.findMany({
-    where: { zaehlerId: meterId },
+    where:
+      code === DEFAULT_OBIS_CODE
+        ? { zaehlerId: meterId, OR: [{ registerId: register.id }, { registerId: null }] }
+        : { registerId: register.id },
     select: { id: true, datum: true, wert: true, zaehlerGetauscht: true, startwertNeu: true },
   });
   const intervals = calculateConsumption([
@@ -119,6 +179,7 @@ export async function POST(request: NextRequest) {
   const created = await prisma.ablesung.create({
     data: {
       zaehlerId: meterId,
+      registerId: register.id,
       datum,
       wert: value,
       zaehlerGetauscht,
@@ -138,6 +199,14 @@ export async function POST(request: NextRequest) {
         value: created.wert,
         timestamp: created.datum.toISOString(),
         source: created.quelle,
+        // Wird immer mitgeschickt, auch wenn der Aufrufer nichts angegeben hat:
+        // Eine Automation, die versehentlich auf dem Bezug landet statt auf der
+        // Einspeisung, soll das an ihrer eigenen Antwort sehen können.
+        register: {
+          obisCode: register.obisCode,
+          direction: register.richtung,
+          label: register.label,
+        },
       },
       consumption: newInterval
         ? {
