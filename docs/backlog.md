@@ -170,6 +170,7 @@ Sechs Zwänge bestimmen die Reihenfolge:
 |---|---|---|---|---|---|
 | `QLT-02` | E2E gegen Production-Build statt `next dev` | S | 4 | `CI-01` | AUDIT § 4.9 |
 | `UI-02` | Ladezustände: Skeletons, Spinner, Fortschritt | S | 4 | — | Review |
+| `ZW-10` | Plausibilitätsprüfung auch beim Erfassen über die Oberfläche | S | 5 | — | Review |
 
 ### LATER
 
@@ -674,6 +675,54 @@ Das Fahrtenbuch setzt auf `Vehicle` auf. Damit ist es **`M`, nicht `L`**, und
       Foto, keine Überkonstruktion. Verbindet sich natürlich mit den
       Log-Analyzer-Daten desselben Fahrzeugs (`mapVersion`, `software`
       stehen bereits auf `LogFile`)
+
+---
+
+#### `ZW-10` — Plausibilität auch beim Erfassen über die Oberfläche
+`Epic: Zählwerk` · `Typ: Bug` · `S` · `Wert 5`
+
+**Problem.** Ein Stand unter dem letzten lässt sich über das Formular ohne
+Weiteres speichern, auch ohne Zählerwechsel. Vom Nutzer gefunden, nicht von
+einem Test.
+
+Die Rechnung ist dabei **nicht** falsch: `calculateConsumption` erkennt den
+Rückgang und setzt das Intervall auf `amount: null` („nicht plausibel"), und die
+Detailseite sowie der Bericht zeigen dafür eine Warnung. Das Loch liegt davor —
+`createAblesungAction` (`app/lib/zaehler-actions.ts`) validiert das Schema und
+schreibt, mehr nicht.
+
+**Die Asymmetrie ist der eigentliche Punkt.** `POST /api/v1/readings` lehnt
+genau diesen Fall seit `API-02` mit **422** ab und verlangt entweder
+`zaehlerGetauscht` + `startwertNeu` oder ein ausdrückliches
+`allowImplausible: true`. Die Prüfung existiert also bereits — sie hängt nur am
+maschinennahen Weg. Ein Vertipper beim Abtippen vom Zähler ist mindestens so
+wahrscheinlich wie eine fehlerhafte Automation; der Mensch bekommt hier weniger
+Schutz als das Skript.
+
+**Nicht hart ablehnen — fragen.** Rückwirkendes Nachtragen und ein
+Zählerüberlauf (`ZW-04`) sind legitime Fälle. Ein Formular, das sie verbietet,
+erzieht zum Umgehen.
+
+**Akzeptanzkriterien**
+- [ ] `createAblesungAction` prüft dieselbe Bedingung wie der API-Handler —
+      über dieselbe Funktion, nicht über eine zweite Vorstellung davon, was
+      plausibel ist
+- [ ] Bei Unplausibilität eine Rückfrage mit der konkreten Zahl („Verbrauch wäre
+      −42 kWh"), nicht ein pauschales „ungültig"
+- [ ] Drei Auswege, wie in der API: Zählerwechsel eintragen · trotzdem speichern
+      · abbrechen
+- [ ] Dasselbe beim **Bearbeiten** einer Ablesung, nicht nur beim Anlegen
+- [ ] Der bestehende Nachlauf (`hasImplausibleIntervals`-Warnung) bleibt — er
+      fängt die Fälle, die bewusst gespeichert wurden
+- [ ] Test über die Server Action, nicht nur über die Rechenfunktion (die ist
+      längst getestet; die fehlende Stelle ist der Aufruf)
+
+**Notiz.** Beim selben Durchgang aufgefallen und offen: Der **Papierkorb**
+(`ZW-03`) erscheint nur auf der Detailseite eines Zählers und nur, wenn etwas
+darin liegt. Das war Absicht — ein leerer Papierkorb ist Lärm —, aber wer die
+Funktion sucht, ohne vorher gelöscht zu haben, findet sie nicht. Kleiner
+Nachtrag, kein eigenes Item wert: entweder ein Hinweis in den
+Zählwerk-Einstellungen oder ein leerer Zustand mit einem Satz.
 
 ---
 
