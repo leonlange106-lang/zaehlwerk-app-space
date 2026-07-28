@@ -17,6 +17,7 @@
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:deploy": "sh scripts/deploy-migrations.sh",
+    "test:migrations": "node scripts/test-migrations.mjs",
     "db:seed": "tsx prisma/seed.ts"
   },
   "prisma": {
