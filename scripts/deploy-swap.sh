@@ -4,9 +4,34 @@
 # compose project, recreating main-portal doesn't kill it — so it can finish the
 # recreate and write the authoritative done/failed status the UI waits for.
 #
-# Everything long (build) and risky (migration) already happened in update.sh
-# with the old app still serving. By the time we get here the new image is built
-# and the database is migrated, so all that's left is a quick recreate.
+# Alles Lange (der Build) ist in update.sh passiert, waehrend die alte Anwendung
+# noch bediente. HIER passiert das Kurze und das Heikle, in dieser Reihenfolge:
+#
+#   1. main-portal ANHALTEN
+#   2. migrieren
+#   3. neue Version hochfahren — oder, wenn 2 scheitert, die alte zurueck
+#
+# WARUM DAS ANHALTEN SEIN MUSS
+#
+# Bis v3.12.0-beta.6 lief die Migration neben der laufenden Anwendung, damit ein
+# Fehlschlag folgenlos bleibt. Drei Updates sind daran gescheitert. Gemessen,
+# auf einer Datenbank im WAL-Modus:
+#
+#   Anwendung nur verbunden, keine Transaktion  -> migrate deploy laeuft
+#   Anwendung mit offener LESEtransaktion       -> gesperrt
+#   Anwendung mit offener Schreibtransaktion    -> gesperrt
+#
+# Auch eine lesende. „Im WAL-Modus stoeren Leser nicht" gilt fuer gewoehnliche
+# Schreibvorgaenge, fuer den Schema-Engine von Prisma nicht — und offene
+# Transaktionen hat eine laufende Anwendung staendig (das automatische Backup
+# liest mit `VACUUM INTO` minutenlang am Stueck). Kein Wiederholungsbudget
+# behebt das, es verlaengert nur das Warten: zuletzt 30 Versuche, drei Minuten,
+# alle abgewiesen.
+#
+# Der Preis ist eine kurze Auszeit statt gar keiner. Die Zusicherung aus #108
+# bleibt erhalten, nur anders eingeloest: Scheitert die Migration, faehrt dieser
+# Deployer die ALTE Version wieder hoch — altes Image, alter Arbeitsbaum —
+# statt die neue auf eine unmigrierte Datenbank zu lassen.
 set -u
 
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
@@ -17,6 +42,12 @@ UPDATE_MODE="${UPDATE_MODE:-update}"
 UPDATE_REF="${UPDATE_REF:-}"
 UPDATE_LABEL="${UPDATE_LABEL:-}"
 UPDATE_CHANNEL="${UPDATE_CHANNEL:-stable}"
+# Von update.sh gereicht. Die Vorgaben gelten nur fuer einen Handstart dieses
+# Skripts; im Regelfall setzt sie der Aufrufer.
+NEEDS_MIGRATION="${NEEDS_MIGRATION:-0}"
+IMAGE_TAG="${IMAGE_TAG:-zaehlwerk-main-portal:latest}"
+PREV_IMAGE="${PREV_IMAGE:-zaehlwerk-main-portal:previous}"
+PREV_HEAD="${PREV_HEAD:-}"
 export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-zaehlwerk}"
 
 # Append (never truncate) so the live log keeps the whole story across the swap.
@@ -69,6 +100,65 @@ cd "$REPO_DIR" || {
 }
 echo "[deploy] repo dir: $REPO_DIR"
 
+# ── Die alte Version zurueckholen ──────────────────────────────────────────
+# Der Weg zurueck, wenn die Migration scheitert, nachdem die Anwendung schon
+# steht. Drei Dinge muessen zusammenpassen, sonst laeuft die NEUE Anwendung auf
+# einer unmigrierten Datenbank — genau der Zustand, den #108 verhindern soll:
+#
+#   1. das alte Image wieder unter `:latest` (compose startet nach diesem Tag)
+#   2. der Arbeitsbaum auf dem alten Stand (sonst luegt die Versionsanzeige,
+#      siehe restore_checkout in update.sh)
+#   3. hochfahren
+#
+# Fehlt das alte Image (allererster Deploy), bleibt nur das Hochfahren dessen,
+# was da ist — dann gab es aber auch keine Version, die vorher lief.
+restore_previous() {
+  echo "[deploy] hole die vorherige Version zurueck"
+  if docker image inspect "$PREV_IMAGE" >/dev/null 2>&1; then
+    docker tag "$PREV_IMAGE" "$IMAGE_TAG" \
+      || echo "[deploy] WARNUNG: $PREV_IMAGE liess sich nicht auf $IMAGE_TAG legen" >&2
+  else
+    echo "[deploy] WARNUNG: kein $PREV_IMAGE vorhanden — starte, was da ist" >&2
+  fi
+
+  if [ -n "$PREV_HEAD" ]; then
+    git checkout --detach --force "$PREV_HEAD" >/dev/null 2>&1 \
+      || echo "[deploy] WARNUNG: Arbeitsbaum blieb auf dem neuen Stand" >&2
+  fi
+
+  docker compose -f "$COMPOSE_FILE" up -d --no-build \
+    && echo "[deploy] vorherige Version laeuft wieder" \
+    || echo "[deploy] WARNUNG: die vorherige Version kam nicht hoch" >&2
+}
+
+# ── 1) Anwendung anhalten ──────────────────────────────────────────────────
+# Nur main-portal. Caddy bleibt stehen und liefert weiter eine Fehlerseite
+# statt einer toten Verbindung — das ist der freundlichere Ausfall.
+if [ "$NEEDS_MIGRATION" = "1" ]; then
+  echo "[deploy] $(log_now) halte main-portal an (die Migration braucht die Datenbank allein)"
+  write_status migrating true false "Anwendung wird kurz angehalten" "" "${GIT_SHA:-}"
+  docker compose -f "$COMPOSE_FILE" stop main-portal \
+    || echo "[deploy] WARNUNG: main-portal liess sich nicht anhalten — migriere trotzdem" >&2
+
+  # ── 2) Migrieren ─────────────────────────────────────────────────────────
+  # Ohne --build: Das Image steht seit update.sh. Der Layer-Export dauert
+  # Minuten, und die gehoeren nicht in das Fenster, in dem nichts bedient.
+  echo "[deploy] migriere die Datenbank"
+  write_status migrating true false "Datenbank wird migriert" "" "${GIT_SHA:-}"
+  if ! GIT_SHA="${GIT_SHA:-}" docker compose -f "$COMPOSE_FILE" run --rm db-migrate; then
+    echo "[deploy] MIGRATION FEHLGESCHLAGEN $(log_now)"
+    restore_previous
+    write_status failed false true \
+      "DB-Migration fehlgeschlagen – die vorherige Version läuft weiter" "" "${GIT_SHA:-}"
+    exit 1
+  fi
+  echo "[deploy] Migration durch"
+fi
+
+# ── 3) Neue Version hochfahren ─────────────────────────────────────────────
+echo "[deploy] $(log_now) recreating main-portal (compose up -d --no-build)"
+write_status restarting true false "Anwendung wird gestartet" "" "${GIT_SHA:-}"
+
 # --no-build: the image was already built in update.sh; this is just the swap.
 if docker compose -f "$COMPOSE_FILE" up -d --no-build; then
   echo "[deploy] swap complete $(log_now)"
@@ -80,5 +170,8 @@ if docker compose -f "$COMPOSE_FILE" up -d --no-build; then
   fi
 else
   echo "[deploy] swap FAILED $(log_now)"
+  # Hier NICHT zurueckrollen: Die Migration ist durch, die Datenbank traegt das
+  # neue Schema. Die alte Anwendung darauf zu starten waere schlechter als der
+  # ehrliche Fehlschlag — sie kennt die neuen Spalten nicht.
   write_status failed false true "Neustart fehlgeschlagen – Details im Log" "" "${GIT_SHA:-}"
 fi
