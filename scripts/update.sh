@@ -8,7 +8,7 @@
 # Reliability design (learned the hard way):
 #   1. pull      – fast-forward the checkout
 #   2. build     – build the NEW image while the OLD app keeps serving
-#   3. migrate   – additive `prisma db push` as a PRECONDITION: if it fails we
+#   3. migrate   – `prisma migrate deploy` as a PRECONDITION: if it fails we
 #                  abort here with the old app still running and healthy, so a
 #                  schema change can never take the site down again
 #   4. hand off  – a DETACHED "deployer" container (started from the new image)
@@ -30,7 +30,7 @@ UPDATE_BRANCH="${UPDATE_BRANCH:-main}"
 # no stable release tags.
 UPDATE_REF="${UPDATE_REF:-}"
 # "update" (default) or "rollback". A rollback is the same deploy with an older
-# ref — with ONE difference, see the migration step: it skips `prisma db push`.
+# ref — with ONE difference, see the migration step: it skips the migration.
 UPDATE_MODE="${UPDATE_MODE:-update}"
 # Human-readable name of the target and the channel it came from, recorded in
 # the deploy history by the deployer. Display text only, never interpreted here.
@@ -222,19 +222,25 @@ GIT_SHA="$GIT_SHA" docker compose -f "$COMPOSE_FILE" build main-portal \
   || fail "Build fehlgeschlagen – Details im Log" "$GIT_SHA"
 
 # 3) Migrate the database (additive) ----------------------------------------
-# Run `prisma db push` via the one-shot `db-migrate` compose service (builder
-# stage + DB volume). Using `docker compose run` keeps the build on BuildKit
-# too — a plain `docker build --target=builder` here uses the legacy builder and
-# chokes on the cache mounts. The builder layers are already cached from step 2,
-# so this build is a fast cache hit. db push is additive and a PRECONDITION for
-# the swap: if it fails we stop with the old app still running — no broken deploy.
+# Run `prisma migrate deploy` via the one-shot `db-migrate` compose service
+# (builder stage + DB volume). Using `docker compose run` keeps the build on
+# BuildKit too — a plain `docker build --target=builder` here uses the legacy
+# builder and chokes on the cache mounts. The builder layers are already cached
+# from step 2, so this build is a fast cache hit. The migration is a PRECONDITION
+# for the swap: if it fails we stop with the old app still running — no broken
+# deploy.
 #
-# A ROLLBACK SKIPS THIS, deliberately. `prisma db push` makes the database match
-# the schema it is given, in both directions: handed an OLDER schema it wants to
-# drop the columns and tables the newer version introduced. It would either
-# refuse (it demands --accept-data-loss for destructive changes) and abort the
-# rollback, or — if that flag were ever added here — silently destroy the data
-# the newer version wrote. Neither belongs behind a "go back" button.
+# Bis v3 lief hier `prisma db push`. Das gleicht die Datenbank dem Schema an,
+# ohne Historie und ohne zu benennen, was dabei verschwindet — auf fremden
+# Instanzen mit Jahren an Daten die falsche Zusicherung. `db:deploy` sichert
+# zuerst die Datei, stempelt eine bestehende Installation einmalig auf die
+# Baseline und spielt danach nur die fehlenden Schritte ein.
+#
+# A ROLLBACK SKIPS THIS, deliberately. Eine Migration ist vorwaertsgerichtet:
+# Das Schema der neueren Version bleibt stehen, wenn man auf eine aeltere
+# Anwendung zurueckgeht. Rueckwaerts zu migrieren hiesse, genau die Spalten zu
+# entfernen, in die die neuere Version bereits geschrieben hat — das gehoert
+# nicht hinter einen "Zurueck"-Knopf.
 #
 # Leaving the newer schema in place is the safe asymmetry: Prisma selects named
 # columns, so the older client simply never asks for the ones it does not know.
@@ -244,10 +250,10 @@ GIT_SHA="$GIT_SHA" docker compose -f "$COMPOSE_FILE" build main-portal \
 # impossible; the UI says so before the button is pressed, and the answer is to
 # restore a backup rather than to migrate backwards.
 if [ "$UPDATE_MODE" = "rollback" ]; then
-  echo "[update] rollback: skipping prisma db push (forward-only; older schema would drop columns)"
+  echo "[update] rollback: skipping migrations (forward-only; older schema would drop columns)"
   write_status migrating true false "Datenbank bleibt unverändert (Rollback)" "" "$GIT_SHA"
 else
-  echo "[update] migrating database (prisma db push via compose)"
+  echo "[update] migrating database (prisma migrate deploy via compose)"
   write_status migrating true false "Datenbank wird migriert" "" "$GIT_SHA"
   GIT_SHA="$GIT_SHA" docker compose -f "$COMPOSE_FILE" run --rm --build db-migrate \
     || fail "DB-Migration fehlgeschlagen – Details im Log" "$GIT_SHA"
