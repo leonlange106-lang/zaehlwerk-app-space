@@ -13,6 +13,7 @@ import {
   prisma,
   projectAnnualConsumption,
   tarifCreateSchema,
+  tarifUpdateSchema,
   umrechnungsfaktorCreateSchema,
   umrechnungsfaktorUpdateSchema,
   zaehlerCreateSchema,
@@ -290,6 +291,63 @@ export async function createTarifAction(
   }
 
   revalidatePath(`/apps/zaehlwerk/zaehler/${parsed.data.zaehlerId}`);
+  return { success: true };
+}
+
+/**
+ * Einen bestehenden Tarif korrigieren.
+ *
+ * Bislang gab es nur Anlegen und Loeschen. Wer einen Tippfehler im Arbeitspreis
+ * fand, musste loeschen und neu anlegen — dabei wechselte die Id, und der
+ * Verlauf, welcher Tarif wann galt, bekam eine Luecke, die niemand mehr
+ * schliessen konnte.
+ *
+ * `zaehlerId` wird bewusst NICHT entgegengenommen: Ein Tarif wandert nie zu
+ * einem anderen Zaehler. Duerfte er das, verschoebe eine Verwechslung im
+ * Formular die Kostenrechnung zweier Zaehler auf einmal. Fuer `revalidatePath`
+ * wird der Zaehler stattdessen aus dem Datensatz gelesen.
+ */
+export async function updateTarifAction(
+  _prevState: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  await assertAppAccess(APP_ID);
+  const bisRaw = formData.get("gueltigBis");
+  const parsed = tarifUpdateSchema.safeParse({
+    id: formData.get("id"),
+    anbieter: formData.get("anbieter"),
+    produkt: formData.get("produkt"),
+    gueltigAb: formData.get("gueltigAb"),
+    gueltigBis: bisRaw ? bisRaw : undefined,
+    arbeitspreisCtNetto: formData.get("arbeitspreisCtNetto"),
+    grundpreisJahrNetto: formData.get("grundpreisJahrNetto") ?? undefined,
+    mwstProzent: formData.get("mwstProzent") ?? undefined,
+    notiz: formData.get("notiz"),
+  });
+
+  if (!parsed.success) {
+    return invalidInput(parsed.error);
+  }
+
+  const { id, ...data } = parsed.data;
+
+  let zaehlerId: string;
+  try {
+    const updated = await prisma.tarif.update({
+      where: { id },
+      data,
+      select: { zaehlerId: true },
+    });
+    zaehlerId = updated.zaehlerId;
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {
+      return { success: false, error: "Dieser Tarif existiert nicht mehr." };
+    }
+    console.error("[updateTarifAction]", error);
+    return { success: false, error: "Der Tarif konnte nicht gespeichert werden." };
+  }
+
+  revalidatePath(`/apps/zaehlwerk/zaehler/${zaehlerId}`);
   return { success: true };
 }
 
