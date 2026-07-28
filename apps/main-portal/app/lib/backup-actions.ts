@@ -102,6 +102,8 @@ function ablesungRow(a: BackupAblesung) {
     notiz: a.notiz ?? null,
     quelle: a.quelle,
     istAbgerechnet: a.istAbgerechnet,
+    geloeschtAm: toDate(a.geloeschtAm),
+    geloeschtVon: a.geloeschtVon ?? null,
     createdAt: toDate(a.createdAt),
   };
 }
@@ -314,6 +316,10 @@ export async function importMeter(jsonText: string, choice: LocationChoice): Pro
           startwertNeu: a.startwertNeu ?? null,
           notiz: a.notiz ?? null,
           quelle: a.quelle,
+          // Der Papierkorb wandert mit. Ein geloeschter Stand als vorhandener
+          // zurueckzukommen veraenderte still jede Summe des Zielsystems.
+          geloeschtAm: toDate(a.geloeschtAm),
+          geloeschtVon: a.geloeschtVon ?? null,
         })),
       }),
       prisma.tarif.createMany({

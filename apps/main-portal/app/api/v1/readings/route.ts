@@ -5,6 +5,7 @@ import {
   DEFAULT_OBIS_CODE,
   describeObisCode,
   knownObisCodes,
+  NOT_DELETED,
   obisSortIndex,
   prisma,
 } from "@zaehlwerk/database";
@@ -153,9 +154,12 @@ export async function POST(request: NextRequest) {
   // gehören derselben Reihe an.
   const existing = await prisma.ablesung.findMany({
     where:
+      // Geloeschte Staende zaehlen nicht mit: Sonst pruefte der neue Wert gegen
+      // eine Zahl, die die Oberflaeche nirgends mehr zeigt, und die Ablehnung
+      // waere nicht nachvollziehbar.
       code === DEFAULT_OBIS_CODE
-        ? { zaehlerId: meterId, OR: [{ registerId: register.id }, { registerId: null }] }
-        : { registerId: register.id },
+        ? { ...NOT_DELETED, zaehlerId: meterId, OR: [{ registerId: register.id }, { registerId: null }] }
+        : { ...NOT_DELETED, registerId: register.id },
     select: { id: true, datum: true, wert: true, zaehlerGetauscht: true, startwertNeu: true },
   });
   const intervals = calculateConsumption([

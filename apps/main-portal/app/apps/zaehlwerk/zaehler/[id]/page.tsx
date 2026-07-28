@@ -1,7 +1,7 @@
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { consumptionReadings, projectAnnualConsumption } from "@zaehlwerk/database/shared";
-import { getZaehlerById, listLocations } from "@/app/lib/zaehler-actions";
+import { getZaehlerById, listDeletedAblesungen, listLocations } from "@/app/lib/zaehler-actions";
 import { listActiveApiTokens } from "@/app/lib/api-token-actions";
 import { ZaehlerDetail } from "./ZaehlerDetail";
 
@@ -11,11 +11,12 @@ export default async function ZaehlerDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const [zaehler, locations, apiTokens, headerList] = await Promise.all([
+  const [zaehler, locations, apiTokens, headerList, geloeschte] = await Promise.all([
     getZaehlerById(id),
     listLocations(),
     listActiveApiTokens(),
     headers(),
+    listDeletedAblesungen(id),
   ]);
 
   if (!zaehler) {
@@ -51,6 +52,7 @@ export default async function ZaehlerDetailPage({
       apiTokens={apiTokens}
       origin={origin}
       projection={projection}
+      geloeschte={geloeschte}
     />
   );
 }

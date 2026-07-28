@@ -1,5 +1,5 @@
 import { checkForUpdates } from "@zaehlwerk/updater";
-import { prisma } from "@zaehlwerk/database";
+import { NOT_DELETED, prisma } from "@zaehlwerk/database";
 import { getRepoRoot, getRunningBuildSha } from "./version";
 import { branchFallbackAllowed, REPO_NAME, REPO_OWNER, resolveUpdateTarget } from "./update-target";
 import { getBackupPolicy, getLogRetentionPolicy } from "./settings";
@@ -133,7 +133,14 @@ async function dueReadingSources(): Promise<
       id: true,
       name: true,
       ableseIntervallTage: true,
-      ablesungen: { orderBy: { datum: "desc" }, take: 1, select: { datum: true } },
+      // Eine geloeschte Ablesung darf die Erinnerung nicht stillhalten: Sonst
+      // gilt ein Zaehler als kuerzlich abgelesen, obwohl der Stand fort ist.
+      ablesungen: {
+        where: NOT_DELETED,
+        orderBy: { datum: "desc" },
+        take: 1,
+        select: { datum: true },
+      },
     },
   });
   return rows.map((row) => ({

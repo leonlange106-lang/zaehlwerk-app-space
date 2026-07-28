@@ -41,10 +41,16 @@ import {
   pickTariffForDate,
   type ConsumptionProjection,
 } from "@zaehlwerk/database/client";
-import type { getZaehlerById, listLocations } from "@/app/lib/zaehler-actions";
+import type {
+  getZaehlerById,
+  listDeletedAblesungen,
+  listLocations,
+} from "@/app/lib/zaehler-actions";
 import {
   createAblesungAction,
   createTarifAction,
+  purgeAblesungAction,
+  restoreAblesungAction,
   createUmrechnungsfaktorAction,
   deleteUmrechnungsfaktorAction,
   updateUmrechnungsfaktorAction,
@@ -64,6 +70,7 @@ import { ResponsiveDialog } from "@/app/components/ui/ResponsiveDialog";
 import classes from "./ZaehlerDetail.module.css";
 
 type ZaehlerWithHistory = NonNullable<Awaited<ReturnType<typeof getZaehlerById>>>;
+type DeletedReading = Awaited<ReturnType<typeof listDeletedAblesungen>>[number];
 type LocationList = Awaited<ReturnType<typeof listLocations>>;
 
 const dateFormatter = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
@@ -80,12 +87,14 @@ export function ZaehlerDetail({
   apiTokens,
   origin,
   projection,
+  geloeschte,
 }: {
   zaehler: ZaehlerWithHistory;
   locations: LocationList;
   apiTokens: SmartHomeTokenOption[];
   origin: string;
   projection: ConsumptionProjection;
+  geloeschte: DeletedReading[];
 }) {
   const ascendingReadings = [...zaehler.ablesungen].reverse();
 
@@ -341,6 +350,9 @@ export function ZaehlerDetail({
                 {/* Nur bei Gas: Strom und Wasser werden in ihrer eigenen
                     Einheit abgerechnet, da gibt es nichts umzurechnen. */}
                 {isGas && <GasFaktorenCard zaehler={zaehler} coverageGap={gasCoverageGap} />}
+                {/* Nur wenn etwas drin liegt. Ein leerer Papierkorb ist kein
+                    Bereich, sondern eine Zeile, die jedes Mal Platz kostet. */}
+                {geloeschte.length > 0 && <PapierkorbCard eintraege={geloeschte} />}
                 <TarifeCard zaehler={zaehler} />
               </div>
             </div>
@@ -1135,5 +1147,92 @@ function EditFaktorForm({ faktor, onDone }: { faktor: FaktorRow; onDone: () => v
         </Button>
       </div>
     </form>
+  );
+}
+
+/**
+ * Geloeschte Ablesungen — der Grund, warum der Soft-Delete einer ist.
+ *
+ * Ohne diesen Weg zurueck waere er nur eine teurere Art zu loeschen.
+ */
+function PapierkorbCard({ eintraege }: { eintraege: DeletedReading[] }) {
+  const router = useRouter();
+  const [restoreState, restoreAction] = useActionState(restoreAblesungAction, initialActionState);
+  const [purgeState, purgeAction] = useActionState(purgeAblesungAction, initialActionState);
+
+  useEffect(() => {
+    if (restoreState.success || purgeState.success) router.refresh();
+  }, [restoreState.success, purgeState.success, router]);
+
+  return (
+    <Panel title="Papierkorb" icon={<IconTrash size={17} stroke={1.7} />}>
+      <p className="mb-4 text-xs text-dim">
+        Gelöschte Ablesungen zählen nirgends mit — nicht im Verlauf, nicht in den Summen, nicht
+        in Berichten. Sie liegen hier, bis du sie zurückholst oder endgültig entfernst.
+      </p>
+
+      <div className="flex flex-col gap-3">
+        {eintraege.map((eintrag) => (
+          <div key={eintrag.id} className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="readout text-sm font-semibold">
+                {numberFormatter.format(eintrag.wert)}
+              </p>
+              <p className="mt-0.5 text-xs text-dim">
+                vom {dateFormatter.format(eintrag.datum)}
+                {eintrag.geloeschtAm
+                  ? ` · gelöscht am ${dateFormatter.format(eintrag.geloeschtAm)}`
+                  : ""}
+                {eintrag.geloeschtVon ? ` von ${eintrag.geloeschtVon}` : ""}
+              </p>
+            </div>
+            <span className="flex flex-none gap-1">
+              <form action={restoreAction}>
+                <input type="hidden" name="id" value={eintrag.id} />
+                <Tooltip label="Zurückholen">
+                  <Button type="submit" size="sm" aria-label="Ablesung zurückholen">
+                    <IconArrowBackUp size={16} />
+                  </Button>
+                </Tooltip>
+              </form>
+              {/* Endgueltig entfernen geht NUR von hier aus. Der Umweg ist der
+                  Punkt: Wer wirklich loeschen will, muss es zweimal sagen. */}
+              <form
+                action={purgeAction}
+                onSubmit={(event) => {
+                  if (
+                    !window.confirm(
+                      `Ablesung ${numberFormatter.format(eintrag.wert)} vom ` +
+                        `${dateFormatter.format(eintrag.datum)} endgültig entfernen? ` +
+                        "Das lässt sich nicht rückgängig machen.",
+                    )
+                  ) {
+                    event.preventDefault();
+                  }
+                }}
+              >
+                <input type="hidden" name="id" value={eintrag.id} />
+                <Tooltip label="Endgültig entfernen">
+                  <Button
+                    type="submit"
+                    variant="danger"
+                    size="sm"
+                    aria-label="Ablesung endgültig entfernen"
+                  >
+                    <IconTrash size={16} />
+                  </Button>
+                </Tooltip>
+              </form>
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {(restoreState.error || purgeState.error) && (
+        <Alert tone="risk" role="alert" icon={<IconAlertCircle size={16} />} className="mt-4">
+          {restoreState.error ?? purgeState.error}
+        </Alert>
+      )}
+    </Panel>
   );
 }
