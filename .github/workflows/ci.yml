@@ -1,0 +1,138 @@
+name: CI
+
+# Läuft bei jedem Push auf main und bei jedem Pull Request.
+#
+# Die Aufteilung folgt der Laufzeit, nicht der Ordnerstruktur: `check` ist in
+# knapp zwei Minuten durch und fängt das meiste ab, `e2e` und `smoke` brauchen
+# einen Build und laufen deshalb daneben statt danach.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  # Ein neuer Push auf denselben Branch macht den vorherigen Lauf gegenstandslos.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Die E2E-Konfigurationen setzen ihre eigenen Werte für den Server, den sie
+  # starten. Diese hier gelten für alles, was daneben läuft (Prisma-Generate,
+  # Seed-Skripte) und darf keinen echten Wert enthalten.
+  AUTH_SECRET: ci-secret-do-not-use-in-production-0123456789
+
+jobs:
+  check:
+    name: Typen, Lint, Unit-Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Der Prisma-Client ist git-ignoriert und wird gebaut, nicht eingecheckt —
+      # ohne diesen Schritt findet der Typecheck die generierten Typen nicht.
+      - run: pnpm --filter @zaehlwerk/database exec prisma generate
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm --filter main-portal test
+
+  build:
+    name: Production-Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @zaehlwerk/database exec prisma generate
+      - run: pnpm build
+
+  e2e:
+    name: E2E (${{ matrix.project }})
+    runs-on: ubuntu-latest
+    strategy:
+      # Ein fehlgeschlagenes Mobile-Chrome soll nicht verhindern, dass man auch
+      # das WebKit-Ergebnis sieht — die beiden gehen regelmäßig getrennte Wege.
+      fail-fast: false
+      matrix:
+        project: ["Mobile Chrome", "Mobile Safari"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @zaehlwerk/database exec prisma generate
+      # Die Workspace-Pakete werden nach dist/ gebaut und sind sonst nicht
+      # aufloesbar — `next dev` scheitert dann an "Can't resolve
+      # '@zaehlwerk/database'". Lokal faellt das nie auf, weil dist/ dort von
+      # einem frueheren Build herumliegt.
+      - name: Workspace-Pakete bauen
+        run: pnpm --filter @zaehlwerk/database --filter @zaehlwerk/updater build
+      - name: Playwright-Browser installieren
+        run: pnpm --filter main-portal exec playwright install --with-deps chromium webkit
+      - name: E2E
+        working-directory: apps/main-portal
+        run: pnpm exec playwright test --project="${{ matrix.project }}"
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report-${{ matrix.project }}
+          path: apps/main-portal/e2e/.report
+          retention-days: 7
+
+  smoke:
+    name: Smoke gegen den Production-Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @zaehlwerk/database exec prisma generate
+
+      # Der Grund, warum dieser Job existiert.
+      #
+      # Die E2E-Suite startet `next dev`. Alles, was an NODE_ENV=production oder
+      # an der Umgebung des Containers hängt, ist für sie strukturell unsichtbar
+      # — und genau dort lagen zwei Fehler, die Benutzer erreicht haben: ein
+      # `secure`-Cookie, das der Browser über HTTP verwarf und damit den
+      # 2FA-Login unmöglich machte, und ein Abmelde-Redirect auf 0.0.0.0, den
+      # HOSTNAME aus dem Dockerfile verursachte.
+      #
+      # Hier läuft der echte Build hinter `next start`, über HTTP und mit
+      # HOSTNAME gesetzt wie im Container. Beide Fehler treten dabei auf.
+      - name: Bauen
+        run: pnpm build
+      - name: Playwright-Browser installieren
+        run: pnpm --filter main-portal exec playwright install --with-deps chromium
+      - name: Smoke
+        working-directory: apps/main-portal
+        run: pnpm test:smoke
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: smoke-results
+          path: apps/main-portal/e2e/.test-results-smoke
+          retention-days: 7

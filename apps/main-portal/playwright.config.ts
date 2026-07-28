@@ -12,7 +12,10 @@ export default defineConfig({
   // it asserts nothing and only exists to produce review images. It runs under
   // its own config (`playwright test -c e2e/shots.config.ts`), which adds the
   // desktop viewport and the light/dark pass this suite has no use for.
-  testIgnore: /shots\.spec\.ts/,
+  // `smoke.spec.ts` runs under e2e/smoke.config.ts against a PRODUCTION build;
+  // running it here would start it against `next dev` and quietly defeat its
+  // entire purpose.
+  testIgnore: [/shots\.spec\.ts/, /smoke\.spec\.ts/],
   globalSetup: "./e2e/global-setup.ts",
   timeout: 45_000,
   expect: { timeout: 10_000 },
