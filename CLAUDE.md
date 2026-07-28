@@ -1,102 +1,138 @@
 # CLAUDE.md — zaehlwerk-app-space
 
-> **Stand 2026-07-28:** Die Instanz laeuft auf `v3.12.0-beta.3`; sechs
-> Update-Versuche sind gescheitert. Ursache, Sackgassen und die naechsten
-> Schritte stehen in **`docs/handover-2026-07-28.md`** — vor Arbeiten am Deploy
-> oder an Migrationen zuerst dort nachsehen.
+> **Stand 2026-07-28:** Sechs Update-Versuche gescheitert, danach durchgelaufen.
+> Vor Arbeiten am **Deploy oder an Migrationen** zuerst
+> `docs/handover-2026-07-28.md` lesen — dort stehen die gemessenen Befunde und
+> die Sackgassen mit PR-Nummern.
 
-Monorepo (pnpm + Turbo) for the Zählwerk App-Space dashboard. German UI.
-- `apps/main-portal` — Next.js 16 App Router · Tailwind v4 · Radix primitives · CSS Modules · Recharts · Prisma 6 · SQLite · Auth.js · Vitest + Playwright
-- `packages/database` — Prisma schema + client, exposed as `@zaehlwerk/database` (`import { prisma } from "@zaehlwerk/database"`)
-- `packages/updater` — self-update engine (`@zaehlwerk/updater`)
+Monorepo (pnpm + Turbo), Zählwerk App-Space. **Deutsche Oberfläche.**
+
+| Paket | Inhalt |
+|---|---|
+| `apps/main-portal` | Next.js 16 App Router · Tailwind v4 · Radix · CSS Modules · Recharts · Vitest + Playwright |
+| `packages/database` | Prisma 6 / SQLite, als `@zaehlwerk/database` (`import { prisma } from …`) |
+| `packages/updater` | Self-Update-Engine (`@zaehlwerk/updater`) |
+
+**Weiterführend:** `docs/architecture.md` (wo was liegt) · `docs/gotchas.md`
+(vollständiger Bestand) · `docs/migrations.md` (Deploy + Migrationen).
 
 ## Commands
+
 - `pnpm install` · `pnpm dev` · `pnpm typecheck` · `pnpm lint` · `pnpm build`
-- Tests (run from `apps/main-portal`): `pnpm test` (vitest unit), `pnpm test:e2e` (playwright)
-- DB: `pnpm --filter database db:push` (schema-push, **no migration files**) · `db:seed`
+- Tests aus `apps/main-portal`: `pnpm test` (Vitest) · `pnpm test:e2e` (Playwright)
+- Migrationen: `pnpm --filter @zaehlwerk/database exec prisma migrate dev --name <x>`
+  — die erzeugte SQL-Datei wird **mit eingecheckt**. `db push` nur lokal.
+- Deploy-Prüfungen: `pnpm --filter @zaehlwerk/database test:migrations` ·
+  `node scripts/test-deploy-swap.mjs`
 
-## Conventions (override defaults)
-- **There is no component library.** `components/ui/` IS the kit — reach for it before writing markup, and add to it rather than styling a one-off. Radix supplies only what is genuinely hard (focus trap, scroll lock, Escape, aria wiring): Dialog, DropdownMenu, Popover, Tooltip. Everything else is a native element with Tailwind classes.
-- Styling: **Tailwind v4** + CSS Modules. Tailwind for layout and one-off utilities; a CSS Module when the rule needs a pseudo-element a utility cannot reach (`::-webkit-slider-thumb`, scroll-snap beds) or when the geometry is load-bearing enough to want a name.
-- **Design language — Aurora Panel, dark-mode native but light-mode complete.** A deep-navy deck lit from above; content on translucent glass panels with a gradient wash, a hairline edge and a wide, low shadow. Accents are gradients, not flat fills. `app/globals.css` is the **single** token source — `@theme inline` only *references* the `--zw-*` custom properties, so `bg-surface` (utility) and `var(--zw-surface)` (CSS Module) can never disagree and the light/dark switch happens in one place. Elevation ladder: `--zw-canvas` (deck) → `--zw-surface` (panel) → `--zw-elevated` (dialog/menu) → `--zw-inset` (input well). Composite looks are `@utility` rules (`panel`, `well`, `accent-gradient`, `accent-text`, `legend-label`, `readout`), not class strings copied around. Native system font stack only — the CSP forbids external font hosts. `--zw-accent` re-points per app (cyan = Zählwerk, orange = Log Analyzer); `PortalShell` sets `data-app` on both the shell **and** `<html>`, because dialogs/menus portal to `document.body` and would otherwise fall back to the root accent.
-- **Colour scheme is an attribute, never a media query in CSS.** `components/shell/ThemeProvider.tsx` resolves auto/light/dark and writes `data-theme` on `<html>`; its `themeScript` runs **before** first paint (injected raw in `<head>`) so a light-mode user never sees a dark frame. "auto" follows the OS live; an explicit choice outranks it.
-- Data via Server Components / Server Actions. **Zod** for all form/API validation. Prisma for DB (keep logic in `packages/database`).
-- Unit tests colocated `*.test.ts` (vitest); pure/framework-free logic in `lib/` is the unit-test surface.
-- **Reserve geometry for anything that loads after mount.** A control that only mounts once its `fetch` resolves reflows the page and swallows clicks landing in the pre-shift layout (the cause of the WebKit E2E flakes on the compare page). Render it from first paint: `Skeleton` with `CONTROL_SKELETON_CLASS` (`apps/log-analyzer/ui-metrics.ts` — one class string tracking both breakpoints of `Field`'s `h-11 sm:h-10`), then the real control — `disabled` with an explanatory placeholder when there is nothing to pick. Same for buttons that depend on async state, and keep helper texts constant rather than swapping them on load. Guarded by the CLS tests in `e2e/log-analyzer.spec.ts` ("layout stability", Chromium-only).
-- **44px touch targets live in the components, not in a global override.** `Button`, `Field`'s inputs, `FilePicker`, `SegmentedControl` options and menu items all carry `min-h-11 sm:min-h-10` themselves. A hand-rolled interactive element inherits nothing — give it the same classes or use the kit.
+## Konventionen
 
-## Git workflow (per task)
-1. Dedicated feature branch: `feature/<name>` — **never work on `main`**.
-2. Before committing: `pnpm typecheck`, `pnpm lint`, `pnpm build` (+ relevant tests). Atomic, concise commits.
-3. `gh pr create --fill` → `gh pr merge --squash --delete-branch` (use `--auto` if branch protection requires CI). Then `git checkout main && git pull`.
-4. E2E artifacts (`e2e/.auth`, `.data`, `.report`, `.test-results`) are git-ignored — the patterns need a `**/` prefix to reach `apps/main-portal/e2e/`, and ESLint ignores them too (the HTML report bundles minified vendor JS).
+- **Es gibt keine Komponentenbibliothek.** `components/ui/` *ist* das Kit —
+  erst dort nachsehen, dann ergänzen, statt Einzelstücke zu stylen. Radix nur
+  für das wirklich Schwere (Focus-Trap, Scroll-Lock, Escape, ARIA): Dialog,
+  DropdownMenu, Popover, Tooltip. Alles andere native Elemente + Tailwind.
+- **Tailwind v4 + CSS Modules.** Module dort, wo eine Regel ein Pseudo-Element
+  braucht (`::-webkit-slider-thumb`) oder die Geometrie einen Namen verdient.
+- **`app/globals.css` ist die einzige Token-Quelle.** `@theme inline`
+  *referenziert* die `--zw-*`-Properties, deshalb können `bg-surface` und
+  `var(--zw-surface)` nicht auseinanderlaufen. Stufen: `--zw-canvas` →
+  `--zw-surface` → `--zw-elevated` → `--zw-inset`. Zusammengesetzte Looks sind
+  `@utility`-Regeln (`panel`, `well`, `accent-gradient`, …), keine kopierten
+  Klassenketten. Nur System-Fonts — die CSP verbietet externe Font-Hosts.
+- **Farbschema ist ein Attribut, nie eine Media Query.** `ThemeProvider`
+  schreibt `data-theme` auf `<html>`; sein `themeScript` läuft **vor** dem
+  ersten Paint.
+- **Status nie allein über Farbe.** Jedes Urteil geht durch `StatusBadge`
+  (`tone: ok | watch | risk | neutral`), das die Farbe mit einem Icon paart.
+  Graustufendruck und Rot-Grün-Schwäche hängen daran.
+- **Mobile-first (390px).** Kartenstapel werden zu `SegmentedControl` +
+  `.pane[data-active]` (nur unterhalb `sm`). Dialoge über `ResponsiveDialog`.
+  Dichte Tabellen unter 600px als Kartenliste — **per CSS-Media-Query, nie per
+  `useMediaQuery`-Hook**, der erst nach dem Mount auflöst und die Seite vor den
+  Augen des Nutzers umbricht.
+- **44px Touch-Targets stecken in den Komponenten**, nicht in einem globalen
+  Override. Handgebaute interaktive Elemente erben nichts.
+- **Geometrie reservieren für alles, was nach dem Mount lädt** — sonst
+  verschluckt der Reflow Klicks. `Skeleton` von erstem Paint an, dann das echte
+  Control.
+- Daten über Server Components / Server Actions. **Zod** für jede Form- und
+  API-Validierung. DB-Logik in `packages/database`.
+- Unit-Tests koloziert als `*.test.ts`; die framework-freie Logik in `lib/` ist
+  die Testfläche.
 
-- **Status is never colour alone.** Every verdict goes through `components/ui/StatusBadge.tsx` (`tone: ok | watch | risk | neutral`), which pairs the colour with a Tabler icon — there is deliberately no colour-only API. Greyscale prints of exported reports and red-green deficiency both depend on it.
-- **Mobile-first (390px) layout rules.** Long vertical card stacks become a `SegmentedControl` pill bar + `.pane[data-active]` CSS panes (see `ZaehlerManager.module.css`) — the pane CSS applies **only below `sm`**, so tablet/desktop keep the full grid and no JS is involved. Top metrics use `components/ui/KpiRail.tsx` (horizontally scrollable; sticky by default — pass `sticky={false}` where something tappable sits directly beneath it, as on the analyzer). Dialogs use `components/ui/ResponsiveDialog.tsx`: a bottom sheet below `sm`, a centred panel above it (both expose `role="dialog"`, so one locator covers each). Dense tables get a card-list branch below 600px with the virtualized table reserved for ≥ 600px — **switch those with a CSS media query, never a `useMediaQuery` hook**, which resolves after mount and reflows the page in front of the user.
+## Git-Workflow
 
-## Where things live (paths under `apps/main-portal/app`)
-- **Shared UI kit:** `components/ui/` — surfaces `Panel`; verdicts `StatusBadge` (icon-paired, no colour-only API) and plain `Badge`/`BetaBadge`; metrics `MetricTile` (+`MetricTileSkeleton`) and `KpiRail`; forms `Field` (owns label/description/error + id wiring; the control is a render prop so it receives the ids) with `TextInput`/`NumberInput`/`PasswordInput`/`Select`+`SelectShell`, plus `TagsInput`, `PinInput`, `RangeSlider`; overlays `ResponsiveDialog`, `Tooltip`, `Toast` (`useToast`); and `primitives.tsx` for the rest (`PageHeader`, `Alert`, `SegmentedControl`, `Switch`, `Checkbox`, `Table`/`Th`/`Td`/`TableScroll`, `FilePicker`, `IconChip`, `Progress`, `Spinner`, `Code`, `Divider`). `components/BrandLogo.tsx` is the wordmark **inlined** rather than an `<img src>`, so its type can use `currentColor` and follow the theme toggle (a referenced SVG is its own document and cannot).
-- **Shell:** `components/shell/ThemeProvider.tsx` (auto/light/dark + the pre-paint `themeScript`), `components/shell/AppMenu.tsx` — the one burger menu, drilling root → app → meters/named logs/settings groups, fetching the data levels lazily and caching them for the session — and `components/shell/GlobalSearch.tsx`, the header search.
-- **Remediation:** `apps/log-analyzer/lib/remediation.ts` (+ colocated test) maps a `SafetyAlert.id` to ordered suggestions, rendered collapsed under each alert in `EvaluationCard`. It **explains** a verdict and never changes one — nothing in `evaluate-log-pull.ts` imports it, and it is deliberately **not** an `EVALUATION_RULES_VERSION` bump.
-- **Vehicles (Log Analyzer):** Prisma `Vehicle` + `LogFile.vehicleId`; server `lib/vehicle-repository.ts`, actions `lib/vehicle-actions.ts`, UI `apps/log-analyzer/VehicleSpecForm.tsx`. Custom limits are a **sparse patch** in `apps/log-analyzer/lib/limit-overrides.ts` (+ colocated test) merged over `limitsForSpec()`. Replaced the two single-profile localStorage stores; `spec-store.ts`/`dyno-store.ts` survive only as the coercers the server reuses and as the one-time seed for a first vehicle.
-- **Notifications (bell):** rules in `lib/notifications.ts` (pure, + colocated test), IO in `lib/notification-source.ts`, endpoint `api/notifications/`, UI `components/shell/NotificationBell.tsx`. Items are **derived** from conditions the platform already tracks (update available, backup overdue, maintenance overdue) — nothing writes a notification row, which is why this needs no schema change. Only the per-user *read markers* persist, in the existing `Setting` store under `notifications.read.<userId>`.
-- **Search:** pure matching/ranking in `lib/search-match.ts` (+ colocated test), the build-time destinations in `lib/search-targets.ts` (derived from `lib/apps.ts` and `settings/groups.ts`, never retyped), endpoint `api/search/`. Changelog *entries* are deliberately not indexed — they come from a live GitHub call, so indexing them would mean a network round-trip per keystroke; the changelog page has its own search and the index only points there.
-- **Settings groups:** `settings/groups.ts` is the single source (id, slug, title, `topics`, `adminOnly`) read by the index `settings/SettingsView.tsx`, the one dynamic route `settings/[group]/page.tsx`, `AppMenu`'s settings level and the search index. Each group's page loads **only its own** data — the old single route ran every query on every visit.
-- **Log Analyzer** (main feature): UI in `apps/log-analyzer/*View.tsx` + `EvaluationCard/LogCharts/ParameterPanel/VehicleSpecForm.tsx`; pure logic + colocated `*.test.ts` in `apps/log-analyzer/lib/` — eval engine `lib/evaluate-log-pull.ts`, thresholds `lib/engines.ts` + `lib/vehicle-spec.ts` + `lib/catalog.ts`, parsing `lib/log-parser.ts` + `lib/channels.ts` + `lib/parameters.ts`.
-- **Log comparison** (Base vs. Compare): UI `apps/log-analyzer/ComparisonView.tsx` + `OverlayChart.tsx`, route `apps/log-analyzer/compare/`; deltas + overlay resampling `lib/compare-logs.ts`, WOT anchoring / time-vs-RPM axis `lib/log-align.ts` (reuses `detectPull` from the eval engine). Both picker cards keep the history `Select` mounted from first paint (skeleton → control) so the async log list can't reflow them.
-- **Virtual dyno** (Leistungsschätzung): UI `apps/log-analyzer/DynoView.tsx` + `DynoChart.tsx` + `DynoProfileDrawer.tsx`, route `apps/log-analyzer/dyno/`; physics `lib/dyno-engine.ts` (air-mass/MAF + VE speed-density, acceleration F=m·a fallback, SAE J1349 / DIN 70020 correction), vehicle-dynamics profile + platform presets `lib/dyno-spec.ts`, localStorage `lib/dyno-store.ts`. Reuses `detectPull` for the pull window. The log picker offers **only `status === "verified"` pulls** (mounted from first paint, `disabled` when none are stored), and the displacement is derived from the vehicle spec's engine via `applyVehicleEngine` (read-only in the drawer) — mass, tyres, gearing and drag stay user-editable.
-- **Report export** (PDF/PNG): UI `apps/log-analyzer/ExportModal.tsx` (button on Analyzer + Dyno); payload extraction `lib/report-generator.ts`, shared chart geometry `lib/report-chart.ts`, SVG snippet `lib/report-svg.ts`, browser transport/rasterizer `lib/report-export.ts`; PDF document `src/components/pdf/LogAnalyzerReport.tsx`, route `api/apps/log-analyzer/report/`. The payload is **always built server-side** (`format: "pdf"` → PDF bytes, `format: "png"` → payload JSON the browser rasterizes via canvas) so both formats describe the same run and the SHA-256 header comes from `node:crypto`.
-- **Shared analyzer UI**: `apps/log-analyzer/ChartLegend.tsx` — the `LegendItem` used by both the overlay and the dyno plot plus `SERIES_COLORS` (`primary` orange = Log A/power, `secondary` blue = Log B/torque, `reference` dimmed = companion/cross-check trace); the chart components import the same tokens, so swatch and stroke can't drift. Layout constants in `ui-metrics.ts`.
-- **Persisted logs** (`LogFile`): server `lib/log-repository.ts`, REST `api/apps/log-analyzer/logs/` (+`/[id]`), client `apps/log-analyzer/lib/log-api.ts`. Pull-status/health are **cached** on the row and keyed by `LogFile.evalVersion` (`apps/log-analyzer/lib/evaluation-version.ts`) so listing never selects the huge `csv` column — see the gotcha below.
-- **Storage housekeeping:** retention policy + `VACUUM` in `lib/maintenance.ts`, driven daily by `lib/maintenance-scheduler.ts` (started in `instrumentation.ts`) and by the admin actions in `lib/data-governance-actions.ts`; SQLite primitives in `lib/db-maintenance.ts`, policy in `lib/settings.ts`, UI in `settings/DatabaseMaintenanceCard.tsx`. **Both limits default to 0 = unlimited** — retention is opt-in because enabling it deletes real user data.
-- **System Update:** `lib/update-status.ts` + `lib/update-state.ts`, SSE/API `api/system/update/`, UI `settings/SettingsView.tsx`; shell `scripts/update.sh` + `scripts/deploy-swap.sh`. Both deploy endpoints (`api/update/trigger`, `api/update/rollback`) go through `lib/update-run.ts` — one spawn, one token check, one 409-if-running guard.
-- **Rollback:** UI `settings/VersionHistoryCard.tsx`, API `api/system/versions` (list) + `api/update/rollback` (act). The version list merges two sources in `lib/version-candidates.ts` (pure, tested): the deploy history this instance recorded (`lib/deploy-history.ts` ← `/data/deploy-history.jsonl`, appended by `deploy-swap.sh`) and the channel's published releases. `lib/version-list.ts` is the IO seam both endpoints share — deliberately, so the refs the rollback endpoint *validates* cannot drift from the ones the UI *offered*.
-- **Admin / metrics:** `AdminPanel.tsx`, `lib/system-metrics.ts`, `api/system/metrics/` + `api/system/cache/clear/`; mounted in `page.tsx` (admin-only).
-- **Auth/roles:** `lib/auth-helpers.ts` (`getSessionUser`, `requireAdmin`); audit `lib/audit.ts`. **Prisma schema:** `packages/database/prisma/schema.prisma`.
-- **Instance-wide 2FA requirement:** policy `lib/two-factor-policy.ts` (pure rule + DB resolver), setting `security.enforceTwoFactor`, admin switch in `settings/SecurityCard.tsx` via `lib/security-policy-actions.ts`, enrolment screen `components/shell/TwoFactorGate.tsx`. Enforced in **two** places — `app/layout.tsx` renders the gate instead of `children` for pages, and `lib/api-guards.ts` folds the check into both deny helpers for routes.
-- **Automated log ingestion:** API `api/v1/logs/ingest/` (auth `lib/ingestion-auth.ts` — `X-API-Key`/Bearer, `IngestionKey` model + `INGESTION_API_KEY` env bootstrap; keys managed in `lib/ingestion-key-actions.ts` + `settings/IngestionKeyCard.tsx`). Orchestration `lib/log-ingest.ts` (SHA-256 dedup via `LogFile.contentHash`). Watch-folder `apps/log-analyzer/watcher/` (polling; `LOG_WATCH_DIR`, started in `instrumentation.ts`). Realtime `lib/log-events.ts` bus → SSE `api/apps/log-analyzer/logs/stream/` → `HistoryView` toast.
+1. **Branch immer von `origin/main`**, nie vom vorherigen Feature-Branch:
+   `git fetch origin main && git checkout -B <name> origin/main`.
+2. Vor dem Commit: `pnpm typecheck`, `pnpm lint`, `pnpm build` + die passenden
+   Tests. Atomare Commits, Begründung in der Nachricht — nicht nur das Was.
+3. PR → Squash-Merge → `git checkout main && git pull`.
+4. E2E-Artefakte (`e2e/.auth`, `.data`, `.report`, `.test-results`) sind
+   git-ignoriert; die Muster brauchen ein `**/`-Präfix.
 
-## Gotchas (non-obvious)
-- **`data-testid` on a kit component must be declared in its props.** TypeScript does not flag unknown hyphenated props on a component, so an undeclared `data-testid` is silently dropped and the E2E locator fails only at runtime. `Badge`, `Skeleton`, `Panel`, `Alert`, `Progress`, `SegmentedControl`, `ResponsiveDialog` and `TagsInput` declare it; anything new that tests reach for must too.
-- **Overlay motion lives in one constant.** `OVERLAY_MOTION` (`ui/primitives.tsx`) is shared by every Radix popover surface — menus, popovers, tooltips. Radix keeps an element mounted while a CSS animation runs on it, which is why `data-[state=closed]` produces a real exit with no JS. Animate `transform`/`opacity` only: the CLS specs measure exactly the frames an animated height would ruin.
-- **`animate-in` rewrites `transform` wholesale.** Anything centred with `-translate-x/y-1/2` (the desktop `ResponsiveDialog`) must restate that centring as the animation's own offset (`slide-in-from-left-[50%]`), or it flies in from the corner and snaps into place.
-- **Measure tap targets with `expect.poll`.** Menus zoom in from 95%, so a single `boundingBox()` taken during those ~150ms reports a target short of its resting size.
-- **A visually hidden `<input class="sr-only">` needs `relative` on its own label.** `sr-only` is `position: absolute`, so without a positioned label its containing block becomes the nearest positioned ancestor — `@utility panel` is `position: relative`, so that is usually the whole card. An absolutely positioned box is clipped only by ancestors in its *containing-block* chain, so the hidden input escapes any `overflow` between it and the panel. That is how `SegmentedControl`'s hidden radios slipped out of the scrolling pill bar, landed at x≈610 and put the phone into horizontal scroll. Applies to `SegmentedControl`, `FilePicker` and `ParameterPanel`'s axis toggle.
-- **When a mobile page overflows, `window.innerWidth` grows with the layout viewport** — so `scrollWidth <= innerWidth` stays true while the page really does scroll sideways. Both `expectNoHorizontalScroll` helpers measure against `document.documentElement.clientWidth`, which stays at the device width. Never reintroduce `innerWidth` there.
-- **A flex/grid child defaults to `min-width: auto`** and will not shrink below its content's minimum — one chart or wide table then widens its whole column and the phone scrolls sideways. `@utility panel` sets `min-width: 0` for that reason; hand-built grid/flex columns holding wide content need `min-w-0` themselves. Guarded by `expectNoHorizontalScroll` in the log-analyzer specs and the `/` route sweep in `e2e/mobile.spec.ts`.
-- **Locate form fields by ROLE in E2E, not by label.** `getByLabel` matches the label's text *content*, which includes the required marker — the accessible name is `E-Mail`, the label text is `E-Mail*`. And a `PasswordInput`'s reveal toggle is itself labelled "Passwort anzeigen", so a substring label match resolves to two elements. `getByRole("textbox", { name, exact: true })` avoids both.
-- **Change how a log is *judged* → bump `EVALUATION_RULES_VERSION`** (`apps/log-analyzer/lib/evaluation-version.ts`). Stored logs cache their `status`/`health`; the cache key auto-hashes the threshold *tables*, so editing a limit in `engines.ts`/`vehicle-spec.ts` invalidates it by itself, but a change to the *logic* in `evaluate-log-pull.ts` (pull detection, alert rules) is invisible to that hash. Forget the bump and existing logs keep their old badge until re-uploaded.
-- **Charts are lazy.** `LogCharts`/`OverlayChart`/`DynoChart`/`ExportModal`/`DynoProfileDrawer` are `React.lazy` boundaries (Recharts is ~350 KB and now sits in async chunks). Placeholders live in `ChartSkeletons.tsx` and reuse the charts' own fixed-height classes; the analyzer stack is sized via the shared `groupSelectedSeries()` so the swap can't shift the page. E2E specs must **wait** for `.recharts-surface` rather than counting it straight after the metadata appears.
-- **Schema changes apply on deploy** via `prisma migrate deploy` (`packages/database/scripts/deploy-migrations.sh`, since OPS-01) — a running System Update is required before new columns/tables exist in prod. Migrations are checked-in SQL under `packages/database/prisma/migrations/`; the generated Prisma client is git-ignored (rebuilt on build). **`db push` is for local development only** and no longer runs in the deploy. See `docs/migrations.md`.
-- **A rollback deliberately skips the migration.** Migrating backwards would drop the columns the newer version already wrote to, so `UPDATE_MODE=rollback` leaves the newer schema in place; Prisma selects named columns, so an older client simply never asks for what it does not know. The one case that does break is a column added `NOT NULL` without a default — additive migrations against a populated table need a default anyway, so prefer one. Never "fix" a failing rollback by migrating backwards; restore a backup.
-- **A deploy endpoint must never accept an arbitrary ref.** `/api/update/rollback` checks out *and builds* what it is given, so an unvalidated ref is remote code execution via any hijacked admin session. The allowed set is re-derived server-side per request (`allowedRollbackRefs`) from the same call that builds the UI's list — never trusted from the request. Any future "deploy this ref" surface needs the same treatment.
-- **App-icon SVGs cannot read the `--zw-*` tokens, so their colours are hand-kept copies.** `public/icon-*.svg` and `app/icon.svg` are referenced via `<img src>` / as the favicon, i.e. they are separate documents and page CSS never reaches them — the same reason `BrandLogo` is inlined. Their gradients are therefore literal hex and do **not** follow a token change in `globals.css`. Zählwerk currently matches (`#22d3ee → #4f7cff` = the dark `--zw-accent`/`-2`); the Log Analyzer icon has already drifted (`#f97316` vs the token's `#fb923c`). Change one, change the other by hand — or accept the drift deliberately, since an icon sits on its own tile and need not equal the UI accent.
-- **`PinInput`'s `onComplete` hands you the finished value — use it, never component state.** It calls `onChange(next)` and `onComplete(next)` in the same synchronous block, so React has not re-rendered and the state variable still holds the *previous* value: five digits. A handler that reads state submits an incomplete code, which is rejected out of hand, and if the error path clears the field then typing the sixth digit destroys the entry every time. That made 2FA enrolment impossible while every existing test passed, because they all stopped at "the dialog shows a key". A zero-argument handler is assignable to `(value: string) => void`, so TypeScript will not catch this. Covered end-to-end by `e2e/two-factor-enrol.spec.ts`, which computes a real TOTP code from the offered key and types it in.
-- **An unreached limit is not a verdict.** The always-visible limits block in `EvaluationCard` uses plain `text-dim`, never `StatusBadge` or the ok/watch/risk tokens — colouring it would make a completely unremarkable log look alarming. Same reason remediation lists are collapsed: the measurement comes first.
-- **Store the OVERRIDES, never a copy of the limits.** A vehicle persists only the keys someone actually changed. A full snapshot would freeze that vehicle at the day it was created: every later correction to the threshold tables in `engines.ts`/`vehicle-spec.ts` would silently stop reaching it, and the maintained defaults would become dead code for anyone who ever opened the form. Bounds are enforced in `parseLimitOverrides()` on the way in *and* out — a limit typo of one order of magnitude does not look wrong on screen, it silently reclassifies every log evaluated afterwards.
-- **A custom limit is invisible to the automatic threshold hash.** `EVALUATION_VERSION` hashes the tables, so a user-defined limit changed what the engine would say while every stored log kept its badge — the exact failure the fingerprint exists to prevent, through the one door it was not watching. `evaluationVersionFor(effectiveLimits(...))` is the per-vehicle key; a vehicle's overrides invalidate its own logs and nobody else's.
-- **`LogFile.vehicleProfile`, not `vehicle`.** `LogFile.vehicle` is already the free-text `Vehicle:` header parsed out of the CSV. The relation to the maintained profile needed its own name, and `Vehicle.vehicleModel` likewise avoids colliding with Prisma's own `model` keyword.
-- **Every new column is optional or defaulted, deliberately.** A rollback skips the migration, so an older client keeps running against the newer schema. A `NOT NULL` column without a default is the one case that does not survive that — see the rollback gotcha below.
-- **A notification id must be stable while its cause is, and different when its cause changes.** It is what a read marker points at. An id derived from a raw timestamp reappears as unread a minute after being dismissed (so backup-overdue is bucketed by day); an id that ignores the version means dismissing "3.1.0 available" also silences 3.2.0. Read markers are **ids, not a timestamp watermark** — a watermark marks everything older as read, including a more serious condition observed earlier. `pruneReadIds()` keeps the stored list bounded by the number of *live* conditions.
-- **The bell reports the present, not a history.** An item disappears when its cause clears — a backup that failed and then succeeded stops being news. `lib/audit.ts` is the history; `Toast` is for the transient. A condition that is switched *off* (auto-backup disabled, retention unset) is a decision, not a fault, and is never reported: a bell that always has something in it is one nobody looks at.
-- **A rollback is not an update with a different name, and the stepper must not claim it is.** `UPDATE_STEPS` vs `ROLLBACK_STEPS` (`lib/update-status.ts`), selected by the `mode` the shell scripts now write into `/data/update-status.json`. A rollback deliberately skips `prisma db push`, and the old stepper ticked off "Datenbank migriert" with a green check for a step that never ran — wrong about precisely the step people need to understand before pressing the button. Both scripts write `mode` and `startedAt` on **every** status line, not just the first: the container is recreated mid-update, so anything the UI must still know afterwards has to live in that file. Elapsed time is computed from the file's own two stamps, never against the reader's clock. No "time remaining" is offered — the Docker build is most of the wait and any estimate would be a number we cannot stand behind.
-- **A build-time env var must be declared in `turbo.json`, or it silently does not exist.** Turborepo 2 runs tasks in a *filtered* environment: anything not listed under a task's `env` is invisible to it. `next.config.ts` reads `FRAME_ANCESTORS`/`HA_INGRESS`/`NODE_ENV` while `next build` runs and bakes the result into the Content-Security-Policy — so omitting them meant the setting had no effect at all, and the changed value did not even invalidate Turbo's cache (the build was replayed and the image digest came out identical, which is what made it look like Docker's fault). Anything `next.config.ts` reads has to be listed there. Runtime env vars (`AUTH_SECRET`, `DATABASE_URL`, …) do not — they are read by the running server, not by the build.
-- **A search hit is an authorization decision.** `/api/search` re-derives `allowedAppIdsFor(user)` per request and never trusts the caller; `matchStaticTargets()` applies the app and admin filters *inside* itself rather than leaving it to the caller, so there is no code path that produces hits and forgets to filter them. A result from an app the account cannot open names data it is not allowed to know exists — the same lesson as the Server Actions in `AUDIT.md` § 4.1. Hiding a settings tile is convenience, not a control: `settings/[group]/page.tsx` re-checks `adminOnly` and 404s.
-- **SQLite's `LIKE` folds ASCII case only, and Prisma has no `mode: "insensitive"` on this provider.** So `contains: "zahler"` finds "Zähler" while `contains: "zähler"` does not — in a German UI that is the *common* case failing. `caseVariants()` (`lib/search-match.ts`) emits explicit variants for a non-ASCII term and exactly one clause for an ASCII one. In-memory comparison uses `foldForCompare()`, which also transliterates (ä→ae), so someone on a keyboard without umlauts still finds the row.
-- **What the SQL matches and what the scorer reads must be the same set.** The log query matches `tags` and `vehicle`, but the ranker only sees title and subtitle, and a hit scoring zero is dropped — so a tag-only match was fetched from the database and then silently discarded. Rows therefore carry a `terms` array of every column that was matched. Any new searchable column has to be added in both places.
-- **A finished PIN is six DIGITS, not six characters.** `PinInput`'s boxes are positional, so a gap has to be held open — `setDigit` pads with a space. Start anywhere but the first box and the value is `" 07410"`: six characters, five digits. `value.length === 6` therefore declared it complete, auto-submitted it, and the server (which strips non-digits and demands six) rejected it every single time; the error path then cleared the field, so repeating the same gesture failed the same way forever. `isPinComplete()` is exported from `PinInput.tsx` precisely because the submit **buttons** must apply the same predicate — fixing only auto-submit leaves the button sending the gap. `digitAt()` keeps the padding out of the DOM, or `Backspace` sees a truthy `value[index]` and will not step back over it. Guarded by `PinInput.test.ts` and the out-of-order case in `e2e/two-factor-login.spec.ts`.
-- **A cookie we set ourselves takes `secure` from the CONNECTION, never from `NODE_ENV`.** `isSecureConnection()` (`lib/auth-constants.ts`) is the one decision point. A `secure` cookie sent over plain HTTP is discarded by the browser in silence — no error, no warning, the `Set-Cookie` simply has no effect — and `docker-compose.prod.yml` publishes port 3000 directly while DEPLOYMENT.md calls the TLS proxy "recommended", so `http://<lxc-ip>:3000` is a supported way to run this. Hardcoding `NODE_ENV === "production"` therefore dropped the 2FA challenge cookie on exactly those instances: `/login/2fa` had no user to check the code against and could only report an invalid code, while enrolment (no cookie) kept working. Auth.js derives its own session cookie the same way (`url.protocol === "https:"`), which is why login without 2FA never broke. **The E2E suite cannot catch this class of bug** — Playwright runs `next dev`, i.e. `NODE_ENV=development` — so the guard is the unit test `auth-constants.test.ts`.
-- **A rejected second factor must say WHY.** Auth.js's Credentials provider can only return a user or `null`, so `authorize()` collapses four causes — wrong code, dropped challenge, expired challenge, drifted server clock — into one `CredentialsSignin`, and the screen printed the least likely of them. Three of the four are not fixable by re-typing, so "Code ist ungültig" sends the user round the loop forever. `diagnoseTwoFactorFailure()` (`lib/login-actions.ts`) is called only *after* a rejection, issues no session, and needs a valid challenge cookie to say anything — the same trust level the enrolment drift message already assumes.
-- **`TZ` is presentation only; TOTP never sees it.** The container sets `TZ` (compose) so server-rendered timestamps and the update log read in local time — without it everything renders UTC and a German instance looks two hours out. It changes no instant: `now()` in the deploy scripts stays UTC/ISO for the status JSON (the client formats it), and `log_now()` is the local-time variant used only for human log lines. TOTP works off Unix time and has no timezone at all, so a "wrong-looking" timezone is never the cause of a rejected 2FA code — clock *drift* beyond ±30s is, and `totpDriftSeconds()` reports it.
-- **2FA enrolment RESUMES; it must never re-mint a pending key.** `startTwoFactorSetup()` returns the stored unconfirmed secret if there is one. Minting a fresh secret per call breaks the ordinary mobile flow — copy the key, switch to the password manager, come back to a reloaded page, press the button again — because the manager then holds a key the server has already replaced, and every code is rejected with nothing on screen to explain it. `regenerateTwoFactorSecret()` is the deliberate way to rotate. Both refuse while 2FA is *active*: otherwise they are a route to disable someone's second factor without proving you hold it, which is exactly what `disableTwoFactor`'s code check exists to prevent. Guarded by `e2e/two-factor.spec.ts`.
-- **The 2FA requirement is NOT enforced in `proxy.ts`, deliberately.** The guard runs on the Edge runtime with no database, so it could only read a JWT — a snapshot taken at sign-in. Turning enforcement on would then miss every existing session until its token refreshed. The gate therefore lives where the DB does: the root layout (pages) and `api-guards.ts` (routes). Route handlers do **not** pass through layouts, which is why the API side is not optional. Recovery from a lockout: `DISABLE_2FA_ENFORCEMENT=1` + restart suspends the policy without clearing it.
-- **A spec that talks to the database must pass the E2E URL explicitly.** `playwright.config.ts` sets `DATABASE_URL` only for the dev server it spawns; the test process itself inherits the ambient env, i.e. the *development* database. `new PrismaClient({ datasourceUrl: \`file:${e2eDbPath}\` })` — see `e2e/enforce-2fa.spec.ts`. Without it the writes land in the wrong file and the assertions fail for a reason that looks like a product bug.
-- **`e2e/seed.ts` clears `security.enforceTwoFactor`.** Settings survive the seed's row deletions, and that one flag makes every page render the enrolment gate for the seeded (factor-less) admin — a crashed run would poison the reused E2E database for every later run.
-- **`e2e/shots.config.ts` must keep `AUTH_SECRET` identical to `playwright.config.ts`.** The stored session in `e2e/.auth/state.json` is signed by that secret; a mismatch makes every screenshot land on `/login`. It stayed hidden for a while because `reuseExistingServer` usually hands the shots run the regression suite's server instead of starting its own.
-- **`scripts/update.sh` runs from the IMAGE, not from the checkout.** The Dockerfile does `COPY --from=builder /repo/scripts ./scripts`, and `update-run.ts` resolves `../../scripts/update.sh` relative to the running server's cwd — i.e. `/app/scripts`. A change to that file therefore takes effect one update LATER than you expect, and if the next update fails you never get there. Six updates were lost to this. Anything that must take effect on the *next* update belongs in `packages/database/scripts/deploy-migrations.sh`, which ships inside the `db-migrate` image that every update rebuilds from the new checkout.
-- **Prisma's schema engine tolerates NO open transaction beside it — not even a reading one, not even in WAL mode.** Measured, three ways: app merely connected → `migrate deploy` runs; app holding an open read transaction → locked; open write transaction → locked. "In WAL mode readers don't block writers" holds for ordinary writes and NOT for the schema engine. A running app has open transactions constantly (the automatic backup's `VACUUM INTO` reads for the whole copy), so the migration stops the app first. `busy_timeout` cannot be handed to the schema engine — neither `socket_timeout` nor `connection_limit` in the URL does it, both tried. And a `journal_mode` switch returns `SQLITE_BUSY` immediately **without** consulting the busy handler, so a timeout does not rescue that either. The premises are pinned by `packages/database/scripts/test-migrations.mjs`; if Prisma ever changes, the downtime can go.
-- **`PRAGMA journal_mode` does not throw when refused — it ANSWERS with the mode that now applies.** So `applySqlitePragmas()` must read the returned row, not just the absence of an exception, or the boot reports WAL while the file stays in `delete`. `busy_timeout` is set BEFORE `journal_mode` for the same reason: the mode switch is the one statement that can hit a lock.
-- **Bind-mount SOURCES are resolved by the HOST daemon (docker-outside-of-docker).** `update.sh` runs inside the main-portal container with cwd `/repo`, so a `- .:/repo` in a compose service hands the daemon a host path that does not exist — it then mounts an empty directory over the code in the image. That killed one release with `can't cd to packages/database`. `db-migrate` therefore mounts only the socket and stops the app by CONTAINER NAME (`zaehlwerk-main-portal`), never via compose. Guarded by `scripts/test-deploy-swap.mjs`.
-- **Branch from `origin/main`, never from the previous feature branch.** A squash-merged branch's commits still exist unsquashed on any branch cut from it, which makes the new PR conflict with `main`. GitHub then cannot build the merge commit that `pull_request` workflows run on, so **no checks are created at all** — the PR just sits there looking quiet, and "no CI failures" reads exactly like "CI passed". Twice in one session. `git fetch origin main && git checkout -B <name> origin/main`.
-- Prod runs in a Docker container on an LXC that is **recreated mid-update** → in-memory server state is lost. Persistent truth = the `/data` volume (update status/log) and the DB. Disk (LXC) is the recurring ENOSPC cause.
-- **`proxy.ts` IS the global auth guard** (Auth.js on the Edge runtime, matcher = everything but Next internals/static assets): unauthenticated page requests are redirected to `/login`, unauthenticated `/api/*` requests get a **401 JSON** response. Exempt: `PUBLIC_PAGES`, `/api/auth`, `/api/setup`, `/api/health` — plus `/api/export`, `/api/backup`, `/api/v1`, which let a well-formed `Authorization: Bearer zw_pat_…` through because the Edge has no DB to validate it (the route itself then calls `authenticateApiRequest()`). What the guard does **not** do is authorize: role checks stay in the route via `getSessionUser().role` / `requireAdmin()`, so an admin-only route without that check is reachable by any logged-in user.
+## Gotchas — die teuersten
+
+Vollständige Liste in `docs/gotchas.md`. Diese hier haben je einen Release
+gekostet:
+
+### Deploy und Datenbank
+
+- **`scripts/update.sh` läuft aus dem IMAGE, nicht aus dem Checkout**
+  (`COPY /repo/scripts ./scripts`). Eine Änderung dort greift ein Update zu
+  spät — und wenn das nächste scheitert, nie. Was beim *nächsten* Update wirken
+  muss, gehört in `packages/database/scripts/deploy-migrations.sh`: Das steckt
+  im `db-migrate`-Image, das jedes Update neu baut.
+- **Prismas Schema-Engine verträgt neben sich keine offene Transaktion** —
+  auch keine lesende, auch im WAL-Modus. Gemessen: nur verbunden → läuft;
+  offene Lese- oder Schreibtransaktion → gesperrt. Deshalb hält die Migration
+  die Anwendung an. `busy_timeout` lässt sich dem Engine nicht mitgeben.
+- **`PRAGMA journal_mode` wirft nicht, wenn es abgelehnt wird — es ANTWORTET**
+  mit dem Modus, der danach gilt. Die Antwort muss gelesen werden, sonst meldet
+  der Start WAL, während die Datei im `delete`-Modus bleibt.
+- **Bind-Mount-Quellen löst der HOST-Daemon auf.** `update.sh` läuft im
+  Container mit `cwd=/repo`, also montiert ein `- .:/repo` ein leeres
+  Verzeichnis über den Code. `db-migrate` mountet nur den Socket und hält die
+  App über den **Containernamen** an.
+- **Während der Migration steht die Anwendung** — das Live-Protokoll friert
+  dabei ein (der SSE-Stream stirbt mit ihr). Ein Refresh nach dem Neustart
+  zeigt den wahren Stand. Sieht aus wie ein Absturz, ist keiner.
+- **Jede neue Spalte ist optional oder hat einen Default.** Ein Rollback
+  überspringt die Migration bewusst; eine `NOT NULL`-Spalte ohne Default ist
+  der eine Fall, den ein älterer Client nicht überlebt.
+- **Ein Rollback migriert nie rückwärts.** Das entfernte genau die Spalten, in
+  die die neuere Version schon geschrieben hat. Reicht ein Rollback nicht, ist
+  die Antwort ein Backup-Restore.
+
+### Sicherheit
+
+- **Ein Deploy-Endpunkt darf nie einen beliebigen Ref annehmen.**
+  `/api/update/rollback` checkt aus *und baut* — ein ungeprüfter Ref ist
+  Remote-Code-Execution über jede gekaperte Admin-Session. Die erlaubte Menge
+  wird serverseitig je Request neu abgeleitet, nie aus dem Request übernommen.
+- **`proxy.ts` ist der globale Auth-Guard, aber er autorisiert nicht.**
+  Rollenprüfungen bleiben in der Route (`getSessionUser().role`,
+  `requireAdmin()`). Eine Admin-Route ohne diese Prüfung ist für jeden
+  angemeldeten Nutzer erreichbar.
+- **Ein Suchtreffer ist eine Autorisierungsentscheidung.** `/api/search` leitet
+  die erlaubten Apps je Request neu ab; ein Treffer aus einer gesperrten App
+  benennt Daten, von deren Existenz das Konto nichts wissen darf.
+- **Ein selbst gesetztes Cookie nimmt `secure` aus der VERBINDUNG**, nie aus
+  `NODE_ENV` (`isSecureConnection()`). Ein `secure`-Cookie über HTTP verwirft
+  der Browser lautlos — und Port 3000 ohne TLS ist eine unterstützte
+  Betriebsart. Die E2E-Suite kann das nicht fangen (sie läuft auf `next dev`).
+
+### Build und Tests
+
+- **Eine Build-Zeit-Variable muss in `turbo.json` deklariert sein**, sonst
+  existiert sie nicht. Turborepo 2 filtert die Umgebung; `next.config.ts` liest
+  `FRAME_ANCESTORS`/`HA_INGRESS` beim Bauen. Fehlt der Eintrag, wirkt die
+  Einstellung nicht und invalidiert nicht einmal den Cache.
+- **Ein Konflikt im PR heißt KEINE CI, nicht rote CI.** GitHub kann den
+  Merge-Commit nicht bilden, auf dem `pull_request`-Workflows laufen — der PR
+  sieht dann still aus, und „keine Fehler" liest sich wie „bestanden".
+- **`data-testid` an einer Kit-Komponente muss in deren Props deklariert sein**,
+  sonst wird es stumm verworfen und der E2E-Locator scheitert erst zur Laufzeit.
+- **Formularfelder in E2E über die ROLLE finden, nicht über das Label.**
+  `getByLabel` matcht den Label-*Text* inklusive Pflichtmarkierung.
+- **Ein Test, der auch ohne den Fix besteht, beweist nichts.** Zu jedem
+  Regressionstest gehört die Gegenprobe: Fix entfernen, Test muss fallen.
