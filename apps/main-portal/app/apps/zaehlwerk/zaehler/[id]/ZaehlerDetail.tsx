@@ -249,6 +249,10 @@ export function ZaehlerDetail({
           tips={tips}
           tokens={apiTokens}
           origin={origin}
+          registers={zaehler.register.map((reg) => ({
+            obisCode: reg.obisCode,
+            label: reg.label,
+          }))}
         />
       </div>
     </div>
