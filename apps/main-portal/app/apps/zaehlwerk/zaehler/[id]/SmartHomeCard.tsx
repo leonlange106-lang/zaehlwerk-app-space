@@ -39,12 +39,19 @@ export function SmartHomeCard({
   tips,
   tokens,
   origin,
+  registers,
 }: {
   meterId: string;
   meterName: string;
   tips: SmartHomeTip[];
   tokens: SmartHomeTokenOption[];
   origin: string;
+  /**
+   * Register des Zählers. Ab zwei erzeugen die Vorlagen je Register eine
+   * eigene Meldung — ein Zweirichtungszähler braucht zwei, und eine gemeinsame
+   * Automation schriebe die Einspeisung in den Bezug.
+   */
+  registers?: { obisCode: string; label: string }[];
 }) {
   const [kind, setKind] = useState<SnippetKind>("curl");
   const [selectedToken, setSelectedToken] = useState<string>(
@@ -64,8 +71,9 @@ export function SmartHomeCard({
         meterId,
         meterName,
         token: tokenPlaceholder,
+        registers,
       }),
-    [kind, origin, meterId, meterName, tokenPlaceholder],
+    [kind, origin, meterId, meterName, tokenPlaceholder, registers],
   );
 
   const tokenData = [

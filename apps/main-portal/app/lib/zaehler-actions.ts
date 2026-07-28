@@ -57,6 +57,9 @@ export async function getZaehlerById(id: string) {
     include: {
       location: true,
       ablesungen: { orderBy: { datum: "desc" } },
+      // Die Register des Zaehlers — die Smart-Home-Vorlagen brauchen sie, um je
+      // Reihe eine eigene Meldung zu erzeugen.
+      register: { orderBy: { sortIndex: "asc" } },
       tarife: { orderBy: { gueltigAb: "desc" } },
     },
   });
