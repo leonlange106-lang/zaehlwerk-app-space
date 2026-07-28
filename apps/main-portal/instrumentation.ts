@@ -5,6 +5,19 @@
 export async function register(): Promise<void> {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
 
+  // ZUERST: Die Betriebsparameter gelten je Verbindung, und alles darunter
+  // schreibt bereits. Ohne WAL sperrt jeder Hintergrunddienst kurzzeitig die
+  // ganze Datei — genau waehrend jemand die Oberflaeche benutzt.
+  try {
+    const { applySqlitePragmas } = await import("./app/lib/sqlite-pragmas");
+    const { failed } = await applySqlitePragmas();
+    if (failed.length > 0) {
+      console.warn("[instrumentation] SQLite-Parameter nicht gesetzt:", failed.join(", "));
+    }
+  } catch (error) {
+    console.error("[instrumentation] failed to apply sqlite pragmas", error);
+  }
+
   try {
     const { startBackupScheduler } = await import("./app/lib/backup-scheduler");
     startBackupScheduler();
