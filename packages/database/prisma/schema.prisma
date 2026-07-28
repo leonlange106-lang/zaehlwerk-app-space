@@ -141,6 +141,7 @@ model Zaehler {
   locationId          String?
   location            Location?      @relation(fields: [locationId], references: [id])
   ablesungen          Ablesung[]
+  register            MeterRegister[]
   tarife              Tarif[]
   createdAt           DateTime       @default(now())
   updatedAt           DateTime       @updatedAt
@@ -154,10 +155,61 @@ model Zaehler {
 /// Ein Zählerstand / eine Ablesung. Verbrauch wird daraus abgeleitet
 /// (Differenz zweier Ablesungen), nicht separat gespeichert — siehe
 /// `src/consumption.ts`.
+/// Richtung, in die ein Register zählt. Ein Zweirichtungszähler führt beide.
+enum RegisterRichtung {
+  BEZUG
+  EINSPEISUNG
+}
+
+/// Ein Zählwerk INNERHALB eines Zählers, identifiziert über seine OBIS-Kennziffer.
+///
+/// Bis v3 hatte ein Zähler genau einen Wert. Das trägt nicht mehr, sobald eine
+/// PV-Anlage einspeist: Der moderne Messeinrichtung führt dann `1.8.0` (Bezug)
+/// und `2.8.0` (Einspeisung) gleichzeitig, und beide Reihen sind eigenständig —
+/// saldieren würde beide Aussagen zerstören.
+///
+/// Bewusst als eigene Tabelle statt als zwei Spalten am Zähler: Dieselbe Form
+/// deckt den Doppeltarif (`1.8.1`/`1.8.2` für HT/NT) ohne weitere Schemaänderung
+/// ab, und ein späteres drittes Register (Erzeugung am Wechselrichter) ist dann
+/// eine Zeile, kein Umbau.
+model MeterRegister {
+  id         String           @id @default(uuid())
+  zaehlerId  String
+  zaehler    Zaehler          @relation(fields: [zaehlerId], references: [id], onDelete: Cascade)
+  /// OBIS-Kennziffer, z. B. "1.8.0" (Bezug), "2.8.0" (Einspeisung).
+  obisCode   String
+  richtung   RegisterRichtung @default(BEZUG)
+  /// HT/NT-Kennzeichen bei Doppeltarif; null = kein Doppeltarif.
+  tarif      String?
+  einheit    String
+  /// Anzeigename, z. B. "Bezug" oder "Einspeisung".
+  label      String
+  sortIndex  Int              @default(0)
+  ablesungen Ablesung[]
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  /// Eine OBIS-Kennziffer kommt je Zähler genau einmal vor — sonst laufen zwei
+  /// Reihen für dasselbe physische Zählwerk nebeneinander her.
+  @@unique([zaehlerId, obisCode])
+  @@index([zaehlerId, sortIndex])
+  @@map("meter_register")
+}
+
 model Ablesung {
   id               String   @id @default(uuid())
   zaehlerId        String
   zaehler          Zaehler  @relation(fields: [zaehlerId], references: [id], onDelete: Cascade)
+  /// Das Register, zu dem dieser Stand gehört.
+  ///
+  /// **Optional, nicht verpflichtend** — und das ist eine bewusste Entscheidung,
+  /// keine Nachlässigkeit: Ein Rollback überspringt die Migration, danach
+  /// schreibt eine ältere Anwendung wieder Ablesungen ohne Register. Eine
+  /// `NOT NULL`-Spalte ohne Default würde genau dort jedes INSERT scheitern
+  /// lassen. Ein fehlender Bezug wird gelesen als "das Standardregister des
+  /// Zählers"; die Migration füllt alle bestehenden Zeilen.
+  registerId       String?
+  register         MeterRegister? @relation(fields: [registerId], references: [id], onDelete: SetNull)
   datum            DateTime
   wert             Float
   kosten           Float?
@@ -178,6 +230,9 @@ model Ablesung {
   // Für die globale "letzte Ablesungen"-Liste (listRecentAblesungen), die
   // über alle Zähler hinweg nach datum sortiert.
   @@index([datum])
+  // Die Reihe EINES Registers, chronologisch — die Abfrage, auf der die
+  // Verbrauchsrechnung je Register aufsetzt.
+  @@index([registerId, datum])
   @@map("ablesungen")
 }
 
