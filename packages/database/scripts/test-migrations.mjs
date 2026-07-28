@@ -683,8 +683,8 @@ async function testStopsTheApp() {
       path.join(bin, "docker"),
       `#!/bin/sh
 printf '%s\\n' "$*" >> ${JSON.stringify(calls)}
-# `+"`compose ps -q` "+`meldet eine Container-Id: die Anwendung laeuft.
-case "$*" in *" ps -q "*) echo "container123" ;; esac
+# docker inspect beantwortet die Frage, ob die Anwendung laeuft.
+case "$*" in *"inspect -f"*) echo "true" ;; esac
 exit 0
 `,
     );
@@ -700,7 +700,7 @@ exit 0
           PATH: `${bin}:${process.env.PATH}`,
           DATABASE_URL: `file:${dbPath}`,
           DOCKER_SOCK: sock,
-          REPO_DIR: repo,
+          APP_CONTAINER: "zaehlwerk-main-portal",
         },
         encoding: "utf8",
         stdio: "pipe",
@@ -713,11 +713,11 @@ exit 0
     }
 
     const aufrufe = existsSync(calls) ? readFileSync(calls, "utf8") : "";
-    const stopIdx = aufrufe.indexOf("stop main-portal");
-    const upIdx = aufrufe.indexOf("up -d --no-build main-portal");
+    const stopIdx = aufrufe.indexOf("stop zaehlwerk-main-portal");
+    const upIdx = aufrufe.indexOf("start zaehlwerk-main-portal");
 
     check("haelt die Anwendung an", stopIdx !== -1, aufrufe.replace(/\n/g, " | "));
-    check("sagt es auch im Protokoll", /halte main-portal an/.test(output), output.slice(-300));
+    check("sagt es auch im Protokoll", /halte zaehlwerk-main-portal an/.test(output), output.slice(-300));
     check("Migration laeuft durch", ok, output.slice(-400));
     // Danach wieder hoch — auch nach Erfolg. Bricht der Aufrufer zwischen
     // Migration und Tausch ab, bliebe die Instanz sonst unten.

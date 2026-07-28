@@ -294,12 +294,57 @@ async function testEmergencyExitOnSignal() {
   rmSync(pg.dir, { recursive: true, force: true });
 }
 
+// ── Fall 6: db-migrate darf sein eigenes /repo nicht ueberdecken ───────────
+// Aus einem echten Fehlschlag: Ein `- .:/repo` an db-migrate liess das Update
+// mit `can't cd to packages/database` sterben.
+//
+// Bind-Mount-QUELLEN loest der HOST-Daemon auf. `update.sh` laeuft aber IM
+// main-portal-Container mit cwd=/repo, also bekam der Daemon den Pfad `/repo`,
+// den es auf dem Host nicht gibt — und montierte ein leeres Verzeichnis ueber
+// das Image-Verzeichnis, in dem der Code liegt.
+//
+// Der Dienst braucht dort NICHTS gemountet: Sein Image traegt den Code (COPY im
+// builder). Was er braucht, ist der Socket — und der Container wird ueber
+// seinen NAMEN angehalten, nicht ueber Compose, damit gar keine Projektdatei
+// noetig ist.
+function testMigrateServiceDoesNotShadowItsRepo() {
+  console.log("\nCompose: db-migrate ueberdeckt sein /repo nicht");
+  const compose = readFileSync(
+    path.join(HERE, "..", "docker-compose.prod.yml"),
+    "utf8",
+  );
+
+  // Den Block des Dienstes herausschneiden — bis zum naechsten Dienst auf
+  // gleicher Einrueckung.
+  const start = compose.indexOf("\n  db-migrate:");
+  check("db-migrate ist definiert", start !== -1);
+  if (start === -1) return;
+  const rest = compose.slice(start + 1);
+  const nextService = rest.slice(1).search(/\n {2}[a-z][a-z0-9_-]*:\n/);
+  const block = nextService === -1 ? rest : rest.slice(0, nextService + 1);
+
+  const repoMount = block
+    .split("\n")
+    .find((line) => /^\s*-\s.*:\/repo(:|$)/.test(line));
+  check(
+    "kein Bind-Mount auf /repo",
+    repoMount === undefined,
+    `gefunden: ${repoMount ?? ""} — das ueberdeckt den Code im Image`,
+  );
+  check(
+    "der Docker-Socket ist da",
+    /\/var\/run\/docker\.sock:\/var\/run\/docker\.sock/.test(block),
+    "ohne ihn kann die Migration die Anwendung nicht anhalten",
+  );
+}
+
 console.log("deploy-swap.sh pruefen");
 testHappyPath();
 testMigrationFails();
 testRollbackSkipsMigration();
 testMissingPreviousImage();
 await testEmergencyExitOnSignal();
+testMigrateServiceDoesNotShadowItsRepo();
 
 console.log(`\n${checks - failures} von ${checks} Pruefungen bestanden.`);
 if (failures > 0) {

@@ -147,32 +147,33 @@ fi
 # alte Anwendung kurz auf dem neueren Schema laufen zu lassen ist unbedenklich —
 # das ist genau die Zusicherung, auf der auch der Rollback beruht (jede neue
 # Spalte ist optional oder hat einen Default, siehe docs/migrations.md).
-APP_SERVICE="${APP_SERVICE:-main-portal}"
-COMPOSE_FILE_NAME="${COMPOSE_FILE_NAME:-docker-compose.prod.yml}"
-REPO_DIR="${REPO_DIR:-/repo}"
-# Ueberschreibbar, damit der Anhalte-Pfad pruefbar ist statt nur behauptet.
+# Ueber den NAMEN, nicht ueber Compose. Compose braeuchte die Projektdatei im
+# Container, und ein `- .:/repo` dafuer war genau der Fehler: Bind-Mount-Quellen
+# loest der HOST-Daemon auf, update.sh laeuft aber IM Container mit cwd=/repo.
+# Der Daemon bekam einen Pfad, den es auf dem Host nicht gibt, und ueberdeckte
+# das Image-Verzeichnis mit einem leeren — `cd packages/database` scheiterte.
+APP_CONTAINER="${APP_CONTAINER:-zaehlwerk-main-portal}"
 DOCKER_SOCK="${DOCKER_SOCK:-/var/run/docker.sock}"
 WE_STOPPED_IT=0
-
-compose() {
-  (cd "$REPO_DIR" 2>/dev/null && docker compose -f "$COMPOSE_FILE_NAME" "$@")
-}
 
 # Nur wenn wir ueberhaupt koennen. Ohne Socket oder ohne CLI — beim Testen, bei
 # einem Handstart — soll das Skript unveraendert weiterlaufen statt zu scheitern.
 app_kann_angehalten_werden() {
   [ -S "$DOCKER_SOCK" ] || return 1
   command -v docker >/dev/null 2>&1 || return 1
-  [ -f "$REPO_DIR/$COMPOSE_FILE_NAME" ] || return 1
   return 0
+}
+
+app_laeuft() {
+  [ "$(docker inspect -f '{{.State.Running}}' "$APP_CONTAINER" 2>/dev/null)" = "true" ]
 }
 
 app_wieder_hoch() {
   [ "$WE_STOPPED_IT" = "1" ] || return 0
   WE_STOPPED_IT=0
-  echo "[migrate] fahre $APP_SERVICE wieder hoch"
-  compose up -d --no-build "$APP_SERVICE" >/dev/null 2>&1 \
-    || echo "[migrate] WARNUNG: $APP_SERVICE kam nicht zurueck" >&2
+  echo "[migrate] fahre $APP_CONTAINER wieder hoch"
+  docker start "$APP_CONTAINER" >/dev/null 2>&1 \
+    || echo "[migrate] WARNUNG: $APP_CONTAINER kam nicht zurueck" >&2
 }
 
 # Scheitert alles Weitere — auch durch ein Signal —, darf die Anwendung nicht
@@ -180,15 +181,15 @@ app_wieder_hoch() {
 trap app_wieder_hoch EXIT HUP INT TERM
 
 if [ -f "$DB_PATH" ] && app_kann_angehalten_werden; then
-  if [ -n "$(compose ps -q "$APP_SERVICE" 2>/dev/null)" ]; then
-    echo "[migrate] halte $APP_SERVICE an — die Migration braucht die Datenbank allein"
-    if compose stop "$APP_SERVICE" >/dev/null 2>&1; then
+  if app_laeuft; then
+    echo "[migrate] halte $APP_CONTAINER an — die Migration braucht die Datenbank allein"
+    if docker stop "$APP_CONTAINER" >/dev/null 2>&1; then
       WE_STOPPED_IT=1
     else
-      echo "[migrate] WARNUNG: $APP_SERVICE liess sich nicht anhalten — versuche es trotzdem" >&2
+      echo "[migrate] WARNUNG: $APP_CONTAINER liess sich nicht anhalten — versuche es trotzdem" >&2
     fi
   else
-    echo "[migrate] $APP_SERVICE laeuft nicht — nichts anzuhalten"
+    echo "[migrate] $APP_CONTAINER laeuft nicht — nichts anzuhalten"
   fi
 else
   echo "[migrate] kein Zugriff auf Docker — migriere ohne die Anwendung anzuhalten"
