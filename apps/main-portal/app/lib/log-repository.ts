@@ -1,9 +1,11 @@
 import { prisma } from "@zaehlwerk/database";
 import { parseLog } from "../apps/log-analyzer/lib/log-parser";
 import { evaluateLogPull, healthFromAlerts } from "../apps/log-analyzer/lib/evaluate-log-pull";
-import { DEFAULT_VEHICLE_SPEC } from "../apps/log-analyzer/lib/vehicle-spec";
+import { DEFAULT_VEHICLE_SPEC, type VehicleSpec } from "../apps/log-analyzer/lib/vehicle-spec";
 import { parseLogFilename } from "../apps/log-analyzer/lib/log-filename";
-import { EVALUATION_VERSION } from "../apps/log-analyzer/lib/evaluation-version";
+import { evaluationVersionFor } from "../apps/log-analyzer/lib/evaluation-version";
+import { effectiveLimits, type LimitOverrides } from "../apps/log-analyzer/lib/limit-overrides";
+import { getActiveVehicle, getVehicle, type StoredVehicle } from "./vehicle-repository";
 import type { PullHealth, PullStatus } from "../apps/log-analyzer/lib/evaluate-log-pull";
 
 // Server-side persistence for uploaded MGflasher datalogs. Logs used to live
@@ -82,8 +84,30 @@ function splitTags(raw: string): string[] {
     .filter(Boolean);
 }
 
+/**
+ * What a log is judged by: the vehicle's spec and its own limit patch, plus the
+ * cache fingerprint those two produce.
+ *
+ * A log with no vehicle keeps the default spec and an empty patch. That case is
+ * not merely similar to the old behaviour, it is byte-identical: the version
+ * string is a hash over the effective limits, and `effectiveLimits(DEFAULT, {})`
+ * is `limitsForSpec(DEFAULT)` — the value the old constant hashed. So wiring
+ * vehicles up does NOT invalidate a single already-scored row.
+ */
+interface Scoring {
+  spec: VehicleSpec;
+  overrides: LimitOverrides;
+  version: string;
+}
+
+function scoringFor(vehicle: StoredVehicle | null): Scoring {
+  const spec = vehicle?.spec ?? DEFAULT_VEHICLE_SPEC;
+  const overrides = vehicle?.limitOverrides ?? {};
+  return { spec, overrides, version: evaluationVersionFor(effectiveLimits(spec, overrides)) };
+}
+
 /** Parse + evaluate a CSV, returning the derived columns we persist. */
-function derive(csv: string): {
+function derive(csv: string, scoring: Scoring): {
   rowCount: number;
   vin: string | null;
   vehicle: string | null;
@@ -98,7 +122,7 @@ function derive(csv: string): {
     if (log.rowCount === 0) {
       return { rowCount: 0, vin: null, vehicle: null, mapVersion: null, software: null, loggedAt: null, status: "invalid", health: "safe" };
     }
-    const evaluation = evaluateLogPull(log, DEFAULT_VEHICLE_SPEC);
+    const evaluation = evaluateLogPull(log, scoring.spec, scoring.overrides);
     return {
       rowCount: log.rowCount,
       vin: log.meta.vin,
@@ -132,6 +156,11 @@ const SUMMARY_SELECT = {
   tags: true,
   createdAt: true,
   evalVersion: true,
+  // Which vehicle this row was scored against — needed to know what its
+  // fingerprint SHOULD be. Without it the staleness check can only compare
+  // against the default and would leave every vehicle-scored row permanently
+  // stale (or, worse, permanently trusted).
+  vehicleId: true,
 } as const;
 
 type SummaryRow = {
@@ -151,6 +180,7 @@ type SummaryRow = {
   tags: string;
   createdAt: Date;
   evalVersion?: string | null;
+  vehicleId?: string | null;
 };
 
 type Verdict = { status: PullStatus; health: PullHealth };
@@ -159,12 +189,12 @@ type Verdict = { status: PullStatus; health: PullHealth };
  * Score a raw CSV against the CURRENT thresholds, or null when it can't be
  * parsed (empty / corrupt) — in which case the caller keeps what was persisted.
  */
-function verdictFromCsv(csv: string): Verdict | null {
+function verdictFromCsv(csv: string, scoring: Scoring): Verdict | null {
   if (!csv) return null;
   try {
     const log = parseLog(csv);
     if (log.rowCount === 0) return null;
-    const evaluation = evaluateLogPull(log, DEFAULT_VEHICLE_SPEC);
+    const evaluation = evaluateLogPull(log, scoring.spec, scoring.overrides);
     return {
       status: evaluation.validity.status,
       health: healthFromAlerts(evaluation.alerts),
@@ -184,7 +214,23 @@ function verdictFromCsv(csv: string): Verdict | null {
  * freshly computed verdict; the row simply stays stale and is retried next read.
  */
 async function refreshStaleVerdicts(rows: SummaryRow[]): Promise<void> {
-  const stale = rows.filter((row) => row.evalVersion !== EVALUATION_VERSION);
+  // The expected fingerprint is now per ROW, not global: two logs on different
+  // vehicles legitimately carry different versions. So resolve each row's
+  // vehicle first, then compare — one query for the distinct ids, not one per
+  // row.
+  const vehicleIds = [...new Set(rows.map((row) => row.vehicleId).filter((id): id is string => !!id))];
+  const vehicles = new Map<string, StoredVehicle>();
+  await Promise.all(
+    vehicleIds.map(async (id) => {
+      const vehicle = await getVehicle(id);
+      if (vehicle) vehicles.set(id, vehicle);
+    }),
+  );
+  // A vehicle that has since been deleted falls back to the default scoring —
+  // the same treatment as a log that never had one.
+  const scoringOf = (row: SummaryRow) => scoringFor(row.vehicleId ? vehicles.get(row.vehicleId) ?? null : null);
+
+  const stale = rows.filter((row) => row.evalVersion !== scoringOf(row).version);
   if (stale.length === 0) return;
 
   const staleById = new Map(stale.map((row) => [row.id, row]));
@@ -197,16 +243,17 @@ async function refreshStaleVerdicts(rows: SummaryRow[]): Promise<void> {
     withCsv.map(async ({ id, csv }) => {
       const row = staleById.get(id);
       if (!row) return;
-      const verdict = verdictFromCsv(csv);
+      const scoring = scoringOf(row);
+      const verdict = verdictFromCsv(csv, scoring);
       if (verdict) {
         row.status = verdict.status;
         row.health = verdict.health;
       }
-      row.evalVersion = EVALUATION_VERSION;
+      row.evalVersion = scoring.version;
       try {
         await prisma.logFile.update({
           where: { id },
-          data: { status: row.status, health: row.health, evalVersion: EVALUATION_VERSION },
+          data: { status: row.status, health: row.health, evalVersion: scoring.version },
         });
       } catch {
         // Re-scoring is a cache refresh, never the caller's problem.
@@ -240,8 +287,13 @@ function toSummary(row: SummaryRow): LogSummary {
 /** Persist one or many uploaded logs (bulk upload). Returns their summaries. */
 export async function createLogs(inputs: LogUploadInput[]): Promise<LogSummary[]> {
   const created: LogSummary[] = [];
+  // Resolved ONCE for the whole batch, and pinned onto every row: the log
+  // records which vehicle judged it, so a later change of the active vehicle
+  // cannot silently re-interpret logs that were scored under the old one.
+  const vehicle = await getActiveVehicle();
+  const scoring = scoringFor(vehicle);
   for (const input of inputs) {
-    const d = derive(input.csv);
+    const d = derive(input.csv, scoring);
     const fromName = parseLogFilename(input.name);
     const row = await prisma.logFile.create({
       data: {
@@ -258,8 +310,10 @@ export async function createLogs(inputs: LogUploadInput[]): Promise<LogSummary[]
         loggedAt: d.loggedAt,
         status: d.status,
         health: d.health,
-        // Freshly scored, so it is already on the current evaluation version.
-        evalVersion: EVALUATION_VERSION,
+        // Freshly scored, so it is already on the current evaluation version —
+        // the one for THIS vehicle's effective limits.
+        evalVersion: scoring.version,
+        vehicleId: vehicle?.id ?? null,
         contentHash: input.contentHash ?? null,
         notes: input.notes ?? null,
         // Drive time & octane pre-filled from the filename when present.
@@ -306,9 +360,11 @@ export async function getLog(id: string): Promise<LogRecord | null> {
   if (!row) return null;
 
   // The CSV is already in hand here, so re-score directly rather than making
-  // refreshStaleVerdicts fetch it a second time.
-  if (row.evalVersion !== EVALUATION_VERSION) {
-    const verdict = verdictFromCsv(row.csv);
+  // refreshStaleVerdicts fetch it a second time. Judged by the vehicle this log
+  // is pinned to — a deleted one falls back to the default, as above.
+  const scoring = scoringFor(row.vehicleId ? await getVehicle(row.vehicleId) : null);
+  if (row.evalVersion !== scoring.version) {
+    const verdict = verdictFromCsv(row.csv, scoring);
     if (verdict) {
       row.status = verdict.status;
       row.health = verdict.health;
@@ -316,7 +372,7 @@ export async function getLog(id: string): Promise<LogRecord | null> {
     try {
       await prisma.logFile.update({
         where: { id },
-        data: { status: row.status, health: row.health, evalVersion: EVALUATION_VERSION },
+        data: { status: row.status, health: row.health, evalVersion: scoring.version },
       });
     } catch {
       // cache refresh only — never fail the read

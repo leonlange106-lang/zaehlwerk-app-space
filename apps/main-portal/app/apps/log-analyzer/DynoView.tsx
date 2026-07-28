@@ -44,8 +44,8 @@ import {
   summarizeDynoProfile,
   type DynoProfile,
 } from "./lib/dyno-spec";
+import { getActiveVehicleAction } from "@/app/lib/vehicle-actions";
 import { loadDynoProfile } from "./lib/dyno-store";
-import { loadVehicleSpec } from "./lib/spec-store";
 import { DEFAULT_VEHICLE_SPEC, type VehicleSpec } from "./lib/vehicle-spec";
 import type { ParsedLog } from "./lib/types";
 import { DynoChartSkeleton } from "./ChartSkeletons";
@@ -111,17 +111,35 @@ export function DynoView() {
   // placeholder numbers — the summary line has to be honest about which.
   const [profileOrigin, setProfileOrigin] = useState<"saved" | "preset" | "generic">("generic");
 
-  // The vehicle-dynamics profile and the hardware spec both live in
-  // localStorage (client-only), so they are read after mount. Spec first: with
-  // no saved profile the dyno starts from the user's own car rather than from
-  // whichever platform happens to be the module default.
+  // Spec and dynamics profile come from the maintained vehicle on the SERVER.
+  // They used to be read from localStorage — a store nothing has written since
+  // the vehicle form moved to the database, so the dyno estimated against the
+  // module default no matter which car was maintained.
+  //
+  // Spec first, as before: with no saved profile the dyno derives from the
+  // user's own car rather than from whichever platform is the module default.
   useEffect(() => {
-    const loadedSpec = loadVehicleSpec();
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setSpec(loadedSpec);
-    const loaded = loadDynoProfile(loadedSpec);
-    setProfile(loaded.profile);
-    setProfileOrigin(loaded.origin);
+    let cancelled = false;
+    void (async () => {
+      try {
+        const vehicle = await getActiveVehicleAction();
+        if (cancelled || !vehicle) return;
+        setSpec(vehicle.spec);
+        if (vehicle.dynoProfile) {
+          setProfile(vehicle.dynoProfile);
+          setProfileOrigin("saved");
+        } else {
+          const derived = loadDynoProfile(vehicle.spec);
+          setProfile(derived.profile);
+          setProfileOrigin(derived.origin);
+        }
+      } catch {
+        // A failed lookup must not take the dyno down — the defaults stand.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {

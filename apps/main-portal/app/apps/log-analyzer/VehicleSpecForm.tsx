@@ -54,8 +54,9 @@ import {
   type VehicleSpec,
 } from "./lib/vehicle-spec";
 
-// The vehicle & hardware setup profile form. Everything persists to
-// localStorage (spec-store) — no server round trip. The exact engine
+// The vehicle & hardware setup profile form. Everything persists to the
+// DATABASE through the vehicle actions; localStorage is read exactly once, to
+// seed a first vehicle from the old single profile. The exact engine
 // designation drives the baseline thresholds; the hardware modifiers shift them.
 // The derived, contextual limits are shown live so the user sees how each choice
 // changes the plausibility/safety thresholds the evaluation engine will apply.

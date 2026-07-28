@@ -58,7 +58,16 @@ export function coerceSpec(raw: unknown): VehicleSpec {
   };
 }
 
-/** Load the saved spec, or the default when none/unavailable/corrupt. */
+/**
+ * Load the saved spec, or the default when none/unavailable/corrupt.
+ *
+ * READ-ONLY on purpose, and the last user of this key. Since vehicles moved to
+ * the database nothing writes it any more — it survives solely as the one-time
+ * seed for someone's FIRST vehicle (`VehicleSpecForm`), so an existing setup is
+ * not lost on update. The matching `saveVehicleSpec()` was removed with the
+ * vehicle chain: while it existed, it looked as though this store were still
+ * live, and the views read from it and got the default forever.
+ */
 export function loadVehicleSpec(): VehicleSpec {
   if (!hasWindow()) return { ...DEFAULT_VEHICLE_SPEC };
   try {
@@ -67,15 +76,5 @@ export function loadVehicleSpec(): VehicleSpec {
     return coerceSpec(JSON.parse(raw));
   } catch {
     return { ...DEFAULT_VEHICLE_SPEC };
-  }
-}
-
-/** Persist the vehicle spec (best-effort; storage errors are swallowed). */
-export function saveVehicleSpec(spec: VehicleSpec): void {
-  if (!hasWindow()) return;
-  try {
-    localStorage.setItem(SPEC_KEY, JSON.stringify(spec));
-  } catch {
-    /* quota/unavailable — non-fatal */
   }
 }

@@ -7,6 +7,7 @@ import type { ActionState } from "./action-state";
 import {
   createVehicle,
   deleteVehicle,
+  getActiveVehicle,
   listVehicles,
   setActiveVehicle,
   updateVehicle,
@@ -56,6 +57,20 @@ function revalidate() {
 export async function listVehiclesAction(): Promise<StoredVehicle[]> {
   await assertAppAccess(APP_ID);
   return listVehicles();
+}
+
+/**
+ * The vehicle the analyzer and the dyno judge by.
+ *
+ * They used to read the spec from localStorage — a store nothing has written
+ * since the form moved to the database, so both silently fell back to
+ * `DEFAULT_VEHICLE_SPEC` and a maintained vehicle changed no verdict at all.
+ * Returns null when no vehicle exists, which the callers treat as "use the
+ * default", the same as the server does.
+ */
+export async function getActiveVehicleAction(): Promise<StoredVehicle | null> {
+  await assertAppAccess(APP_ID);
+  return getActiveVehicle();
 }
 
 export async function createVehicleAction(

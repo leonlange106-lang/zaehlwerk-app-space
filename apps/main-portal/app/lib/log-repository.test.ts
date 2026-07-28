@@ -4,20 +4,59 @@ import { makeSampleCsv } from "../apps/log-analyzer/lib/sample-log";
 // Mock the Prisma client: capture what the repository persists, and echo it back
 // (with generated id/createdAt) so we can assert the derived status/meta + tag
 // handling without a real database.
-const { create, findMany, findUnique, update, del, deleteMany } = vi.hoisted(() => ({
+const {
+  create,
+  findMany,
+  findUnique,
+  update,
+  del,
+  deleteMany,
+  vehicleFindFirst,
+  vehicleFindUnique,
+} = vi.hoisted(() => ({
   create: vi.fn(),
   findMany: vi.fn(),
   findUnique: vi.fn(),
   update: vi.fn(),
   del: vi.fn(),
   deleteMany: vi.fn(),
+  // A log is judged by the vehicle it is pinned to, so the mock has to answer
+  // for `vehicle` as well. Default is "no vehicle" — the default spec.
+  vehicleFindFirst: vi.fn(),
+  vehicleFindUnique: vi.fn(),
 }));
 vi.mock("@zaehlwerk/database", () => ({
-  prisma: { logFile: { create, findMany, findUnique, update, delete: del, deleteMany } },
+  prisma: {
+    logFile: { create, findMany, findUnique, update, delete: del, deleteMany },
+    vehicle: { findFirst: vehicleFindFirst, findUnique: vehicleFindUnique },
+  },
 }));
 
 import { createLogs, listLogs, pruneLogs, updateLogTags } from "./log-repository";
 import { EVALUATION_VERSION } from "../apps/log-analyzer/lib/evaluation-version";
+
+/** A stored vehicle row as Prisma hands it back, with an optional limit patch. */
+function vehicleRow(limitOverrides: Record<string, number> = {}) {
+  return {
+    id: "veh-1",
+    name: "Testwagen",
+    active: true,
+    brand: null,
+    series: null,
+    vehicleModel: null,
+    engineCode: "n54",
+    transmission: "manual",
+    catType: "oem",
+    fuel: "pump",
+    turbo: "stock",
+    hpfp: "stock",
+    stage: "stage1",
+    limitOverrides: JSON.stringify(limitOverrides),
+    dynoProfile: null,
+    profileOrigin: "own",
+    createdAt: new Date("2026-07-01T00:00:00Z"),
+  };
+}
 
 function row(overrides: Record<string, unknown> = {}) {
   return {
@@ -47,6 +86,58 @@ beforeEach(() => {
   findMany.mockReset();
   update.mockReset();
   deleteMany.mockReset();
+  vehicleFindFirst.mockReset();
+  vehicleFindUnique.mockReset();
+  vehicleFindFirst.mockResolvedValue(null);
+  vehicleFindUnique.mockResolvedValue(null);
+});
+
+// The chain these cover was fully built and fully disconnected: `vehicleId` was
+// never written, `getActiveVehicle()` had no callers, and the repository scored
+// everything against DEFAULT_VEHICLE_SPEC. A vehicle someone maintained changed
+// no verdict at all, and no test noticed — because none asserted that it should.
+describe("createLogs — the vehicle a log is judged by", () => {
+  it("pins the active vehicle onto the row", async () => {
+    vehicleFindFirst.mockResolvedValue(vehicleRow());
+    create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => row({ ...data }));
+
+    await createLogs([{ name: "sample.csv", csv: makeSampleCsv() }]);
+
+    expect(create.mock.calls[0][0].data.vehicleId).toBe("veh-1");
+  });
+
+  it("scores against the vehicle's OWN limits, not the derived ones", async () => {
+    create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => row({ ...data }));
+
+    // The SAME vehicle twice, differing only in the override. Comparing against
+    // the default fingerprint would prove nothing — this spec is not the default
+    // one, so its version differs either way. Only holding the spec fixed
+    // isolates the question actually being asked: do the user's own limits reach
+    // the engine? While they did not, both runs produced the same string.
+    vehicleFindFirst.mockResolvedValue(vehicleRow());
+    await createLogs([{ name: "sample.csv", csv: makeSampleCsv() }]);
+    const derived = create.mock.calls[0][0].data.evalVersion;
+
+    create.mockClear();
+    vehicleFindFirst.mockResolvedValue(vehicleRow({ maxEgt: 1099 }));
+    await createLogs([{ name: "sample.csv", csv: makeSampleCsv() }]);
+    const patched = create.mock.calls[0][0].data.evalVersion;
+
+    expect(patched).not.toBe(derived);
+  });
+
+  it("keeps the default fingerprint when there is no vehicle", async () => {
+    // Load-bearing for existing installations: wiring vehicles up must not
+    // invalidate a single already-scored row, so a log without a vehicle has to
+    // keep exactly the version string the old constant produced.
+    create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => row({ ...data }));
+
+    await createLogs([{ name: "sample.csv", csv: makeSampleCsv() }]);
+
+    const persisted = create.mock.calls[0][0].data;
+    expect(persisted.evalVersion).toBe(EVALUATION_VERSION);
+    expect(persisted.vehicleId).toBeNull();
+  });
 });
 
 describe("createLogs — parse, evaluate & persist", () => {
