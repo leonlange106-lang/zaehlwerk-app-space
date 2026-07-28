@@ -42,6 +42,12 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm --filter main-portal test
+      - run: pnpm --filter @zaehlwerk/database test
+      # Migrationen gegen echte Datenbestaende, nicht nur gegen eine leere
+      # Datenbank: Die Fehler, die weh tun, entstehen an bestehenden Zeilen.
+      # Zwei davon sind in diesem Projekt schon passiert und wurden von Hand
+      # gefunden — genau das nimmt dieser Schritt ab.
+      - run: pnpm --filter @zaehlwerk/database test:migrations
 
   build:
     name: Production-Build
