@@ -3,7 +3,7 @@
 // only — safe to import from both Server and Client Components.
 
 export interface AppDefinition {
-  id: "zaehlwerk" | "log-analyzer";
+  id: "zaehlwerk" | "log-analyzer" | "admin";
   name: string;
   tagline: string;
   href: string;
@@ -13,6 +13,16 @@ export interface AppDefinition {
   available: boolean;
   /** Pathname (and prefix) that marks this app as the active context. */
   match: string;
+  /**
+   * Nur fuer Administratoren, unabhaengig von den App-Freigaben.
+   *
+   * Die Freigaben in `allowedApps` regeln, wer eine FACH-App sehen darf. Der
+   * Admin-Bereich ist keine Fach-App: er zeigt den Zustand der Plattform, und
+   * das haengt an der Rolle, nicht an einer Zuweisung. Ohne dieses Flag muesste
+   * man ihn jedem Admin einzeln freischalten — und koennte ihn versehentlich
+   * einem Nicht-Admin geben.
+   */
+  adminOnly?: boolean;
 }
 
 export const APPS: AppDefinition[] = [
@@ -41,6 +51,20 @@ export const APPS: AppDefinition[] = [
     accent: "#f97316",
     available: true,
     match: "/apps/log-analyzer",
+  },
+  {
+    id: "admin",
+    name: "Administration",
+    tagline: "Zustand der Plattform: System, Zugriffe, Datenbank, Aktivitaet",
+    href: "/apps/admin",
+    icon: "/icon-admin.svg",
+    // Neutrales Schiefer statt eines Produktakzents: dieser Bereich gehoert
+    // keiner Fach-App, und ein eigener bunter Akzent wuerde ihn wie eine
+    // dritte gleichrangige App aussehen lassen.
+    accent: "#64748b",
+    available: true,
+    adminOnly: true,
+    match: "/apps/admin",
   },
 ];
 

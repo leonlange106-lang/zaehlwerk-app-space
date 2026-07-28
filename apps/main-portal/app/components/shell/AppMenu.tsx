@@ -9,6 +9,7 @@ import {
   IconArrowsDiff,
   IconChartBar,
   IconChartHistogram,
+  IconActivity,
   IconChevronLeft,
   IconChevronRight,
   IconClockHour4,
@@ -20,14 +21,18 @@ import {
   IconListTree,
   IconPlug,
   IconRefresh,
+  IconServerBolt,
   IconSettings,
+  IconShieldCog,
   IconShieldLock,
   IconStack2,
   IconUsers,
+  IconWorld,
   IconWorldDownload,
 } from "@tabler/icons-react";
 import { activeAppFor, APPS } from "@/app/lib/apps";
 import { settingsGroupHref, visibleSettingsGroups } from "@/app/settings/groups";
+import { ADMIN_SECTIONS, adminSectionHref } from "@/app/apps/admin/sections";
 import { cn } from "@/app/lib/cn";
 import { Skeleton } from "@/app/components/ui/Skeleton";
 import { BetaBadge } from "@/app/components/ui/Badge";
@@ -60,7 +65,8 @@ type Level =
   | { kind: "app"; appId: string }
   | { kind: "meters" }
   | { kind: "logs" }
-  | { kind: "settings" };
+  | { kind: "settings" }
+  | { kind: "admin" };
 
 interface Entry {
   label: string;
@@ -282,6 +288,10 @@ export function AppMenu({ allowedAppIds }: { allowedAppIds: string[] }) {
             />
           )}
 
+          {level.kind === "admin" && (
+            <AdminLevel pathname={pathname} onBack={() => goBack({ kind: "root" })} />
+          )}
+
           {level.kind === "settings" && (
             <SettingsLevel
               pathname={pathname}
@@ -350,6 +360,7 @@ function LinkRow({
   hint,
   beta,
   active,
+  into,
 }: {
   href: string;
   label: string;
@@ -358,6 +369,8 @@ function LinkRow({
   hint?: string;
   beta?: boolean;
   active: boolean;
+  /** Optional: ein Pfeil rechts, der eine Ebene tiefer geht statt zu navigieren. */
+  into?: () => void;
 }) {
   return (
     <DropdownMenu.Item asChild>
@@ -375,6 +388,34 @@ function LinkRow({
           Icon && <Icon size={17} stroke={1.7} className={cn("flex-none", !active && "text-dim")} />
         )}
         <span className="truncate">{label}</span>
+        {into && (
+          // Sitzt IM Link, muss also beides unterdruecken: die Navigation des
+          // Links und das Schliessen des Menues durch Radix. Sonst waere der
+          // Pfeil nur eine zweite Art, dieselbe Seite zu oeffnen.
+          <span
+            role="button"
+            tabIndex={0}
+            aria-label={`${label}: Bereiche anzeigen`}
+            className="ml-auto flex size-8 flex-none items-center justify-center rounded-control hover:bg-canvas/40"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              into();
+            }}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter" && event.key !== " ") return;
+              event.preventDefault();
+              event.stopPropagation();
+              into();
+            }}
+          >
+            <IconChevronRight
+              size={15}
+              stroke={2}
+              className={active ? "text-white/75" : "text-dim"}
+            />
+          </span>
+        )}
         {beta && <BetaBadge className="ml-auto" />}
         {hint && (
           <span className={cn("ml-auto flex-none text-[11px]", active ? "text-white/75" : "text-dim")}>
@@ -414,16 +455,35 @@ function RootLevel({
           app.available ? (
             <DropdownMenu.Item
               key={app.id}
-              className={row}
+              // Dieselbe Aktiv-Markierung wie LinkRow. Sie fehlte hier, weil
+              // diese Zeilen aufklappen statt zu navigieren — fuer den Leser ist
+              // das aber kein Unterschied: Startseite, Changelog und
+              // Einstellungen zeigten farbig an, wo man ist, die beiden Apps
+              // nicht. Genau die zwei Eintraege, in denen man sich die meiste
+              // Zeit befindet.
+              className={cn(
+                row,
+                isActiveHref(pathname, `/apps/${app.id}`) && "accent-gradient font-semibold text-white",
+              )}
               onSelect={(event) => {
                 event.preventDefault();
-                onInto({ kind: "app", appId: app.id });
+                // Die Admin-App hat keine APP_SECTIONS, sondern eine eigene
+                // Ebene aus sections.ts — ohne diese Weiche liefe sie in eine
+                // leere Liste.
+                onInto(app.id === "admin" ? { kind: "admin" } : { kind: "app", appId: app.id });
               }}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={app.icon} alt="" width={18} height={18} className="flex-none" />
               {app.name}
-              <IconChevronRight size={15} stroke={2} className="ml-auto flex-none text-dim" />
+              <IconChevronRight
+                size={15}
+                stroke={2}
+                className={cn(
+                  "ml-auto flex-none",
+                  isActiveHref(pathname, `/apps/${app.id}`) ? "text-white/75" : "text-dim",
+                )}
+              />
             </DropdownMenu.Item>
           ) : (
             <DropdownMenu.Item key={app.id} disabled className={row}>
@@ -436,14 +496,17 @@ function RootLevel({
         )
       )}
       <DropdownMenu.Separator className="my-1 h-px bg-line" />
-      {/* Drills in rather than navigating: the settings are five groups now, and
-          the menu carries them as its own level exactly as it does meters and
-          logs — so a specific page is one tap away instead of a page-load plus a
-          scroll. "Alle Bereiche" inside is the way to the index itself. */}
-      <IntoRow
+      {/* Ein direkter Link, kein Aufklapp-Punkt. Als Ebene gebaut war der Weg
+          zur Uebersicht ein Tippen INS Menue plus ein zweites auf "Alle
+          Bereiche" — fuer den haeufigsten Fall ("ich will in die
+          Einstellungen") ein Umweg. Die Gruppen sind weiterhin einen Tipp
+          entfernt, ueber den Pfeil rechts. */}
+      <LinkRow
+        href="/settings"
         label="Plattform-Einstellungen"
         icon={IconSettings}
-        onInto={() => onInto({ kind: "settings" })}
+        active={isActiveHref(pathname, "/settings")}
+        into={() => onInto({ kind: "settings" })}
       />
       <LinkRow
         href="/changelog"
@@ -650,4 +713,37 @@ const SETTINGS_GROUP_ICON = {
   plug: IconPlug,
   database: IconDatabase,
   refresh: IconRefresh,
+} as const;
+
+/** Die Bereiche der Admin-App. Nur fuer Admins sichtbar — die Rolle entscheidet,
+ *  nicht eine Freigabe, und die Route prueft sie serverseitig erneut. */
+function AdminLevel({ pathname, onBack }: { pathname: string; onBack: () => void }) {
+  return (
+    <>
+      <BackRow label="Administration" onBack={onBack} />
+      <LinkRow
+        href="/apps/admin"
+        label="Übersicht"
+        icon={IconShieldCog}
+        active={pathname === "/apps/admin"}
+      />
+      <DropdownMenu.Separator className="my-1 h-px bg-line" />
+      {ADMIN_SECTIONS.map((section) => (
+        <LinkRow
+          key={section.id}
+          href={adminSectionHref(section)}
+          label={section.title}
+          icon={ADMIN_SECTION_ICON[section.icon]}
+          active={pathname === adminSectionHref(section)}
+        />
+      ))}
+    </>
+  );
+}
+
+const ADMIN_SECTION_ICON = {
+  "server-bolt": IconServerBolt,
+  world: IconWorld,
+  database: IconDatabase,
+  activity: IconActivity,
 } as const;

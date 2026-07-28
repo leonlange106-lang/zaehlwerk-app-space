@@ -7,6 +7,7 @@ import {
   IconGauge,
   IconSearch,
   IconSettings,
+  IconShieldCog,
   IconX,
 } from "@tabler/icons-react";
 import { Spinner } from "@/app/components/ui/primitives";
@@ -34,6 +35,7 @@ const KIND_ICON: Record<SearchKind, typeof IconSearch> = {
   meter: IconGauge,
   log: IconChartHistogram,
   settings: IconSettings,
+  admin: IconShieldCog,
   page: IconSearch,
 };
 
@@ -41,6 +43,7 @@ const KIND_LABEL: Record<SearchKind, string> = {
   meter: "Zähler",
   log: "Log",
   settings: "Einstellungen",
+  admin: "Administration",
   page: "Seite",
 };
 

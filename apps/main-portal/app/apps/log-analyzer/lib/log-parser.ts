@@ -1,5 +1,6 @@
 import { colorForLabel, groupForLabel } from "./parameters";
 import type { LogMeta, LogSeries, ParsedLog } from "./types";
+import { pickBoostActual } from "./channels";
 
 // Robust, dependency-free parser for MGflasher-style ECU/TCU datalogs (CSV).
 //
@@ -14,7 +15,6 @@ import type { LogMeta, LogSeries, ParsedLog } from "./types";
 
 const TIME_HEADER = /^(time|zeit|timestamp|zeitstempel|sekunden|seconds|t)\b/i;
 const RPM_HEADER = /rpm|drehzahl/i;
-const BOOST_HEADER = /boost/i;
 const GEAR_HEADER = /gear|gang/i;
 
 /** Split a raw file into metadata comment lines and body lines. */
@@ -267,8 +267,10 @@ function buildMeta(
   hasRealTime: boolean,
 ): LogMeta {
   const rpm = series.find((s) => RPM_HEADER.test(s.label));
-  const boost = series.find((s) => BOOST_HEADER.test(s.label) && /actual|ist/i.test(s.label))
-    ?? series.find((s) => BOOST_HEADER.test(s.label));
+  // Dieselbe Auswahl wie die Kanalauflösung — siehe pickBoostActual(). Hier
+  // stand vorher eine eigene Variante, die auf die erste "Boost"-Spalte
+  // zurückfiel und damit den Umgebungsdruck als Peak Boost auswies.
+  const boost = pickBoostActual(series);
   const gear = series.find((s) => GEAR_HEADER.test(s.label));
 
   let gearRange: [number, number] | null = null;

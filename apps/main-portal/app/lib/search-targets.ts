@@ -1,5 +1,6 @@
 import { APPS } from "./apps";
 import { SETTINGS_GROUPS, settingsGroupHref } from "@/app/settings/groups";
+import { ADMIN_SECTIONS, adminSectionHref } from "@/app/apps/admin/sections";
 import type { StaticTarget } from "./search-match";
 
 // Every destination the search can offer that is known without touching the
@@ -85,7 +86,21 @@ const SETTINGS_TARGETS: StaticTarget[] = SETTINGS_GROUPS.map((group) => ({
   adminOnly: group.adminOnly,
 }));
 
+// Nur fuer Admins — `adminOnly` filtert sie in matchStaticTargets heraus, damit
+// ein Suchtreffer nicht verraet, dass es diesen Bereich ueberhaupt gibt.
+const ADMIN_TARGETS: StaticTarget[] = ADMIN_SECTIONS.map((section) => ({
+  kind: "admin",
+  id: `admin:${section.slug}`,
+  title: `Administration · ${section.title}`,
+  subtitle: section.description,
+  href: adminSectionHref(section),
+  topics: section.topics,
+  appId: null,
+  adminOnly: true,
+}));
+
 export const STATIC_SEARCH_TARGETS: StaticTarget[] = [
+  ...ADMIN_TARGETS,
   ...PLATFORM_TARGETS,
   ...SETTINGS_TARGETS,
   ...APP_SECTION_TARGETS,

@@ -165,6 +165,22 @@ function firstMatch(
   return null;
 }
 
+/**
+ * Die Ladedruck-Ist-Spalte, nach denselben Regeln wie die Kanalauflösung.
+ *
+ * Exportiert, weil der Parser dieselbe Frage beantworten muss, bevor Kanäle
+ * aufgelöst sind — und dort eine ZWEITE Auswahllogik stand, die auseinanderlief:
+ * sie fiel mangels „actual"/„ist" im Namen auf die erste Spalte mit „Boost"
+ * zurück, und das ist bei MGflasher `Boost Pressure: Ambient`. Die Kennzahl
+ * „Peak Boost" zeigte damit den Umgebungsdruck (992 hPa) statt des Ladedrucks
+ * (1264 hPa) — plausibel genug, um lange niemandem aufzufallen.
+ *
+ * Eine Quelle für „welche Spalte ist der Ladedruck", nicht zwei.
+ */
+export function pickBoostActual(series: LogSeries[]): LogSeries | null {
+  return firstMatch(series, ROLE_MATCHERS.boostActual, (x) => DUTY_LABEL.test(x.label));
+}
+
 /** The resolved channel map for a parsed log. Any role may be `null` (absent). */
 export interface ResolvedChannels {
   rpm: LogSeries | null;

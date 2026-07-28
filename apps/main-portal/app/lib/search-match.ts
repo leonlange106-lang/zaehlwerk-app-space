@@ -3,7 +3,7 @@
 // decides what a person sees.
 
 /** Where a hit came from. Drives the icon and the grouping in the popover. */
-export type SearchKind = "meter" | "log" | "settings" | "page";
+export type SearchKind = "meter" | "log" | "settings" | "admin" | "page";
 
 export interface SearchHit {
   kind: SearchKind;
@@ -19,7 +19,7 @@ export interface SearchHit {
 
 /** Something matchable that is known at build time: a page or a settings group. */
 export interface StaticTarget {
-  kind: Extract<SearchKind, "settings" | "page">;
+  kind: Extract<SearchKind, "settings" | "admin" | "page">;
   id: string;
   title: string;
   subtitle?: string;

@@ -1,93 +1,67 @@
-# Zählwerk App Space — Home Assistant Add-on
+# Zählwerk App Space — Home-Assistant-Add-on
 
-This add-on makes the **Zählwerk App Space** (a Next.js dashboard running in a
-separate Proxmox **LXC**/Docker container) available as a native panel in Home
-Assistant. It is a tiny `nginx:alpine` reverse proxy — it does **not** run the
-app, it forwards to the app's real URL on your LAN and relaxes the app's strict
-iframe-framing policy so HA can embed it (no app rebuild required).
+Ein dünner nginx-Reverse-Proxy vor der App, die in einer eigenen LXC läuft.
+**Seit 2.0.0 leitet er nur weiter** — er formt keine Sicherheitskopfzeilen mehr um.
 
+## Warum das eine Änderung wert war
+
+Bis 1.1.0 schrieb dieses Add-on die Content-Security-Policy der App neu und hielt
+dafür eine vollständige Kopie der Policy in seiner nginx-Konfiguration, mit dem
+Hinweis, beide „in sync" zu halten. Das ist der Grund, aus dem
+`RELEASE-3.0.0.md` § 4 vorschlug, das Add-on abzuschaffen.
+
+Der Fehler ist nicht theoretisch: Ändert die App ihre Policy, merkt der Proxy
+davon nichts und legt weiter die alte darüber. **Eine veraltete Sicherheitsregel
+über eine aktuelle gelegt schwächt sie, ohne dass es auffällt** — sie wird ja
+ausgeliefert, nur eben die falsche.
+
+Jetzt entscheidet die App das selbst, dort wo sie es ohnehin weiß.
+
+## Einrichtung
+
+**1 — Die App muss einbettbar gebaut sein.** Das ist ein BUILD-Argument, keine
+Laufzeitvariable: die Policy wird beim Bauen festgeschrieben. In der `.env` der
+App-Instanz:
+
+```env
+# Ingress (die App läuft unter HAs eigener Herkunft):
+HA_INGRESS=true
+
+# ODER panel_iframe auf festem Port (fremde Herkunft — HAs Adresse eintragen):
+FRAME_ANCESTORS=http://192.168.1.43:8123
 ```
-HA panel_iframe ─→ add-on nginx (host port 8099) ─→ LXC/Docker Next.js :3000
-```
 
-## Recommended setup: exposed port + `panel_iframe`
+Dann dort `docker compose -f docker-compose.prod.yml up -d --build`.
 
-This is the route that **fully works** for this Next.js app. (Ingress is also
-available but 404s for this app — see the note at the bottom.)
-
-### 1. Install the add-on
-
-- **Custom repo:** Settings → Add-ons → Add-on Store → ⋮ → **Repositories** →
-  add `https://github.com/leonlange106-lang/zaehlwerk-ha-addon` → install
-  **Zählwerk App Space**.
-- **Or local:** copy `zaehlwerk_space/` into `/addons/` on the HAOS host.
-
-### 2. Configure it
-
-| Option         | Description                                                         | Example                     |
-| -------------- | ----------------------------------------------------------------- | --------------------------- |
-| `backend_url`  | Base URL of the app in the LXC, reachable from the HA host.        | `http://192.168.1.50:3000`  |
-| `frame_parent` | Origin of **your** Home Assistant frontend (so it may frame the app). | `http://192.168.1.43:8123`  |
-
-In the add-on's **Network** section, keep the host port mapping for `80/tcp`
-(default **8099**).
-
-Then **Start** the add-on. Quick check — from an HA terminal:
-`curl -I http://localhost:8099` should return `HTTP/1.1 200` (or a redirect to
-`/login`), not a connection error.
-
-### 3. Add the panel to Home Assistant
-
-Edit `configuration.yaml` (via the *File editor* or *Studio Code Server* add-on),
-pointing at the **add-on's port on the HA host** (not the LXC):
+**2 — Add-on konfigurieren.** Nur noch eine Option:
 
 ```yaml
-panel_iframe:
-  zaehlwerk:
-    title: "Zählwerk"
-    icon: mdi:gauge
-    url: "http://192.168.1.43:8099"   # <HA-IP>:<add-on port>
-    require_admin: false
+backend_url: "http://192.168.1.50:3000"
 ```
 
-Then **Settings → System → Restart**. A **Zählwerk** entry appears in the
-sidebar and loads the full app — no 404, no missing styles, because the proxy
-serves it at its own root (no dynamic Ingress sub-path).
+Die Adresse der App-Instanz. Beachte: läuft die App hinter TLS mit *lokal*
+ausgestelltem Zertifikat, nimm hier den HTTP-Weg — nginx kennt diese CA nicht.
 
-> **HTTP vs HTTPS (mixed content):** if you open Home Assistant over `https://`,
-> the browser blocks an `http://` iframe. Either reach HA over `http://` on the
-> LAN, or put the app behind an HTTPS reverse proxy and use that URL. Match the
-> scheme/host/port in `frame_parent` to how you actually open HA.
+## Zwei Wege, und ihr ehrlicher Stand
 
-## What the add-on does
+### panel_iframe (funktioniert)
 
-- **Reverse proxy** to `backend_url` (WebSocket `Upgrade`/`Connection` proxied,
-  so live features work).
-- **Relaxes framing without an app rebuild:** drops the app's
-  `X-Frame-Options: DENY` and re-emits its CSP with
-  `frame-ancestors 'self' <frame_parent>`, so Home Assistant may embed it.
-- **Forwarded headers:** `Host`, `X-Real-IP`, `X-Forwarded-For`,
-  `X-Forwarded-Proto`, `X-Forwarded-Host`, `X-HA-Ingress` (the app runs with
-  `trustHost: true` and trims duplicate chrome when embedded).
+Das Add-on stellt den Proxy auf einem festen Port bereit (Standard 8099). In der
+HA-Konfiguration ein `panel_iframe` darauf zeigen lassen. Kein Pfad-Problem.
 
-## Why not Ingress?
+Voraussetzung: `FRAME_ANCESTORS` auf HAs Herkunft, siehe oben.
 
-Home Assistant Ingress serves each session under a dynamic path
-(`/api/hassio_ingress/<token>/`). Next.js emits **root-absolute** URLs (`/_next/…`,
-and the unauthenticated redirect to `/login`), which the browser resolves against
-the HA origin **root** — dropping the Ingress prefix — so they hit HA itself and
-return **`404: not found`**. A reverse proxy can't fix this: those requests never
-reach the add-on. Ingress remains available via the add-on's **Open Web UI**
-button for simple cases, but for this app use the `panel_iframe` route above.
+### Ingress (noch nicht vollständig)
 
-If you'd rather not run this proxy at all, you can instead rebuild the app image
-with the HA origin allowed and point `panel_iframe` straight at the LXC
-(`http://<LXC-IP>:3000`):
+„Open Web UI" nutzt HAs Ingress, das die App unter einem dynamischen Unterpfad
+ausliefert (`/api/hassio_ingress/<token>/`). **Next.js verweist auf seine
+Bausteine mit absoluten Pfaden** (`/_next/…`), die der Browser gegen die Wurzel
+von HAs Herkunft auflöst — also am Unterpfad vorbei, mit 404 als Ergebnis.
 
-```bash
-# inside the app's build (Dockerfile build-arg / compose), not the host shell:
-FRAME_ANCESTORS="'self' http://192.168.1.43:8123"
-```
+Das ist keine Nachlässigkeit dieses Add-ons, sondern eine echte Grenze: Next
+kennt `basePath` nur als Konstante zur Bauzeit, und der Ingress-Token steht erst
+zur Laufzeit fest.
 
-The add-on route is simpler because it needs **no** change to the app or its
-Docker image.
+Das Add-on reicht `X-Ingress-Path` inzwischen an die App durch — die Grundlage
+für eine Lösung, aber die Lösung selbst fehlt noch. Wer heute eine verlässliche
+Einbettung will, nimmt `panel_iframe`.

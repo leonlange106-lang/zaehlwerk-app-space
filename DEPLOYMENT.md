@@ -128,6 +128,14 @@ AUTH_SECRET=REPLACE_ME
 # What Caddy answers to — a hostname that resolves on your LAN, or simply the
 # LXC's IP address (Caddy issues internal certificates for IPs too). See § 7.
 ZW_HOSTNAME=192.168.1.50
+
+# Optional: request/traffic figures in the admin area, read from Cloudflare's
+# edge. Needs its OWN API token with `Analytics: Read` on the zone — the tunnel
+# token cannot do this, and anything beyond read has no business here.
+# Without them the admin area shows setup instructions instead of an error.
+CLOUDFLARE_ANALYTICS_TOKEN=
+CLOUDFLARE_ZONE_ID=
+CLOUDFLARE_ZONE_NAME=
 EOF
 chmod 600 .env
 ```
@@ -272,6 +280,14 @@ nothing to match a site block against. The `default_sni` line in the `Caddyfile`
 global block handles it — make sure your `Caddyfile` has it and that
 `ZW_HOSTNAME` matches exactly what you type in the browser.
 
+**A variable in `.env` alone does not reach the container.** Compose reads that
+file only to substitute `${...}` *inside the compose file*. A service receives
+what is listed under its own `environment:` (or `build.args`) — nothing else.
+Everything documented here is wired up already, but keep the rule in mind when
+adding your own: the failure mode is **silence**. The feature reports itself as
+unconfigured no matter what the `.env` says, which looks like a bug in the
+feature rather than a missing line in the compose file.
+
 **Certificate trust.** The LAN name is not publicly resolvable, so Let's Encrypt
 cannot validate it; Caddy issues from its own local CA instead. The encryption
 on the wire is identical — the only difference is who trusts the certificate.
@@ -385,15 +401,49 @@ Checklist before switching the public hostname on:
 5. **Turn on instance-wide 2FA** (Settings → Security & access) so Access and the
    app are two independent barriers rather than one.
 
-Then pick the shape:
+The bundled `cloudflared` service runs **on this LXC** and reaches the app over
+the compose network at `main-portal:3000`. That shape is the reason it needs no
+origin certificate and no open port: the hop never leaves the machine, so
+`APP_BIND=127.0.0.1` stays as it is.
 
-- **`cloudflared` on this LXC** pointing at `http://main-portal:3000` over the
-  compose network. Simplest, and the hop never leaves the machine. The commented
-  block in `Caddyfile` stays commented.
-- **`cloudflared` elsewhere** pointing at this Caddy. Then enable that block and
-  install a Cloudflare **origin certificate** — `tls internal` is unknown to
-  Cloudflare, so the connection would either fail or need `noTLSVerify: true`,
-  which defeats the purpose.
+**1 — Create the tunnel.** Cloudflare Zero Trust → *Networks → Tunnels → Create*,
+pick **Docker**, and copy the token out of the command it shows.
+
+**2 — Wire it up:**
+
+```env
+CLOUDFLARE_TUNNEL_TOKEN=eyJ...
+# Starts the tunnel container with a plain `up -d`, no extra flags.
+COMPOSE_PROFILES=tunnel
+```
+
+```bash
+docker compose -f docker-compose.prod.yml up -d
+docker compose -f docker-compose.prod.yml logs cloudflared | tail -5   # "Registered tunnel connection"
+```
+
+**3 — Publish the hostname.** In the tunnel, *Public Hostname → Add*:
+subdomain `zaehlwerk`, your domain, service **HTTP** → `main-portal:3000`.
+
+HTTP, not HTTPS: this is the in-machine hop. TLS terminates at Cloudflare, which
+is also where the publicly trusted certificate comes from — so devices no longer
+need the local CA installed for this route.
+
+**4 — Access in FRONT of it, before you tell anyone the name.** Zero Trust →
+*Access → Applications → Self-hosted*, the new hostname, one policy (email OTP is
+enough to start). Without this the login form stands open on the internet.
+
+**5 — Exempt the machine paths**, or the ingestion breaks: a Service Token
+policy for `/api/v1/*`. The Docker healthcheck needs nothing — it runs inside the
+container against `localhost:3000` and never passes through Cloudflare.
+
+**6 — Point the Home Assistant card at the new hostname.** This is what finally
+fixes the iframe on phones: a page served publicly may not embed a private LAN
+address — WebKit blocks it by design, and no amount of CSP configuration changes
+that. Two public HTTPS origins have no such problem, and the card then works away
+from home too. Add the HA origin to `FRAME_ANCESTORS` as in § 7.4.
+
+The LAN path over Caddy keeps working alongside it.
 
 ### 7.4 Embedding in Home Assistant (iframe card)
 
