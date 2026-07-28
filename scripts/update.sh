@@ -89,7 +89,32 @@ write_status() {
     "$1" "$2" "$3" "$4" "${5:-}" "${6:-}" "$UPDATE_MODE" "$STARTED_AT" "$(now)" >"$STATUS_FILE" 2>/dev/null || true
 }
 
+# Den Arbeitsbaum auf den Stand zurueckstellen, der beim Start lief.
+#
+# Schritt 1 checkt den neuen Stand aus, Schritt 4 tauscht erst viel spaeter die
+# Container. Wer dazwischen abbricht — oder wessen Build scheitert — hinterlaesst
+# sonst einen Arbeitsbaum auf der NEUEN Version, waehrend die ALTE weiterlaeuft.
+#
+# Das ist nicht bloss unordentlich: Fehlt `APP_GIT_SHA` im Image, faellt die
+# Versionsanzeige auf genau diesen Arbeitsbaum zurueck (app/lib/version.ts). Die
+# App meldet dann die neue Version, obwohl die alte laeuft — und die
+# Versionshistorie, die aus der Deploy-Historie liest, widerspricht ihr. Genau
+# so gemeldet worden, nachdem ein Update im Build abgebrochen wurde.
+restore_checkout() {
+  # Nach der Uebergabe an den Deployer nicht mehr anfassen — siehe dort.
+  [ -z "${SWAP_HANDED_OFF:-}" ] || return 0
+  [ -n "${PREV_HEAD:-}" ] || return 0
+  # Nur wenn sich wirklich etwas verschoben hat; sonst rauscht jeder Abbruch
+  # vor dem Checkout unnoetig ins Protokoll.
+  CURRENT_HEAD="$(git rev-parse HEAD 2>/dev/null || echo "")"
+  [ "$CURRENT_HEAD" = "$PREV_HEAD" ] && return 0
+  echo "[update] Arbeitsbaum zurueck auf $PREV_HEAD"
+  git checkout --detach --force "$PREV_HEAD" >/dev/null 2>&1 \
+    || echo "[update] WARNUNG: Zuruecksetzen auf $PREV_HEAD fehlgeschlagen" >&2
+}
+
 fail() {
+  restore_checkout
   write_status failed false true "$1" "${2:-}" "${GIT_SHA:-}"
   echo "[update] FAILED: $1 $(log_now)"
   exit 1
@@ -101,6 +126,9 @@ fail() {
 # writes the same status again afterwards, because a killed shell may not get to
 # run this at all — belt and braces on the one file the UI believes.
 on_cancel() {
+  # Zuerst zuruecksetzen, dann melden — die Meldung sagt "die laufende Version
+  # wurde nicht veraendert", und das soll auch fuer den Arbeitsbaum stimmen.
+  restore_checkout
   write_status cancelled false true "Update abgebrochen. Die laufende Version wurde nicht verändert." "" "${GIT_SHA:-}"
   echo "[update] CANCELLED $(log_now)"
   exit 143
@@ -126,6 +154,11 @@ if [ "$UPDATE_MODE" = "rollback" ] && [ -z "$UPDATE_REF" ]; then
 fi
 
 # 1) Pull -------------------------------------------------------------------
+# Ausgangsstand merken, BEVOR irgendetwas ausgecheckt wird — restore_checkout()
+# braucht ihn, und ab hier kann jeder Fehlschlag den Arbeitsbaum verschieben.
+PREV_HEAD="$(git rev-parse HEAD 2>/dev/null || echo "")"
+echo "[update] Ausgangsstand: ${PREV_HEAD:-unbekannt}"
+
 write_status pulling true false "Neuer Code wird geholt"
 if [ -n "$UPDATE_REF" ]; then
   # A released tag. Detached HEAD is correct here: the image is built from the
@@ -298,6 +331,12 @@ docker run -d --rm --name zaehlwerk-deployer \
   "$IMAGE_TAG" \
   "${HOST_REPO}/scripts/deploy-swap.sh" \
   || fail "Deployer konnte nicht gestartet werden – Details im Log" "$GIT_SHA"
+
+# Ab hier gehoert der Arbeitsbaum dem Deployer: Er faehrt Compose aus genau
+# diesem Verzeichnis hoch. Ein Zuruecksetzen wuerde ihm den Boden entziehen —
+# und noetig ist es auch nicht mehr, denn der Tausch auf die neue Version laeuft
+# bereits. Das Signal-Fenster bis zum `exit` ist winzig, aber nicht null.
+SWAP_HANDED_OFF=1
 
 echo "[update] deployer launched; this script exits, swap continues detached $(log_now)"
 exit 0
