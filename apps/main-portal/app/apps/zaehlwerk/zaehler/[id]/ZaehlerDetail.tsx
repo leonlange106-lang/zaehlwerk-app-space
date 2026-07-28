@@ -399,6 +399,28 @@ function EditZaehlerForm({
             <TextInput id={id} name="einheit" defaultValue={zaehler.einheit} required />
           )}
         </Field>
+        {/* Beim Anlegen konnte man das Intervall setzen, danach nie wieder
+            aendern — auch nicht abschalten. Wer es einmal auf 30 Tage stellte,
+            wurde die Erinnerung nur durch Loeschen des Zaehlers los. Die
+            Update-Action nimmt das Feld laengst entgegen; es fehlte allein im
+            Formular. */}
+        <Field
+          label="Ableseintervall (Tage)"
+          description="0 = keine Erinnerung. Sonst meldet die Glocke, wenn eine Ablesung überfällig ist."
+        >
+          {({ id, describedBy }) => (
+            <NumberInput
+              id={id}
+              aria-describedby={describedBy}
+              name="ableseIntervallTage"
+              data-testid="zaehler-interval-edit"
+              min={0}
+              max={1825}
+              step={1}
+              defaultValue={zaehler.ableseIntervallTage}
+            />
+          )}
+        </Field>
         {locations.length > 0 && (
           <Field label="Standort">
             {({ id }) => (
