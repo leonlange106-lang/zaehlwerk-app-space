@@ -9,9 +9,30 @@ import { rateLimit } from "./rate-limit";
 // Rein und ohne Framework, damit die Regeln testbar bleiben: Der Aufrufer
 // reicht die Kennungen herein, diese Datei entscheidet nur.
 
-/** Versuche je Fenster. Grosszuegig genug fuer Vertipper, eng genug gegen Raten. */
+/**
+ * Versuche je KONTO. Das ist die eigentliche Schranke gegen Raten: Ein Passwort
+ * zu erraten braucht Tausende Versuche, fuenf je Viertelstunde macht das
+ * aussichtslos — unabhaengig davon, von wie vielen Adressen aus probiert wird.
+ */
 export const LOGIN_MAX_ATTEMPTS = 5;
 export const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+
+/**
+ * Versuche je ADRESSE. Bewusst ein Vielfaches des Kontolimits.
+ *
+ * Eine Adresse gehoert selten einer Person: Ein Haushalt hinter einem Router,
+ * ein Buero, ein Cloudflare-Tunnel — sie alle teilen sich eine. Ein enges
+ * IP-Limit sperrt dann die Familie aus, sobald jemand sich zweimal vertippt,
+ * und dagegen hilft kein Warten, weil der Naechste den Zaehler weiterdreht.
+ *
+ * Aufgefallen an der E2E-Suite, die sich dutzendfach vom selben Host anmeldet —
+ * sie hat den Haushaltsfall vorweggenommen, bevor er jemanden getroffen hat.
+ *
+ * Der Zweck dieses Zaehlers ist ein anderer als der des Kontozaehlers: Er soll
+ * verhindern, dass EIN Host viele Konten durchprobiert. Dafuer reicht ein weites
+ * Limit — wer 60 Konten je Viertelstunde antestet, faellt trotzdem auf.
+ */
+export const LOGIN_MAX_PER_IP = 60;
 
 /**
  * Der zweite Faktor bekommt ein eigenes, engeres Limit.
@@ -24,6 +45,9 @@ export const LOGIN_WINDOW_MS = 15 * 60 * 1000;
  */
 export const TOTP_MAX_ATTEMPTS = 10;
 export const TOTP_WINDOW_MS = 15 * 60 * 1000;
+
+/** Dieselbe Ueberlegung wie oben: Die Adresse traegt selten nur eine Person. */
+export const TOTP_MAX_PER_IP = 60;
 
 export interface ThrottleVerdict {
   allowed: boolean;
@@ -43,24 +67,25 @@ function checkPair(
   scope: string,
   ip: string,
   subject: string,
-  limit: number,
+  subjectLimit: number,
+  ipLimit: number,
   windowMs: number,
   peek = false,
 ): ThrottleVerdict {
-  const byIp = rateLimit({ key: `${scope}:ip:${ip}`, limit, windowMs, peek });
-  const bySubject = rateLimit({ key: `${scope}:id:${subject}`, limit, windowMs, peek });
+  const byIp = rateLimit({ key: `${scope}:ip:${ip}`, limit: ipLimit, windowMs, peek });
+  const bySubject = rateLimit({ key: `${scope}:id:${subject}`, limit: subjectLimit, windowMs, peek });
   if (byIp.ok && bySubject.ok) return { allowed: true, retryAfter: 0 };
   return { allowed: false, retryAfter: Math.max(byIp.retryAfter, bySubject.retryAfter) };
 }
 
 /** Passwortschritt. `email` bereits normalisiert. */
 export function checkLoginAttempt(ip: string, email: string): ThrottleVerdict {
-  return checkPair("login", ip, email, LOGIN_MAX_ATTEMPTS, LOGIN_WINDOW_MS);
+  return checkPair("login", ip, email, LOGIN_MAX_ATTEMPTS, LOGIN_MAX_PER_IP, LOGIN_WINDOW_MS);
 }
 
 /** Zweiter Faktor. `userId`, denn an dieser Stelle steht das Konto bereits fest. */
 export function checkTotpAttempt(ip: string, userId: string): ThrottleVerdict {
-  return checkPair("totp", ip, userId, TOTP_MAX_ATTEMPTS, TOTP_WINDOW_MS);
+  return checkPair("totp", ip, userId, TOTP_MAX_ATTEMPTS, TOTP_MAX_PER_IP, TOTP_WINDOW_MS);
 }
 
 /**
@@ -71,7 +96,7 @@ export function checkTotpAttempt(ip: string, userId: string): ThrottleVerdict {
  * mitzaehlen, sperrte sich der Nutzer durchs Fragen selbst weiter aus.
  */
 export function peekTotpThrottle(ip: string, userId: string): ThrottleVerdict {
-  return checkPair("totp", ip, userId, TOTP_MAX_ATTEMPTS, TOTP_WINDOW_MS, true);
+  return checkPair("totp", ip, userId, TOTP_MAX_ATTEMPTS, TOTP_MAX_PER_IP, TOTP_WINDOW_MS, true);
 }
 
 /**

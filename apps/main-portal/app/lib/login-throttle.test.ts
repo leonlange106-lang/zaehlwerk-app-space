@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   LOGIN_MAX_ATTEMPTS,
+  LOGIN_MAX_PER_IP,
   TOTP_MAX_ATTEMPTS,
   callerIdentity,
   checkLoginAttempt,
@@ -34,10 +35,23 @@ describe("Passwortschritt", () => {
 
   it("sperrt die Adresse auch, wenn die Konten wechseln", () => {
     // Die Gegenrichtung: eine IP, die viele Konten durchprobiert.
-    for (let i = 0; i < LOGIN_MAX_ATTEMPTS; i += 1) {
+    for (let i = 0; i < LOGIN_MAX_PER_IP; i += 1) {
       expect(checkLoginAttempt("9.9.9.9", `konto${i}@b.c`).allowed).toBe(true);
     }
     expect(checkLoginAttempt("9.9.9.9", "noch-eins@b.c").allowed).toBe(false);
+  });
+
+  it("sperrt einen Haushalt nicht aus, wenn sich einer vertippt", () => {
+    // Der Fall, den die E2E-Suite aufgedeckt hat, bevor er jemanden traf: Eine
+    // Adresse gehoert selten einer Person. Waeren beide Limits gleich, haette
+    // ein Bewohner mit fuenf Fehlversuchen die ganze Familie ausgesperrt — und
+    // Warten haette nicht geholfen, weil der Naechste den Zaehler weiterdreht.
+    expect(LOGIN_MAX_PER_IP).toBeGreaterThan(LOGIN_MAX_ATTEMPTS * 5);
+
+    for (let i = 0; i < LOGIN_MAX_ATTEMPTS + 1; i += 1) {
+      checkLoginAttempt("192.168.1.1", "vertipper@haus.de");
+    }
+    expect(checkLoginAttempt("192.168.1.1", "mitbewohner@haus.de").allowed).toBe(true);
   });
 
   it("haelt fremde Konten auseinander", () => {
