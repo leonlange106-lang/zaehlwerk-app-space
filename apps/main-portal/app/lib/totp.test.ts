@@ -92,7 +92,26 @@ describe("totpDriftSeconds", () => {
   it("returns null for a code that is simply wrong", () => {
     // Must not invent a clock problem out of a typo — that would send someone
     // reconfiguring NTP over a mistyped digit.
-    expect(totpDriftSeconds(secret, "000000")).toBeNull();
+    //
+    // The wrong code is DERIVED from the valid ones rather than picked by hand.
+    // "000000" looks obviously wrong and almost always is — but the drift search
+    // spans ±DRIFT_SEARCH_WINDOW steps, i.e. 41 valid codes, against a secret
+    // this suite mints fresh on every run. The chance one of them really is
+    // "000000" is about 41 in a million: rare enough to hide for months, common
+    // enough to eventually turn CI red for no reason. It did exactly that.
+    const validNow = new Set(
+      Array.from({ length: 41 }, (_, i) =>
+        totp.generate({ timestamp: Date.now() + (i - 20) * 30_000 }),
+      ),
+    );
+    let candidate = 0;
+    let wrong = "000000";
+    while (validNow.has(wrong)) {
+      candidate += 1;
+      wrong = String(candidate).padStart(6, "0");
+    }
+
+    expect(totpDriftSeconds(secret, wrong)).toBeNull();
     expect(totpDriftSeconds(secret, "13")).toBeNull();
   });
 
