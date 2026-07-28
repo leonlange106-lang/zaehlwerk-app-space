@@ -142,12 +142,17 @@ services:
       retries: 3
       start_period: 40s
 
-  # One-shot helper that runs `prisma db push` against the DB volume. Built from
+  # One-shot helper that applies MIGRATIONS against the DB volume. Built from
   # the BUILDER stage (which has the Prisma CLI + schema, unlike the slim
   # runner). scripts/update.sh runs it via `docker compose run` so the build
   # goes through Compose's BuildKit — a plain `docker build` here uses the
   # legacy builder (no buildx plugin in the container) and chokes on the
   # Dockerfile's cache mounts. The "tools" profile keeps `up` from starting it.
+  #
+  # Frueher `prisma db push`: das glich die Datenbank dem Schema an, ohne
+  # Historie und ohne zu sagen, was dabei verschwindet. `db:deploy` sichert
+  # zuerst, stempelt bestehende Installationen auf die Baseline und spielt dann
+  # nur die fehlenden Schritte ein (packages/database/scripts/deploy-migrations.sh).
   db-migrate:
     profiles: ["tools"]
     build:
@@ -159,7 +164,7 @@ services:
       DATABASE_URL: file:/data/zaehlwerk.db
     volumes:
       - zaehlwerk-db:/data
-    command: ["sh", "-c", "cd packages/database && pnpm db:push"]
+    command: ["sh", "-c", "cd packages/database && pnpm db:deploy"]
 
   # TLS-Terminierung. Erst hinter HTTPS laeuft das Session-Cookie nicht mehr im
   # Klartext durchs LAN — und `secure`-Cookies (2FA-Challenge) funktionieren
