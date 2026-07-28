@@ -16,15 +16,22 @@
  *
  * Beide Fehler wurden von Hand gefunden. Genau das automatisiert diese Datei.
  *
- * Bewusst ohne Test-Framework und ohne Prisma Client: Der Sinn ist, die
- * Migrationen so anzuwenden, wie der Deploy es tut — mit der CLI, gegen eine
- * Datei — und danach mit rohem SQL nachzusehen. Ein ORM dazwischen prüfte die
- * Sicht des ORM, nicht den Zustand der Datenbank.
+ * Bewusst ohne Test-Framework und mit ROHEM SQL: Der Sinn ist, die Migrationen
+ * so anzuwenden, wie der Deploy es tut — mit der Prisma-CLI, gegen eine Datei —
+ * und danach den Zustand der DATENBANK anzusehen. Über die Modelle des Clients
+ * zu lesen prüfte die Sicht des ORM, nicht die Tabellen.
+ *
+ * Der Client dient hier nur als Treiber (`$queryRawUnsafe`). `node:sqlite` wäre
+ * naheliegender, gibt es aber erst ab Node 22 — und dieses Projekt läuft auf
+ * Node 20, im Container wie in CI. Die Prüfung darf nicht auf einer anderen
+ * Laufzeit stattfinden als die Anwendung.
  */
 
 import { execFileSync } from "node:child_process";
-import { DatabaseSync } from "node:sqlite";
 import { mkdtempSync, rmSync, readdirSync } from "node:fs";
+// Der generierte Client liegt neben dem Schema (`generator.output`), nicht
+// unter @prisma/client — der Standardpfad meldet sonst „did not initialize yet".
+import { PrismaClient } from "../generated/client/index.js";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -54,60 +61,68 @@ function migrationNames() {
     .sort();
 }
 
-function deploy(dbPath, { upTo } = {}) {
-  // `upTo` gibt es in Prisma nicht. Um einen Zwischenstand herzustellen, wird
-  // stattdessen jede Migration bis dorthin einzeln als SQL eingespielt und
-  // danach als angewendet gestempelt — genau das, was `migrate deploy` tut,
-  // nur haltbar in der Mitte.
-  const env = { ...process.env, DATABASE_URL: `file:${dbPath}` };
-  if (!upTo) {
-    execFileSync("pnpm", ["exec", "prisma", "migrate", "deploy"], {
-      cwd: PACKAGE_ROOT,
-      env,
-      stdio: "pipe",
-    });
-    return;
-  }
-
-  const names = migrationNames();
-  const stopAt = names.indexOf(upTo);
-  if (stopAt === -1) throw new Error(`Unbekannte Migration: ${upTo}`);
-
-  const db = new DatabaseSync(dbPath);
-  db.exec(`CREATE TABLE IF NOT EXISTS "_prisma_migrations" (
-    "id" TEXT PRIMARY KEY NOT NULL,
-    "checksum" TEXT NOT NULL,
-    "finished_at" DATETIME,
-    "migration_name" TEXT NOT NULL,
-    "logs" TEXT,
-    "rolled_back_at" DATETIME,
-    "started_at" DATETIME NOT NULL DEFAULT current_timestamp,
-    "applied_steps_count" INTEGER UNSIGNED NOT NULL DEFAULT 0
-  )`);
-
-  for (const name of names.slice(0, stopAt)) {
-    const sql = readMigrationSql(name);
-    db.exec(sql);
-    db.prepare(
-      `INSERT INTO "_prisma_migrations"
-       ("id","checksum","finished_at","migration_name","started_at","applied_steps_count")
-       VALUES (?, 'test', current_timestamp, ?, current_timestamp, 1)`,
-    ).run(`test-${name}`, name);
-  }
-  db.close();
-}
-
-function readMigrationSql(name) {
-  return execFileSync("cat", [path.join(MIGRATIONS_DIR, name, "migration.sql")], {
+function prismaCli(args, extraEnv = {}) {
+  return execFileSync("pnpm", ["exec", "prisma", ...args], {
+    cwd: PACKAGE_ROOT,
+    env: { ...process.env, ...extraEnv },
+    stdio: "pipe",
     encoding: "utf8",
   });
 }
 
-function withTempDb(fn) {
+function deploy(dbPath, { upTo } = {}) {
+  const url = `file:${dbPath}`;
+  if (!upTo) {
+    prismaCli(["migrate", "deploy"], { DATABASE_URL: url });
+    return;
+  }
+
+  // `upTo` gibt es in Prisma nicht. Um einen Zwischenstand herzustellen, wird
+  // jede Migration bis dorthin einzeln eingespielt und danach als angewendet
+  // gestempelt — derselbe Weg, den `deploy-migrations.sh` fuer den Einstieg in
+  // eine bestehende Installation benutzt.
+  const names = migrationNames();
+  const stopAt = names.indexOf(upTo);
+  if (stopAt === -1) throw new Error(`Unbekannte Migration: ${upTo}`);
+
+  for (const name of names.slice(0, stopAt)) {
+    prismaCli([
+      "db",
+      "execute",
+      "--file",
+      path.join(MIGRATIONS_DIR, name, "migration.sql"),
+      "--url",
+      url,
+    ]);
+    prismaCli(["migrate", "resolve", "--applied", name], { DATABASE_URL: url });
+  }
+}
+
+/** Rohes SQL gegen die Datei — der Client ist hier nur der Treiber. */
+async function query(dbPath, sql) {
+  const client = new PrismaClient({ datasourceUrl: `file:${dbPath}` });
+  try {
+    return await client.$queryRawUnsafe(sql);
+  } finally {
+    await client.$disconnect();
+  }
+}
+
+/** Wie `query`, aber fuer schreibende Anweisungen (Testdaten anlegen). */
+async function execute(dbPath, sql, params = []) {
+  const client = new PrismaClient({ datasourceUrl: `file:${dbPath}` });
+  try {
+    await client.$executeRawUnsafe(sql, ...params);
+  } finally {
+    await client.$disconnect();
+  }
+}
+
+async function withTempDb(fn) {
   const dir = mkdtempSync(path.join(tmpdir(), "zw-migrate-"));
   const dbPath = path.join(dir, "test.db");
   try {
-    return fn(dbPath);
+    return await fn(dbPath);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -118,71 +133,76 @@ const ms = (iso) => new Date(iso).getTime();
 // ── Fall 1: leere Datenbank ────────────────────────────────────────────────
 // Der einfachste Fall, und der einzige, den ein Deploy auf einer neuen Instanz
 // je sieht. Er beweist nicht viel, aber sein Fehlschlag ist eindeutig.
-function testFreshDatabase() {
+async function testFreshDatabase() {
   console.log("\nLeere Datenbank");
-  withTempDb((dbPath) => {
+  await withTempDb(async (dbPath) => {
     deploy(dbPath);
-    const db = new DatabaseSync(dbPath);
-    const tables = db
-      .prepare("SELECT name FROM sqlite_master WHERE type='table'")
-      .all()
-      .map((row) => row.name);
+
+    const tables = (
+      await query(dbPath, "SELECT name FROM sqlite_master WHERE type='table'")
+    ).map((row) => row.name);
 
     for (const expected of ["zaehler", "ablesungen", "meter_register", "umrechnungsfaktor"]) {
       check(`Tabelle ${expected} vorhanden`, tables.includes(expected));
     }
 
-    const applied = db
-      .prepare("SELECT COUNT(*) AS c FROM _prisma_migrations WHERE finished_at IS NOT NULL")
-      .get().c;
-    check("alle Migrationen als angewendet vermerkt", applied === migrationNames().length,
-      `${applied} von ${migrationNames().length}`);
-    db.close();
+    const applied = Number(
+      (await query(dbPath, "SELECT COUNT(*) AS c FROM _prisma_migrations WHERE finished_at IS NOT NULL"))[0].c,
+    );
+    check(
+      "alle Migrationen als angewendet vermerkt",
+      applied === migrationNames().length,
+      `${applied} von ${migrationNames().length}`,
+    );
   });
 }
 
 // ── Fall 2: Bestand mit Daten ──────────────────────────────────────────────
 // Der Fall, der zählt. Die Datenbank wird auf den Stand VOR den datenverändernden
 // Migrationen gebracht, mit Zeilen gefüllt und dann hochgezogen.
-function testExistingData() {
+async function testExistingData() {
   console.log("\nBestehende Installation mit Daten");
-  withTempDb((dbPath) => {
+  await withTempDb(async (dbPath) => {
     // Stand direkt nach der Baseline — so sah jede Installation vor v3 aus.
     deploy(dbPath, { upTo: migrationNames()[1] });
 
-    const db = new DatabaseSync(dbPath);
     const now = Date.now();
-    const insertZaehler = db.prepare(
-      `INSERT INTO zaehler
-       (id,name,kategorie,einheit,farbe,icon,aktiv,sortIndex,ableseIntervallTage,createdAt,updatedAt)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-    );
-    insertZaehler.run("gas-alt", "Gas alt", "GAS", "m3", "#fff", "flame", 1, 0, 0, now, now);
-    insertZaehler.run("gas-neu", "Gas neu", "GAS", "m3", "#fff", "flame", 1, 0, 0, now, now);
-    insertZaehler.run("strom", "Strom", "STROM", "kWh", "#fff", "bolt", 1, 0, 0, now, now);
+    for (const [id, name, kategorie, einheit] of [
+      ["gas-alt", "Gas alt", "GAS", "m3"],
+      ["gas-neu", "Gas neu", "GAS", "m3"],
+      ["strom", "Strom", "STROM", "kWh"],
+    ]) {
+      await execute(
+        dbPath,
+        `INSERT INTO zaehler
+         (id,name,kategorie,einheit,farbe,icon,aktiv,sortIndex,ableseIntervallTage,createdAt,updatedAt)
+         VALUES (?,?,?,?,'#fff','flame',1,0,0,?,?)`,
+        [id, name, kategorie, einheit, now, now],
+      );
+    }
 
-    const insertAblesung = db.prepare(
-      `INSERT INTO ablesungen
-       (id,zaehlerId,datum,wert,zaehlerGetauscht,quelle,istAbgerechnet,createdAt)
-       VALUES (?,?,?,?,?,?,?,?)`,
-    );
     // Eine Ablesung VOR 2021 — der Fall, an dem die Faktor-Migration hing.
-    insertAblesung.run("a1", "gas-alt", ms("2019-05-01"), 100, 0, "manuell", 0, now);
-    insertAblesung.run("a2", "gas-alt", ms("2020-05-01"), 250, 0, "manuell", 0, now);
-    insertAblesung.run("a3", "gas-neu", ms("2024-05-01"), 200, 0, "manuell", 0, now);
-    insertAblesung.run("a4", "strom", ms("2024-05-01"), 5000, 0, "manuell", 0, now);
-    db.close();
+    for (const [id, zaehlerId, iso, wert] of [
+      ["a1", "gas-alt", "2019-05-01", 100],
+      ["a2", "gas-alt", "2020-05-01", 250],
+      ["a3", "gas-neu", "2024-05-01", 200],
+      ["a4", "strom", "2024-05-01", 5000],
+    ]) {
+      await execute(
+        dbPath,
+        `INSERT INTO ablesungen
+         (id,zaehlerId,datum,wert,zaehlerGetauscht,quelle,istAbgerechnet,createdAt)
+         VALUES (?,?,?,?,0,'manuell',0,?)`,
+        [id, zaehlerId, ms(iso), wert, now],
+      );
+    }
 
     deploy(dbPath);
 
-    const after = new DatabaseSync(dbPath);
-
     // Keine Ablesung darf sich verändert haben. Das ist die Zusage, die jede
     // dieser Migrationen gibt, und die einzige, deren Bruch niemand bemerkt.
-    const werte = after
-      .prepare("SELECT id, wert, datum FROM ablesungen ORDER BY id")
-      .all()
-      .map((row) => `${row.id}:${row.wert}@${row.datum}`)
+    const werte = (await query(dbPath, "SELECT id, wert, datum FROM ablesungen ORDER BY id"))
+      .map((row) => `${row.id}:${row.wert}@${Number(row.datum)}`)
       .join(",");
     check(
       "keine Ablesung veraendert",
@@ -197,27 +217,30 @@ function testExistingData() {
     );
 
     // Jeder Zähler bekommt sein Standardregister, jede Ablesung den Bezug.
-    const register = after
-      .prepare("SELECT zaehlerId, obisCode, richtung FROM meter_register ORDER BY zaehlerId")
-      .all();
+    const register = await query(
+      dbPath,
+      "SELECT zaehlerId, obisCode, richtung FROM meter_register ORDER BY zaehlerId",
+    );
     check("je Zaehler ein Standardregister", register.length === 3, JSON.stringify(register));
     check(
       "alle Standardregister sind Bezug 1.8.0",
       register.every((row) => row.obisCode === "1.8.0" && row.richtung === "BEZUG"),
     );
 
-    const ohneRegister = after
-      .prepare("SELECT COUNT(*) AS c FROM ablesungen WHERE registerId IS NULL")
-      .get().c;
+    const ohneRegister = Number(
+      (await query(dbPath, "SELECT COUNT(*) AS c FROM ablesungen WHERE registerId IS NULL"))[0].c,
+    );
     check("keine Ablesung ohne Registerbezug", ohneRegister === 0, `${ohneRegister} ohne`);
 
     // Nur Gaszähler bekommen einen Umrechnungsfaktor.
-    const faktoren = after
-      .prepare("SELECT zaehlerId, gueltigAb, brennwert, zustandszahl FROM umrechnungsfaktor")
-      .all();
+    const faktoren = await query(
+      dbPath,
+      "SELECT zaehlerId, gueltigAb, brennwert, zustandszahl FROM umrechnungsfaktor",
+    );
     check("nur Gaszaehler bekommen einen Faktor", faktoren.length === 2, JSON.stringify(faktoren));
 
     const byMeter = Object.fromEntries(faktoren.map((row) => [row.zaehlerId, row]));
+    const gueltigAb = (id) => Number(byMeter[id]?.gueltigAb ?? new Date(byMeter[id]?.gueltigAb));
 
     // DER Fall, den die Handprüfung aufgedeckt hat: Ein Zähler mit einer
     // Ablesung von 2019 muss ab 2019 gedeckt sein, nicht erst ab 2021 — sonst
@@ -225,13 +248,13 @@ function testExistingData() {
     // eine Migration, die ausdrücklich nichts verändern soll.
     check(
       "Faktor deckt auch Ablesungen VOR 2021",
-      byMeter["gas-alt"]?.gueltigAb === ms("2019-05-01"),
-      `gueltigAb=${byMeter["gas-alt"]?.gueltigAb} (erwartet ${ms("2019-05-01")})`,
+      gueltigAb("gas-alt") === ms("2019-05-01"),
+      `gueltigAb=${gueltigAb("gas-alt")} (erwartet ${ms("2019-05-01")})`,
     );
     check(
       "Zaehler ohne alte Ablesungen starten beim Stichtag",
-      byMeter["gas-neu"]?.gueltigAb === ms("2021-01-01T00:00:00Z"),
-      `gueltigAb=${byMeter["gas-neu"]?.gueltigAb}`,
+      gueltigAb("gas-neu") === ms("2021-01-01T00:00:00Z"),
+      `gueltigAb=${gueltigAb("gas-neu")}`,
     );
     check(
       "Faktor uebernimmt die bisherigen Werte unveraendert",
@@ -244,59 +267,54 @@ function testExistingData() {
     // Stand, auf dem eine spaetere Migration noch fehlt; sie soll dann das
     // pruefen, was existiert, statt an einer Spalte zu scheitern, die es noch
     // nicht gibt.
-    const spalten = after
-      .prepare("SELECT name FROM pragma_table_info('ablesungen')")
-      .all()
-      .map((row) => row.name);
+    const spalten = (await query(dbPath, "SELECT name FROM pragma_table_info('ablesungen')")).map(
+      (row) => row.name,
+    );
     if (spalten.includes("geloeschtAm")) {
-      const geloescht = after
-        .prepare("SELECT COUNT(*) AS c FROM ablesungen WHERE geloeschtAm IS NOT NULL")
-        .get().c;
+      const geloescht = Number(
+        (await query(dbPath, "SELECT COUNT(*) AS c FROM ablesungen WHERE geloeschtAm IS NOT NULL"))[0].c,
+      );
       check("keine Ablesung gilt nach der Migration als geloescht", geloescht === 0);
     }
-
-    after.close();
   });
 }
 
 // ── Fall 3: zweimal anwenden ───────────────────────────────────────────────
-// Ein Deploy kann abbrechen und wiederholt werden. Läuft eine
-// Daten-Migration dabei zweimal, entstehen doppelte Zeilen — und die fallen
-// erst auf, wenn eine Summe nicht mehr stimmt.
-function testIdempotence() {
+// Ein Deploy kann abbrechen und wiederholt werden. Läuft eine Daten-Migration
+// dabei zweimal, entstehen doppelte Zeilen — und die fallen erst auf, wenn eine
+// Summe nicht mehr stimmt.
+async function testIdempotence() {
   console.log("\nZweimal anwenden");
-  withTempDb((dbPath) => {
+  await withTempDb(async (dbPath) => {
     deploy(dbPath, { upTo: migrationNames()[1] });
 
-    const db = new DatabaseSync(dbPath);
     const now = Date.now();
-    db.prepare(
+    await execute(
+      dbPath,
       `INSERT INTO zaehler
        (id,name,kategorie,einheit,farbe,icon,aktiv,sortIndex,ableseIntervallTage,createdAt,updatedAt)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-    ).run("gas-1", "Gas", "GAS", "m3", "#fff", "flame", 1, 0, 0, now, now);
-    db.close();
+       VALUES ('gas-1','Gas','GAS','m3','#fff','flame',1,0,0,?,?)`,
+      [now, now],
+    );
 
     deploy(dbPath);
     deploy(dbPath); // der zweite Lauf darf nichts mehr tun
 
-    const after = new DatabaseSync(dbPath);
-    check(
-      "kein doppeltes Register",
-      after.prepare("SELECT COUNT(*) AS c FROM meter_register").get().c === 1,
+    const register = Number(
+      (await query(dbPath, "SELECT COUNT(*) AS c FROM meter_register"))[0].c,
     );
-    check(
-      "kein doppelter Faktor",
-      after.prepare("SELECT COUNT(*) AS c FROM umrechnungsfaktor").get().c === 1,
+    const faktoren = Number(
+      (await query(dbPath, "SELECT COUNT(*) AS c FROM umrechnungsfaktor"))[0].c,
     );
-    after.close();
+    check("kein doppeltes Register", register === 1, `${register}`);
+    check("kein doppelter Faktor", faktoren === 1, `${faktoren}`);
   });
 }
 
 console.log("Migrationen gegen echte Datenbestaende pruefen");
-testFreshDatabase();
-testExistingData();
-testIdempotence();
+await testFreshDatabase();
+await testExistingData();
+await testIdempotence();
 
 console.log(`\n${checks - failures} von ${checks} Pruefungen bestanden.`);
 if (failures > 0) {
