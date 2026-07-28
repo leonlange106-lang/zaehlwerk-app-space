@@ -3,7 +3,7 @@ import {
   type ConsumptionInputReading,
 } from "./consumption";
 import type { EnergyCategoryValue } from "./categories";
-import { gasM3ToKwh } from "./gas";
+import { convertGasToKwh, type GasFactorInput } from "./gas";
 import { calculateTariffCost, pickTariffForDate, type TariffInput } from "./tariff";
 
 // Verbrauchs-Hochrechnung auf ein Jahr.
@@ -128,6 +128,15 @@ export interface ConsumptionProjectionInput {
   kategorie: EnergyCategoryValue;
   einheit: string;
   tarife?: TariffInput[];
+  /**
+   * Gepflegte Umrechnungsfaktoren (nur Gas).
+   *
+   * Fehlen sie, bleiben die hochgerechneten KOSTEN leer. Das ist Absicht: Der
+   * Brennwert aendert sich monatlich, und mit einem Wert von 2021 zu rechnen
+   * ergaebe eine Zahl, die aussieht wie eine Schaetzung aus Daten, aber eine
+   * Schaetzung aus einer Annahme ist.
+   */
+  gasFaktoren?: GasFactorInput[];
   method?: ProjectionMethod;
   /** Referenzzeitpunkt („jetzt"); Default: aktuelles Datum. */
   now?: Date;
@@ -169,6 +178,7 @@ function tariffCostFor(
   at: Date,
   consumption: number,
   isGas: boolean,
+  gasFaktoren?: GasFactorInput[],
 ): number | null {
   if (!tarife || tarife.length === 0) return null;
   const tarif = pickTariffForDate(
@@ -176,8 +186,18 @@ function tariffCostFor(
     at,
   );
   if (!tarif) return null;
-  const verbrauch = isGas ? gasM3ToKwh(consumption) : consumption;
-  return calculateTariffCost(tarif, verbrauch, 365);
+
+  if (!isGas) return calculateTariffCost(tarif, consumption, 365);
+
+  // Die Hochrechnung blickt ein Jahr zurueck — genau der Zeitraum, ueber den
+  // sich der Brennwert mehrfach geaendert hat. Ihn faktorweise umzurechnen ist
+  // deshalb kein Detail, sondern der Unterschied zwischen einer Schaetzung aus
+  // Daten und einer aus einer Annahme von 2021.
+  const jahresBeginn = new Date(at.getTime() - YEAR_MS);
+  const converted = convertGasToKwh(consumption, jahresBeginn, at, gasFaktoren ?? []);
+  // Kein Faktor, keine Kostenzahl. Siehe `gasFaktoren` oben.
+  if (converted.kwh === null) return null;
+  return calculateTariffCost(tarif, converted.kwh, 365);
 }
 
 /**
@@ -231,10 +251,18 @@ export function projectAnnualConsumption(input: ConsumptionProjectionInput): Con
     prev.coveredWeight > 0 ? (prev.consumption * prevWeight) / prev.coveredWeight : null;
 
   const projectedAnnualCost =
-    projectedAnnual !== null ? tariffCostFor(input.tarife, anchor, projectedAnnual, isGas) : null;
+    projectedAnnual !== null
+      ? tariffCostFor(input.tarife, anchor, projectedAnnual, isGas, input.gasFaktoren)
+      : null;
   const previousYearCost =
     previousYearConsumption !== null
-      ? tariffCostFor(input.tarife, new Date(anchorMs - YEAR_MS), previousYearConsumption, isGas)
+      ? tariffCostFor(
+          input.tarife,
+          new Date(anchorMs - YEAR_MS),
+          previousYearConsumption,
+          isGas,
+          input.gasFaktoren,
+        )
       : null;
 
   const deltaConsumptionPct =

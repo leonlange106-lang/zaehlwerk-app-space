@@ -32,6 +32,7 @@ export async function GET(request: NextRequest) {
       // nichts, worauf sie zeigt — beim Import fiele ein Zweirichtungszaehler
       // wieder in eine einzige Reihe zusammen.
       register: { orderBy: { sortIndex: "asc" } },
+      umrechnungsfaktoren: { orderBy: { gueltigAb: "asc" } },
       location: true,
     },
   });
@@ -40,13 +41,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Zähler nicht gefunden." }, { status: 404 });
   }
 
-  const { ablesungen, tarife, register, location, ...meterCore } = zaehler;
+  const { ablesungen, tarife, register, umrechnungsfaktoren, location, ...meterCore } = zaehler;
   const payload = {
     app: BACKUP_APP_ID,
     kind: "meter-export" as const,
     schemaVersion: BACKUP_SCHEMA_VERSION,
     generatedAt: new Date().toISOString(),
-    data: { zaehler: meterCore, register, ablesungen, tarife, location },
+    data: { zaehler: meterCore, register, umrechnungsfaktoren, ablesungen, tarife, location },
   };
 
   const datum = payload.generatedAt.slice(0, 10);

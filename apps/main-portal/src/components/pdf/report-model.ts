@@ -3,10 +3,12 @@ import {
   calculateTariffCost,
   computeConsumptionStats,
   pickTariffForDate,
+  convertGasToKwh,
   GAS_BRENNWERT,
   GAS_KWH_FACTOR,
   GAS_ZUSTANDSZAHL,
   type EnergyCategoryValue,
+  type GasFactorInput,
   type TariffInput,
 } from "@zaehlwerk/database/shared";
 
@@ -59,6 +61,15 @@ export interface ReportZaehlerInput {
   ablesungen: ReportReadingInput[];
   /** Hinterlegte Tarife — für die Kostenberechnung, wenn kein Betrag erfasst ist. */
   tarife?: TariffInput[];
+  /**
+   * Gepflegte Gas-Umrechnungsfaktoren.
+   *
+   * Fehlen sie ganz, greift der feste Faktor von 2021 — der Bericht sagt das
+   * dann in der Fußzeile. Fehlt einer nur für einen TEIL des Zeitraums, bleibt
+   * die kWh-Zahl dieses Intervalls leer: In einem PDF, das jemand zur
+   * Abrechnung nimmt, ist eine Lücke besser als eine geratene Zahl.
+   */
+  umrechnungsfaktoren?: GasFactorInput[];
 }
 
 /** Eine Sparten-Zelle einer Datums-Zeile (Intervall, das an diesem Datum endet). */
@@ -102,8 +113,11 @@ export interface YearlyReportData {
   rows: ReportRow[];
   /** Namen der als Spalte verwendeten Primärzähler (für eine dezente Fußzeile). */
   columns: { strom: string | null; gas: string | null; wasser: string | null };
+  /** Der feste Notnagel-Faktor — nur noch für Zähler ohne gepflegten Faktor. */
   gasBrennwert: number;
   gasZustandszahl: number;
+  /** Die tatsächlich verwendeten Faktoren mit ihrem Zeitraum. */
+  gasFaktoren: Array<{ von: string; bis: string | null; brennwert: number; zustandszahl: number }>;
   /** Weitere Zähler, die nicht in den drei Hauptspalten stehen. */
   extras: ReportMeterRow[];
 }
@@ -116,18 +130,44 @@ function toIsoDate(date: Date): string {
  * Kosten eines Intervalls: erfasster Betrag hat Vorrang, sonst tarifbasiert aus
  * den hinterlegten Tarifen berechnet. `null`, wenn beides fehlt.
  */
+/**
+ * m³ → kWh für den Bericht.
+ *
+ * Sind Faktoren gepflegt, wird faktorweise und über den Zeitraum gerechnet;
+ * fehlt für einen Teil davon einer, kommt `null` heraus — in einem PDF, das
+ * jemand zur Abrechnung nimmt, ist eine Lücke besser als eine geratene Zahl.
+ *
+ * Ist GAR KEIN Faktor gepflegt, greift der feste von 2021. Das ist der
+ * Notnagel, und die Fußzeile sagt dann, dass gerechnet wurde wie bisher —
+ * sonst verlöre jeder Bestandsbericht ohne Zutun seine kWh-Spalte.
+ */
+function gasKwh(
+  meter: ReportZaehlerInput,
+  m3: number,
+  from: Date | null,
+  to: Date,
+): number | null {
+  const factors = meter.umrechnungsfaktoren ?? [];
+  if (factors.length === 0) return m3 * GAS_KWH_FACTOR;
+  return convertGasToKwh(m3, from, to, factors).kwh;
+}
+
 function intervalCost(
   meter: ReportZaehlerInput,
   amount: number | null,
   days: number,
   endDate: Date,
   recorded: number | null,
+  startDate: Date | null = null,
 ): number | null {
   if (recorded != null) return recorded;
   if (amount === null || !meter.tarife || meter.tarife.length === 0) return null;
   const tarif = pickTariffForDate(meter.tarife, endDate);
   if (!tarif) return null;
-  const verbrauch = kategorieToSparte(meter.kategorie) === "Gas" ? amount * GAS_KWH_FACTOR : amount;
+  const isGas = kategorieToSparte(meter.kategorie) === "Gas";
+  const verbrauch = isGas ? gasKwh(meter, amount, startDate, endDate) : amount;
+  // Ohne umrechenbaren Verbrauch keine Kostenzahl.
+  if (verbrauch === null) return null;
   return calculateTariffCost(tarif, verbrauch, days);
 }
 
@@ -165,7 +205,9 @@ function buildCellMap(meter: ReportZaehlerInput | undefined, sparte: Sparte): Ma
     map.set(toIsoDate(first.datum), {
       consumption: first.zaehlerGetauscht ? null : first.wert,
       consumptionKwh:
-        sparte === "Gas" && !first.zaehlerGetauscht ? first.wert * GAS_KWH_FACTOR : null,
+        sparte === "Gas" && !first.zaehlerGetauscht
+          ? gasKwh(meter, first.wert, null, first.datum)
+          : null,
       days: 0,
       cost: first.kosten,
       swap: first.zaehlerGetauscht,
@@ -209,9 +251,12 @@ function buildCellMap(meter: ReportZaehlerInput | undefined, sparte: Sparte): Ma
 
     map.set(toIsoDate(ending.datum), {
       consumption: amount,
-      consumptionKwh: sparte === "Gas" && amount !== null ? amount * GAS_KWH_FACTOR : null,
+      consumptionKwh:
+        sparte === "Gas" && amount !== null
+          ? gasKwh(meter, amount, interval.from, ending.datum)
+          : null,
       days,
-      cost: intervalCost(meter, amount, days, ending.datum, ending.kosten),
+      cost: intervalCost(meter, amount, days, ending.datum, ending.kosten, interval.from),
       swap: false,
     });
 
@@ -233,7 +278,14 @@ function buildMeterRow(zaehler: ReportZaehlerInput): ReportMeterRow {
   const totalCost = intervals.reduce((sum, interval) => {
     const ending = byReadingId.get(interval.toReadingId);
     if (!ending) return sum;
-    const cost = intervalCost(zaehler, interval.amount, interval.days, ending.datum, ending.kosten);
+    const cost = intervalCost(
+      zaehler,
+      interval.amount,
+      interval.days,
+      ending.datum,
+      ending.kosten,
+      interval.from,
+    );
     return sum + (cost ?? 0);
   }, 0);
 
@@ -243,7 +295,18 @@ function buildMeterRow(zaehler: ReportZaehlerInput): ReportMeterRow {
     sparte,
     einheit: zaehler.einheit,
     totalConsumption: stats.total,
-    totalConsumptionKwh: sparte === "Gas" ? stats.total * GAS_KWH_FACTOR : null,
+    // Die Jahressumme ueber den GANZEN erfassten Zeitraum umrechnen — sonst
+    // stimmte sie nicht mit der Summe der Zeilen ueberein, die jede fuer sich
+    // faktorweise gerechnet wurde.
+    totalConsumptionKwh:
+      sparte === "Gas"
+        ? gasKwh(
+            zaehler,
+            stats.total,
+            ascending[0]?.datum ?? null,
+            ascending[ascending.length - 1]?.datum ?? new Date(),
+          )
+        : null,
     avgPerDay: stats.avgPerDay,
     totalCost,
     hasImplausible: stats.hasImplausibleIntervals,
@@ -289,6 +352,32 @@ export function buildYearlyReport(
     columns: { strom: strom?.name ?? null, gas: gas?.name ?? null, wasser: wasser?.name ?? null },
     gasBrennwert: GAS_BRENNWERT,
     gasZustandszahl: GAS_ZUSTANDSZAHL,
+    // Jeder tatsaechlich gepflegte Faktor mit seinem Zeitraum. Die Fusszeile
+    // weist sie aus — bei Gas ist die Umrechnung ein Teil der Rechnung, und wer
+    // den Bericht spaeter gegen eine Jahresrechnung haelt, muss sehen koennen,
+    // mit welchen Zahlen gerechnet wurde.
+    gasFaktoren: zaehlerList
+      .filter((zaehler) => kategorieToSparte(zaehler.kategorie) === "Gas")
+      .flatMap((zaehler) => zaehler.umrechnungsfaktoren ?? [])
+      .map((faktor) => ({
+        von: toIsoDate(new Date(faktor.gueltigAb)),
+        bis: faktor.gueltigBis ? toIsoDate(new Date(faktor.gueltigBis)) : null,
+        brennwert: faktor.brennwert,
+        zustandszahl: faktor.zustandszahl,
+      }))
+      // Doppelte entfernen: Zwei Gaszaehler koennen denselben Faktor fuehren,
+      // und ihn zweimal in die Fusszeile zu schreiben verwirrt nur.
+      .filter(
+        (faktor, index, all) =>
+          all.findIndex(
+            (other) =>
+              other.von === faktor.von &&
+              other.bis === faktor.bis &&
+              other.brennwert === faktor.brennwert &&
+              other.zustandszahl === faktor.zustandszahl,
+          ) === index,
+      )
+      .sort((a, b) => a.von.localeCompare(b.von)),
     extras,
   };
 }

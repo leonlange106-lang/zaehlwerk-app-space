@@ -103,6 +103,57 @@ describe("Vollbackup", () => {
   });
 });
 
+describe("Gas-Umrechnungsfaktoren", () => {
+  const faktoren = [
+    {
+      id: "u-1",
+      zaehlerId: "z-1",
+      gueltigAb: "2026-01-01",
+      gueltigBis: "2026-01-31",
+      brennwert: 11.0,
+      zustandszahl: 0.96,
+      quelle: "Jahresrechnung 2026",
+    },
+  ];
+
+  it("traegt die Faktoren mit", () => {
+    // Dieselbe Lehre wie bei den Registern: Was das Backup nicht mittraegt, ist
+    // nach einem Restore fort — und die Gaskosten rechnen sich danach anders,
+    // ohne dass es jemand bemerkt.
+    const parsed = fullBackupSchema.parse({
+      ...envelope,
+      kind: "full-backup",
+      data: {
+        locations: [],
+        zaehler: [zaehler],
+        umrechnungsfaktoren: faktoren,
+        ablesungen: [],
+        tarife: [],
+      },
+    });
+    expect(parsed.data.umrechnungsfaktoren?.[0]?.brennwert).toBe(11.0);
+    expect(parsed.data.umrechnungsfaktoren?.[0]?.quelle).toBe("Jahresrechnung 2026");
+  });
+
+  it("bleibt fuer aeltere Dateien ohne Faktoren gueltig", () => {
+    const parsed = fullBackupSchema.parse({
+      ...envelope,
+      kind: "full-backup",
+      data: { locations: [], zaehler: [zaehler], ablesungen: [], tarife: [] },
+    });
+    expect(parsed.data.umrechnungsfaktoren).toBeUndefined();
+  });
+
+  it("traegt sie auch im Zaehler-Export mit", () => {
+    const parsed = meterExportSchema.parse({
+      ...envelope,
+      kind: "meter-export",
+      data: { zaehler, umrechnungsfaktoren: faktoren, ablesungen: [], tarife: [] },
+    });
+    expect(parsed.data.umrechnungsfaktoren).toHaveLength(1);
+  });
+});
+
 describe("Zaehler-Export", () => {
   it("traegt die Register ebenfalls mit", () => {
     const parsed = meterExportSchema.parse({

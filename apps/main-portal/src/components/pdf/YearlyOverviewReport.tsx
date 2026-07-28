@@ -316,9 +316,24 @@ export function YearlyOverviewReport({ data }: { data: YearlyReportData }) {
               }))}
             />
 
+            {/* Bei Gas ist die Umrechnung ein Teil der Rechnung. Wer diesen
+                Bericht spaeter gegen eine Jahresrechnung haelt, muss sehen
+                koennen, mit welchen Zahlen gerechnet wurde — und ob sie
+                gepflegt oder angenommen waren. */}
             <Text style={styles.footnote}>
-              Gas-kWh = m³ × Brennwert ({num2.format(data.gasBrennwert)}) × Zustandszahl (
-              {num2.format(data.gasZustandszahl)}). Kosten vor dem 18.09.2001 in DM.
+              Gas-kWh = m³ × Brennwert × Zustandszahl.{" "}
+              {data.gasFaktoren.length > 0
+                ? `Verwendet: ${data.gasFaktoren
+                    .map(
+                      (faktor) =>
+                        `${num2.format(faktor.brennwert)} × ${num2.format(faktor.zustandszahl)} ` +
+                        `(ab ${faktor.von}${faktor.bis ? ` bis ${faktor.bis}` : ""})`,
+                    )
+                    .join("; ")}.`
+                : `Kein Faktor gepflegt — gerechnet mit der festen Annahme ${num2.format(
+                    data.gasBrennwert,
+                  )} × ${num2.format(data.gasZustandszahl)} (Stand 2021).`}{" "}
+              Kosten vor dem 18.09.2001 in DM.
               {data.columns.strom || data.columns.gas || data.columns.wasser
                 ? ` Zähler: Strom „${data.columns.strom ?? "–"}“, Gas „${data.columns.gas ?? "–"}“, Wasser „${data.columns.wasser ?? "–"}“.`
                 : ""}

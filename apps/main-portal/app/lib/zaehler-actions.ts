@@ -9,9 +9,12 @@ import {
   computeConsumptionStats,
   calculateConsumption,
   consumptionReadings,
+  findOverlappingGasFactor,
   prisma,
   projectAnnualConsumption,
   tarifCreateSchema,
+  umrechnungsfaktorCreateSchema,
+  umrechnungsfaktorUpdateSchema,
   zaehlerCreateSchema,
   zaehlerUpdateSchema,
   type ConsumptionProjection,
@@ -65,6 +68,9 @@ export async function getZaehlerById(id: string) {
       // Reihe eine eigene Meldung zu erzeugen.
       register: { orderBy: { sortIndex: "asc" } },
       tarife: { orderBy: { gueltigAb: "desc" } },
+      // Die Gas-Umrechnungsfaktoren. Ohne sie rechnet die Detailseite mit der
+      // festen Annahme von 2021 weiter — und weiss nicht, dass sie es tut.
+      umrechnungsfaktoren: { orderBy: { gueltigAb: "desc" } },
     },
   });
 }
@@ -133,6 +139,7 @@ export async function getProjectionSummary(): Promise<ProjectionSummaryEntry[]> 
       ablesungen: { orderBy: { datum: "asc" } },
       tarife: { orderBy: { gueltigAb: "asc" } },
       register: { orderBy: { sortIndex: "asc" } },
+      umrechnungsfaktoren: { orderBy: { gueltigAb: "asc" } },
     },
   });
 
@@ -148,6 +155,7 @@ export async function getProjectionSummary(): Promise<ProjectionSummaryEntry[]> 
       kategorie: zaehler.kategorie,
       einheit: zaehler.einheit,
       tarife: zaehler.tarife,
+      gasFaktoren: zaehler.umrechnungsfaktoren,
     }),
   }));
 }
@@ -428,5 +436,134 @@ export async function deleteAblesungAction(
   if (typeof zaehlerId === "string") revalidatePath(`/apps/zaehlwerk/zaehler/${zaehlerId}`);
   revalidatePath("/apps/zaehlwerk/zaehler");
   revalidatePath("/apps/zaehlwerk");
+  return { success: true };
+}
+
+
+// --- Gas-Umrechnungsfaktoren (ZW-02) ---------------------------------------
+
+/**
+ * Ueberschneidungen zurueckweisen, statt sie zu speichern.
+ *
+ * Zwei gueltige Faktoren zur selben Zeit heisst: Es entscheidet die Sortierung
+ * der Abfrage, welcher zaehlt. Die Kostenrechnung aenderte sich dann still,
+ * sobald jemand einen dritten anlegt und die Reihenfolge sich verschiebt.
+ */
+async function assertNoFactorOverlap(
+  zaehlerId: string,
+  candidate: { gueltigAb: Date; gueltigBis?: Date },
+  ignoreId?: string,
+): Promise<string | null> {
+  const existing = await prisma.umrechnungsfaktor.findMany({
+    where: { zaehlerId },
+    select: { id: true, gueltigAb: true, gueltigBis: true, brennwert: true, zustandszahl: true },
+  });
+  const clash = findOverlappingGasFactor(existing, candidate, ignoreId);
+  if (!clash) return null;
+
+  const bis = clash.gueltigBis
+    ? new Date(clash.gueltigBis).toLocaleDateString("de-DE")
+    : "auf Weiteres";
+  return (
+    "Der Zeitraum überschneidet sich mit einem bereits gepflegten Faktor " +
+    `(ab ${new Date(clash.gueltigAb).toLocaleDateString("de-DE")} bis ${bis}). ` +
+    "Bitte den bestehenden Zeitraum zuerst begrenzen."
+  );
+}
+
+function factorFormData(formData: FormData) {
+  const bisRaw = formData.get("gueltigBis");
+  return {
+    gueltigAb: formData.get("gueltigAb"),
+    gueltigBis: bisRaw ? bisRaw : undefined,
+    brennwert: formData.get("brennwert"),
+    zustandszahl: formData.get("zustandszahl"),
+    quelle: formData.get("quelle"),
+    notiz: formData.get("notiz"),
+  };
+}
+
+export async function createUmrechnungsfaktorAction(
+  _prevState: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  await assertAppAccess(APP_ID);
+  const parsed = umrechnungsfaktorCreateSchema.safeParse({
+    zaehlerId: formData.get("zaehlerId"),
+    ...factorFormData(formData),
+  });
+  if (!parsed.success) return invalidInput(parsed.error);
+
+  const overlap = await assertNoFactorOverlap(parsed.data.zaehlerId, parsed.data);
+  if (overlap) return { success: false, error: overlap };
+
+  try {
+    await prisma.umrechnungsfaktor.create({ data: parsed.data });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2003") {
+      return { success: false, error: "Der gewählte Zähler existiert nicht mehr." };
+    }
+    console.error("[createUmrechnungsfaktorAction]", error);
+    return { success: false, error: "Der Faktor konnte nicht gespeichert werden." };
+  }
+
+  revalidatePath(`/apps/zaehlwerk/zaehler/${parsed.data.zaehlerId}`);
+  return { success: true };
+}
+
+export async function updateUmrechnungsfaktorAction(
+  _prevState: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  await assertAppAccess(APP_ID);
+  const parsed = umrechnungsfaktorUpdateSchema.safeParse({
+    id: formData.get("id"),
+    ...factorFormData(formData),
+  });
+  if (!parsed.success) return invalidInput(parsed.error);
+
+  const { id, ...data } = parsed.data;
+  const current = await prisma.umrechnungsfaktor.findUnique({
+    where: { id },
+    select: { zaehlerId: true },
+  });
+  if (!current) return { success: false, error: "Dieser Faktor existiert nicht mehr." };
+
+  const overlap = await assertNoFactorOverlap(current.zaehlerId, data, id);
+  if (overlap) return { success: false, error: overlap };
+
+  try {
+    await prisma.umrechnungsfaktor.update({ where: { id }, data });
+  } catch (error) {
+    console.error("[updateUmrechnungsfaktorAction]", error);
+    return { success: false, error: "Der Faktor konnte nicht gespeichert werden." };
+  }
+
+  revalidatePath(`/apps/zaehlwerk/zaehler/${current.zaehlerId}`);
+  return { success: true };
+}
+
+export async function deleteUmrechnungsfaktorAction(
+  _prevState: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  await assertAppAccess(APP_ID);
+  const id = formData.get("id");
+  if (typeof id !== "string") return { success: false, error: "Ungültige Eingabe." };
+
+  const current = await prisma.umrechnungsfaktor.findUnique({
+    where: { id },
+    select: { zaehlerId: true },
+  });
+  if (!current) return { success: false, error: "Dieser Faktor existiert nicht mehr." };
+
+  try {
+    await prisma.umrechnungsfaktor.delete({ where: { id } });
+  } catch (error) {
+    console.error("[deleteUmrechnungsfaktorAction]", error);
+    return { success: false, error: "Der Faktor konnte nicht gelöscht werden." };
+  }
+
+  revalidatePath(`/apps/zaehlwerk/zaehler/${current.zaehlerId}`);
   return { success: true };
 }

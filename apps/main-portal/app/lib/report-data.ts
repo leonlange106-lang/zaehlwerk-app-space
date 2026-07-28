@@ -24,6 +24,7 @@ export async function getYearlyReportData(options: ReportOptions = {}): Promise<
       ablesungen: { orderBy: { datum: "asc" } },
       tarife: { orderBy: { gueltigAb: "asc" } },
       register: { orderBy: { sortIndex: "asc" } },
+      umrechnungsfaktoren: { orderBy: { gueltigAb: "asc" } },
     },
   });
 
