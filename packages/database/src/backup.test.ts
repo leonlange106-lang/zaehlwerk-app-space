@@ -103,6 +103,50 @@ describe("Vollbackup", () => {
   });
 });
 
+describe("Soft-Delete (ZW-03)", () => {
+  it("traegt den Papierkorb-Stempel mit", () => {
+    // Aus beiden Richtungen wichtig: Ohne ihn kaeme eine geloeschte Ablesung
+    // als vorhandene zurueck und veraenderte still jede Summe — oder der
+    // Papierkorb waere nach dem Restore leer und der Weg zurueck fort.
+    const parsed = fullBackupSchema.parse({
+      ...envelope,
+      kind: "full-backup",
+      data: {
+        locations: [],
+        zaehler: [zaehler],
+        ablesungen: [
+          {
+            id: "a-1",
+            zaehlerId: "z-1",
+            datum: "2026-06-01",
+            wert: 100,
+            geloeschtAm: "2026-06-02T10:00:00.000Z",
+            geloeschtVon: "leon@example.com",
+          },
+        ],
+        tarife: [],
+      },
+    });
+
+    expect(parsed.data.ablesungen[0]?.geloeschtAm).toBe("2026-06-02T10:00:00.000Z");
+    expect(parsed.data.ablesungen[0]?.geloeschtVon).toBe("leon@example.com");
+  });
+
+  it("liest eine aeltere Datei ohne diese Felder als vorhanden", () => {
+    const parsed = fullBackupSchema.parse({
+      ...envelope,
+      kind: "full-backup",
+      data: {
+        locations: [],
+        zaehler: [zaehler],
+        ablesungen: [{ id: "a-1", zaehlerId: "z-1", datum: "2025-01-01", wert: 100 }],
+        tarife: [],
+      },
+    });
+    expect(parsed.data.ablesungen[0]?.geloeschtAm).toBeUndefined();
+  });
+});
+
 describe("Gas-Umrechnungsfaktoren", () => {
   const faktoren = [
     {

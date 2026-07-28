@@ -4,6 +4,7 @@ import {
   calculateTariffCost,
   convertGasToKwh,
   groupReadingsByRegister,
+  NOT_DELETED,
   pickTariffForDate,
   prisma,
 } from "@zaehlwerk/database";
@@ -72,7 +73,7 @@ export async function GET(request: NextRequest) {
     where: ids ? { id: { in: ids } } : undefined,
     orderBy: [{ kategorie: "asc" }, { sortIndex: "asc" }],
     include: {
-      ablesungen: { orderBy: { datum: "asc" } },
+      ablesungen: { where: NOT_DELETED, orderBy: { datum: "asc" } },
       tarife: { orderBy: { gueltigAb: "asc" } },
       register: { orderBy: { sortIndex: "asc" } },
       umrechnungsfaktoren: { orderBy: { gueltigAb: "asc" } },

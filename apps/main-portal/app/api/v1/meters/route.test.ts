@@ -17,6 +17,9 @@ vi.mock("../../../lib/api-auth", () => ({
     }),
 }));
 vi.mock("@zaehlwerk/database", () => ({
+  // Der Soft-Delete-Filter kommt aus dem Datenpaket und wird von der Route
+  // gesetzt — ohne ihn im Mock schlaegt schon der Import fehl.
+  NOT_DELETED: { geloeschtAm: null },
   prisma: { zaehler: { findMany: zaehlerFindMany } },
 }));
 

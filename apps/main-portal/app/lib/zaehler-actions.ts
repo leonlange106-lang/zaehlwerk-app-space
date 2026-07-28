@@ -9,6 +9,8 @@ import {
   computeConsumptionStats,
   calculateConsumption,
   consumptionReadings,
+  NOT_DELETED,
+  ONLY_DELETED,
   findOverlappingGasFactor,
   prisma,
   projectAnnualConsumption,
@@ -22,6 +24,7 @@ import {
 } from "@zaehlwerk/database";
 import type { EnergyCategoryValue } from "@zaehlwerk/database/shared";
 import { assertAppAccess } from "./app-access";
+import { getSessionUser } from "./auth-helpers";
 import type { ActionState } from "./action-state";
 
 // Every export of a `"use server"` module is a directly addressable endpoint —
@@ -45,7 +48,7 @@ const queryZaehler = cache(async () =>
     orderBy: { sortIndex: "asc" },
     include: {
       location: true,
-      ablesungen: { orderBy: { datum: "asc" } },
+      ablesungen: { where: NOT_DELETED, orderBy: { datum: "asc" } },
       // Ohne die Register liefe jede Verbrauchsrechnung ueber die gemischte
       // Reihe eines Zweirichtungszaehlers — Bezug und Einspeisung ineinander.
       register: { orderBy: { sortIndex: "asc" } },
@@ -64,7 +67,7 @@ export async function getZaehlerById(id: string) {
     where: { id },
     include: {
       location: true,
-      ablesungen: { orderBy: { datum: "desc" } },
+      ablesungen: { where: NOT_DELETED, orderBy: { datum: "desc" } },
       // Die Register des Zaehlers — die Smart-Home-Vorlagen brauchen sie, um je
       // Reihe eine eigene Meldung zu erzeugen.
       register: { orderBy: { sortIndex: "asc" } },
@@ -84,6 +87,7 @@ export async function listLocations() {
 export async function listRecentAblesungen(limit = 6) {
   await assertAppAccess(APP_ID);
   return prisma.ablesung.findMany({
+    where: NOT_DELETED,
     orderBy: { datum: "desc" },
     take: limit,
     include: { zaehler: true },
@@ -137,7 +141,7 @@ export async function getProjectionSummary(): Promise<ProjectionSummaryEntry[]> 
     where: { aktiv: true },
     orderBy: [{ kategorie: "asc" }, { sortIndex: "asc" }],
     include: {
-      ablesungen: { orderBy: { datum: "asc" } },
+      ablesungen: { where: NOT_DELETED, orderBy: { datum: "asc" } },
       tarife: { orderBy: { gueltigAb: "asc" } },
       register: { orderBy: { sortIndex: "asc" } },
       umrechnungsfaktoren: { orderBy: { gueltigAb: "asc" } },
@@ -443,18 +447,41 @@ export async function updateAblesungAction(
 
   const { id, ...data } = parsed.data;
 
+  // Den VORHERIGEN Zustand festhalten, bevor er ueberschrieben wird. Das ist
+  // die eine Frage, die spaeter gestellt wird: "Warum sieht der Maerz anders
+  // aus als in Erinnerung?" Bislang liess sie sich nicht beantworten — eine
+  // korrigierte Ablesung sah aus wie eine, die schon immer so dastand.
+  const vorher = await prisma.ablesung.findUnique({
+    where: { id },
+    select: { wert: true, datum: true, kosten: true, notiz: true },
+  });
+  if (!vorher) return { success: false, error: "Diese Ablesung existiert nicht mehr." };
+
   try {
-    await prisma.ablesung.update({
-      where: { id },
-      data: {
-        datum: data.datum,
-        wert: data.wert,
-        kosten: data.kosten ?? null,
-        zaehlerGetauscht: data.zaehlerGetauscht,
-        startwertNeu: data.startwertNeu ?? null,
-        notiz: data.notiz ?? null,
-      },
-    });
+    await prisma.$transaction([
+      prisma.ablesung.update({
+        where: { id },
+        data: {
+          datum: data.datum,
+          wert: data.wert,
+          kosten: data.kosten ?? null,
+          zaehlerGetauscht: data.zaehlerGetauscht,
+          startwertNeu: data.startwertNeu ?? null,
+          notiz: data.notiz ?? null,
+        },
+      }),
+      prisma.ablesungAenderung.create({
+        data: {
+          ablesungId: id,
+          aktion: "aktualisiert",
+          akteur: await currentActorName(),
+          vorherWert: vorher.wert,
+          vorherDatum: vorher.datum,
+          vorherKosten: vorher.kosten,
+          vorherNotiz: vorher.notiz,
+        },
+      }),
+    ]);
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {
       return { success: false, error: "Diese Ablesung existiert nicht mehr." };
@@ -481,8 +508,37 @@ export async function deleteAblesungAction(
     return { success: false, error: "Ungültige Eingabe." };
   }
 
+  // Soft-Delete statt DELETE. Ein Zaehlerstand ist kein beliebiger Datensatz:
+  // Er ist ein Messwert von einem Zeitpunkt, der nicht wiederkommt. Wer
+  // versehentlich die falsche Zeile trifft, kann sie nicht neu ablesen — die
+  // Zahl staende nur noch auf einem Zettel oder nirgends.
+  const vorher = await prisma.ablesung.findUnique({
+    where: { id },
+    select: { wert: true, datum: true, kosten: true, notiz: true, geloeschtAm: true },
+  });
+  if (!vorher || vorher.geloeschtAm) {
+    return { success: false, error: "Diese Ablesung existiert nicht mehr." };
+  }
+
+  const akteur = await currentActorName();
   try {
-    await prisma.ablesung.delete({ where: { id } });
+    await prisma.$transaction([
+      prisma.ablesung.update({
+        where: { id },
+        data: { geloeschtAm: new Date(), geloeschtVon: akteur },
+      }),
+      prisma.ablesungAenderung.create({
+        data: {
+          ablesungId: id,
+          aktion: "geloescht",
+          akteur,
+          vorherWert: vorher.wert,
+          vorherDatum: vorher.datum,
+          vorherKosten: vorher.kosten,
+          vorherNotiz: vorher.notiz,
+        },
+      }),
+    ]);
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {
       return { success: false, error: "Diese Ablesung existiert nicht mehr." };
@@ -623,5 +679,118 @@ export async function deleteUmrechnungsfaktorAction(
   }
 
   revalidatePath(`/apps/zaehlwerk/zaehler/${current.zaehlerId}`);
+  return { success: true };
+}
+// --- Papierkorb (ZW-03) -----------------------------------------------------
+
+/**
+ * Wer gerade handelt — als Freitext.
+ *
+ * Freitext und keine Benutzer-Id, damit die Spur auch dann lesbar bleibt, wenn
+ * das Konto spaeter verschwindet. Eine Id, die auf niemanden mehr zeigt,
+ * beantwortet die Frage "wer war das" nicht.
+ */
+async function currentActorName(): Promise<string> {
+  const user = await getSessionUser();
+  return user?.email ?? "unbekannt";
+}
+
+/** Die geloeschten Ablesungen eines Zaehlers, juengste zuerst. */
+export async function listDeletedAblesungen(zaehlerId: string) {
+  await assertAppAccess(APP_ID);
+  return prisma.ablesung.findMany({
+    where: { zaehlerId, ...ONLY_DELETED },
+    orderBy: { geloeschtAm: "desc" },
+    select: {
+      id: true,
+      datum: true,
+      wert: true,
+      kosten: true,
+      notiz: true,
+      geloeschtAm: true,
+      geloeschtVon: true,
+    },
+  });
+}
+
+/**
+ * Eine geloeschte Ablesung zurueckholen.
+ *
+ * Der eigentliche Grund fuer den Soft-Delete: Ohne diesen Weg waere er nur
+ * eine teurere Art zu loeschen.
+ */
+export async function restoreAblesungAction(
+  _prevState: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  await assertAppAccess(APP_ID);
+  const id = formData.get("id");
+  if (typeof id !== "string" || id.length === 0) {
+    return { success: false, error: "Ungültige Eingabe." };
+  }
+
+  const eintrag = await prisma.ablesung.findUnique({
+    where: { id },
+    select: { zaehlerId: true, geloeschtAm: true },
+  });
+  if (!eintrag) return { success: false, error: "Diese Ablesung existiert nicht mehr." };
+  if (!eintrag.geloeschtAm) return { success: true }; // schon vorhanden
+
+  try {
+    await prisma.$transaction([
+      prisma.ablesung.update({
+        where: { id },
+        data: { geloeschtAm: null, geloeschtVon: null },
+      }),
+      prisma.ablesungAenderung.create({
+        data: { ablesungId: id, aktion: "wiederhergestellt", akteur: await currentActorName() },
+      }),
+    ]);
+  } catch (error) {
+    console.error("[restoreAblesungAction]", error);
+    return { success: false, error: "Die Ablesung konnte nicht wiederhergestellt werden." };
+  }
+
+  revalidatePath(`/apps/zaehlwerk/zaehler/${eintrag.zaehlerId}`);
+  revalidatePath("/apps/zaehlwerk/zaehler");
+  revalidatePath("/apps/zaehlwerk");
+  return { success: true };
+}
+
+/**
+ * Endgueltig entfernen — aus dem Papierkorb heraus, nie direkt.
+ *
+ * Der Umweg ist der Punkt: Ein versehentlicher Klick loescht nichts
+ * Unwiederbringliches mehr, und wer wirklich entfernen will, muss es zweimal
+ * sagen.
+ */
+export async function purgeAblesungAction(
+  _prevState: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  await assertAppAccess(APP_ID);
+  const id = formData.get("id");
+  if (typeof id !== "string" || id.length === 0) {
+    return { success: false, error: "Ungültige Eingabe." };
+  }
+
+  const eintrag = await prisma.ablesung.findUnique({
+    where: { id },
+    select: { zaehlerId: true, geloeschtAm: true },
+  });
+  if (!eintrag) return { success: false, error: "Diese Ablesung existiert nicht mehr." };
+  if (!eintrag.geloeschtAm) {
+    // Nur aus dem Papierkorb heraus. Sonst waere der Soft-Delete umgehbar.
+    return { success: false, error: "Diese Ablesung liegt nicht im Papierkorb." };
+  }
+
+  try {
+    await prisma.ablesung.delete({ where: { id } });
+  } catch (error) {
+    console.error("[purgeAblesungAction]", error);
+    return { success: false, error: "Die Ablesung konnte nicht entfernt werden." };
+  }
+
+  revalidatePath(`/apps/zaehlwerk/zaehler/${eintrag.zaehlerId}`);
   return { success: true };
 }

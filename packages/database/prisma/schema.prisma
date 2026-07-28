@@ -207,9 +207,9 @@ model MeterRegister {
 }
 
 model Ablesung {
-  id               String         @id @default(uuid())
+  id               String              @id @default(uuid())
   zaehlerId        String
-  zaehler          Zaehler        @relation(fields: [zaehlerId], references: [id], onDelete: Cascade)
+  zaehler          Zaehler             @relation(fields: [zaehlerId], references: [id], onDelete: Cascade)
   /// Das Register, zu dem dieser Stand gehört.
   ///
   /// **Optional, nicht verpflichtend** — und das ist eine bewusste Entscheidung,
@@ -219,19 +219,35 @@ model Ablesung {
   /// lassen. Ein fehlender Bezug wird gelesen als "das Standardregister des
   /// Zählers"; die Migration füllt alle bestehenden Zeilen.
   registerId       String?
-  register         MeterRegister? @relation(fields: [registerId], references: [id], onDelete: SetNull)
+  register         MeterRegister?      @relation(fields: [registerId], references: [id], onDelete: SetNull)
   datum            DateTime
   wert             Float
   kosten           Float?
   /// Markiert die erste Ablesung nach einem Zählertausch. Der Verbrauch bis
   /// hierhin berechnet sich dann aus `startwertNeu` statt aus der vorherigen
   /// Ablesung (die gehörte zum alten physischen Zähler).
-  zaehlerGetauscht Boolean        @default(false)
+  zaehlerGetauscht Boolean             @default(false)
   startwertNeu     Float?
   notiz            String?
-  quelle           String         @default("manual")
-  istAbgerechnet   Boolean        @default(false)
-  createdAt        DateTime       @default(now())
+  quelle           String              @default("manual")
+  istAbgerechnet   Boolean             @default(false)
+  /// Wann diese Ablesung gelöscht wurde. `null` = vorhanden.
+  ///
+  /// Soft-Delete statt DELETE, weil ein Zählerstand kein beliebiger Datensatz
+  /// ist: Er ist ein Messwert von einem Zeitpunkt, der nicht wiederkommt. Wer
+  /// versehentlich die falsche Zeile trifft, kann sie nicht neu ablesen — die
+  /// Zahl stünde nur noch auf einem Zettel oder nirgends.
+  ///
+  /// Optional und ohne Default, wie jede Spalte seit der Rollback-Regel: Eine
+  /// ältere Anwendung schreibt nach einem Rollback wieder ohne dieses Feld, und
+  /// `null` heißt dort dasselbe wie hier — vorhanden.
+  geloeschtAm      DateTime?
+  /// Wer gelöscht hat. Freitext, damit die Spur auch dann lesbar bleibt, wenn
+  /// das Benutzerkonto später verschwindet.
+  geloeschtVon     String?
+  createdAt        DateTime            @default(now())
+  /// Änderungen an dieser Ablesung, jüngste zuerst.
+  aenderungen      AblesungAenderung[]
 
   // Composite deckt die häufigste Query ab (`where zaehlerId orderBy datum`,
   // getZaehlerById/listZaehler) und dient als linkes Präfix auch für reine
@@ -243,7 +259,39 @@ model Ablesung {
   // Die Reihe EINES Registers, chronologisch — die Abfrage, auf der die
   // Verbrauchsrechnung je Register aufsetzt.
   @@index([registerId, datum])
+  // Die Standardabfrage ist jetzt "vorhandene Ablesungen dieses Zaehlers,
+  // chronologisch". Ohne diesen Index liefe sie ueber den vollen Bestand und
+  // siebte die geloeschten erst danach aus.
+  @@index([zaehlerId, geloeschtAm, datum])
   @@map("ablesungen")
+}
+
+/// Eine Änderung an einer Ablesung — wer, wann, was vorher galt.
+///
+/// Beantwortet die eine Frage, die später gestellt wird: „Warum sieht der März
+/// anders aus als in Erinnerung?" Bislang ließ sich das nicht beantworten — eine
+/// korrigierte Ablesung sah aus wie eine, die schon immer so dastand.
+///
+/// Nur der VORHERIGE Zustand wird festgehalten, nicht der neue: Der neue steht
+/// in der Ablesung selbst, und ihn zu doppeln hiesse, zwei Wahrheiten zu
+/// pflegen, von denen eine driftet.
+model AblesungAenderung {
+  id           String    @id @default(uuid())
+  ablesungId   String
+  ablesung     Ablesung  @relation(fields: [ablesungId], references: [id], onDelete: Cascade)
+  /// Was geschah: "aktualisiert", "geloescht", "wiederhergestellt".
+  aktion       String
+  /// Wer es tat. Freitext, s. `Ablesung.geloeschtVon`.
+  akteur       String
+  /// Der Wert VOR der Änderung.
+  vorherWert   Float?
+  vorherDatum  DateTime?
+  vorherKosten Float?
+  vorherNotiz  String?
+  createdAt    DateTime  @default(now())
+
+  @@index([ablesungId, createdAt])
+  @@map("ablesung_aenderungen")
 }
 
 /// Tarifperiode eines Zählers. Kosten werden daraus berechnet — siehe

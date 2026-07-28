@@ -1,4 +1,4 @@
-import { consumptionReadings, prisma } from "@zaehlwerk/database";
+import { consumptionReadings, NOT_DELETED, prisma } from "@zaehlwerk/database";
 import { buildYearlyReport, type ReportZaehlerInput, type YearlyReportData } from "@/src/components/pdf/report-model";
 
 export interface ReportOptions {
@@ -21,7 +21,7 @@ export async function getYearlyReportData(options: ReportOptions = {}): Promise<
     },
     orderBy: [{ kategorie: "asc" }, { sortIndex: "asc" }],
     include: {
-      ablesungen: { orderBy: { datum: "asc" } },
+      ablesungen: { where: NOT_DELETED, orderBy: { datum: "asc" } },
       tarife: { orderBy: { gueltigAb: "asc" } },
       register: { orderBy: { sortIndex: "asc" } },
       umrechnungsfaktoren: { orderBy: { gueltigAb: "asc" } },

@@ -18,3 +18,4 @@ export * from "./tariff";
 export * from "./projection";
 export * from "./obis";
 export * from "./registers";
+export * from "./soft-delete";

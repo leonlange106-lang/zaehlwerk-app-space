@@ -267,7 +267,12 @@ describe("POST /api/v1/readings — Register", () => {
     // 9000, die Einspeisung faengt bei 40 an. Ueber den ganzen Zaehler gerechnet
     // waere das ein negativer Verbrauch und der Stand wuerde abgelehnt.
     await POST(post({ meterId: METER, obisCode: "2.8.0", value: 40 }));
-    expect(ablesungFindMany.mock.calls[0][0].where).toEqual({ registerId: "reg-2.8.0" });
+    // `geloeschtAm: null` gehoert dazu: Ein geloeschter Stand darf die
+    // Plausibilitaet nicht mitentscheiden.
+    expect(ablesungFindMany.mock.calls[0][0].where).toEqual({
+      geloeschtAm: null,
+      registerId: "reg-2.8.0",
+    });
   });
 
   it("zaehlt registerlose Altstaende zum Bezug — der Fall nach einem Rollback", async () => {

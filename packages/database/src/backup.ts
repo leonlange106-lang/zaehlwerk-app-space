@@ -91,6 +91,16 @@ export const ablesungBackupSchema = z.object({
   notiz: z.string().nullish(),
   quelle: z.string().optional(),
   istAbgerechnet: z.boolean().optional(),
+  /**
+   * Soft-Delete-Stempel.
+   *
+   * Muss mit ins Backup, und zwar aus beiden Richtungen: Ohne ihn kaeme eine
+   * geloeschte Ablesung nach dem Einspielen als vorhandene zurueck und
+   * veraenderte still jede Summe — oder, je nach Sichtweise schlimmer, ein
+   * Papierkorb waere nach dem Restore leer und der Weg zurueck fort.
+   */
+  geloeschtAm: isoString.nullish(),
+  geloeschtVon: z.string().nullish(),
   createdAt: isoString.optional(),
 });
 

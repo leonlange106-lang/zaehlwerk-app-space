@@ -1,5 +1,11 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { apiMeterCreateSchema, DEFAULT_OBIS_CODE, Prisma, prisma } from "@zaehlwerk/database";
+import {
+  apiMeterCreateSchema,
+  DEFAULT_OBIS_CODE,
+  NOT_DELETED,
+  Prisma,
+  prisma,
+} from "@zaehlwerk/database";
 import { authenticateApiRequest, unauthorizedResponse } from "../../../lib/api-auth";
 import { clientIdentifier, rateLimit } from "../../../lib/rate-limit";
 import {
@@ -64,6 +70,7 @@ export async function GET(request: NextRequest) {
       location: { select: { name: true } },
       // Immer die neueste Ablesung; bei `history=N` die N neuesten.
       ablesungen: {
+        where: NOT_DELETED,
         orderBy: { datum: "desc" },
         take: Math.max(1, history),
         select: { id: true, datum: true, wert: true, quelle: true },
@@ -77,6 +84,7 @@ export async function GET(request: NextRequest) {
           label: true,
           einheit: true,
           ablesungen: {
+            where: NOT_DELETED,
             orderBy: { datum: "desc" },
             take: Math.max(1, history),
             select: { datum: true, wert: true, quelle: true },
