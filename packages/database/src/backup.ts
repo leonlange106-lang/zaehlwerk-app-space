@@ -28,13 +28,40 @@ export const zaehlerBackupSchema = z.object({
   aktiv: z.boolean().optional(),
   sortIndex: z.number().int().optional(),
   locationId: z.string().nullish(),
+  // Nachgereicht, deshalb optional: Backups aus der Zeit davor kennen diese
+  // Felder nicht und muessen sich weiterhin einspielen lassen.
+  stellen: z.number().int().nullish(),
+  ableseIntervallTage: z.number().int().nullish(),
   createdAt: isoString.optional(),
   updatedAt: isoString.optional(),
+});
+
+/**
+ * Ein Zaehlwerk des Zaehlers.
+ *
+ * Fehlt es im Backup, faellt ein Zweirichtungszaehler beim Einspielen wieder in
+ * EINE Reihe zusammen: Bezug und Einspeisung verschraenkt, jedes zweite
+ * Intervall negativ. Die Zahlen sind danach falsch, ohne dass es jemandem
+ * auffiele — und der Verlust laesst sich nicht rueckgaengig machen, weil die
+ * Zuordnung nirgends sonst mehr steht.
+ */
+export const meterRegisterBackupSchema = z.object({
+  id: z.string(),
+  zaehlerId: z.string(),
+  obisCode: z.string(),
+  richtung: z.enum(["BEZUG", "EINSPEISUNG"]),
+  tarif: z.string().nullish(),
+  einheit: z.string(),
+  label: z.string(),
+  sortIndex: z.number().int().optional(),
+  createdAt: isoString.optional(),
 });
 
 export const ablesungBackupSchema = z.object({
   id: z.string(),
   zaehlerId: z.string(),
+  /** Zugehoeriges Zaehlwerk. `null`/fehlend = Standardregister (Bezug). */
+  registerId: z.string().nullish(),
   datum: isoString,
   wert: z.number().finite(),
   kosten: z.number().finite().nullish(),
@@ -73,6 +100,9 @@ export const fullBackupSchema = z.object({
   data: z.object({
     locations: z.array(locationBackupSchema),
     zaehler: z.array(zaehlerBackupSchema),
+    // Optional, damit aeltere Dateien weiterhin gelten. Fehlt die Liste, hatte
+    // die Installation noch keine Register — dann ist nichts zu verlieren.
+    register: z.array(meterRegisterBackupSchema).optional(),
     ablesungen: z.array(ablesungBackupSchema),
     tarife: z.array(tarifBackupSchema),
   }),
@@ -85,6 +115,7 @@ export const meterExportSchema = z.object({
   kind: z.literal("meter-export"),
   data: z.object({
     zaehler: zaehlerBackupSchema,
+    register: z.array(meterRegisterBackupSchema).optional(),
     ablesungen: z.array(ablesungBackupSchema),
     tarife: z.array(tarifBackupSchema),
     location: locationBackupSchema.nullish(),
@@ -93,6 +124,7 @@ export const meterExportSchema = z.object({
 export type MeterExport = z.infer<typeof meterExportSchema>;
 
 export type BackupZaehler = z.infer<typeof zaehlerBackupSchema>;
+export type BackupMeterRegister = z.infer<typeof meterRegisterBackupSchema>;
 export type BackupAblesung = z.infer<typeof ablesungBackupSchema>;
 export type BackupTarif = z.infer<typeof tarifBackupSchema>;
 export type BackupLocation = z.infer<typeof locationBackupSchema>;

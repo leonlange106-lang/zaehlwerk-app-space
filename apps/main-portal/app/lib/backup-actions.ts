@@ -9,6 +9,7 @@ import {
   meterExportSchema,
   prisma,
   type BackupAblesung,
+  type BackupMeterRegister,
   type BackupTarif,
   type BackupZaehler,
   type FullBackup,
@@ -51,7 +52,25 @@ function zaehlerRow(z: BackupZaehler) {
     aktiv: z.aktiv,
     sortIndex: z.sortIndex,
     locationId: z.locationId ?? null,
+    stellen: z.stellen ?? null,
+    // NOT NULL mit Default 0: `undefined` laesst den Default greifen, was fuer
+    // ein altes Backup ohne dieses Feld genau richtig ist. `null` verletzte die Spalte.
+    ableseIntervallTage: z.ableseIntervallTage ?? undefined,
     createdAt: toDate(z.createdAt),
+  };
+}
+
+function registerRow(r: BackupMeterRegister) {
+  return {
+    id: r.id,
+    zaehlerId: r.zaehlerId,
+    obisCode: r.obisCode,
+    richtung: r.richtung,
+    tarif: r.tarif ?? null,
+    einheit: r.einheit,
+    label: r.label,
+    sortIndex: r.sortIndex,
+    createdAt: toDate(r.createdAt),
   };
 }
 
@@ -59,6 +78,7 @@ function ablesungRow(a: BackupAblesung) {
   return {
     id: a.id,
     zaehlerId: a.zaehlerId,
+    registerId: a.registerId ?? null,
     datum: new Date(a.datum),
     wert: a.wert,
     kosten: a.kosten ?? null,
@@ -104,36 +124,49 @@ export async function restoreBackup(jsonText: string, mode: RestoreMode): Promis
   if (!parsed.success) {
     return { success: false, message: `Kein gültiges Vollbackup: ${describeBackupError(parsed.error)}` };
   }
-  const { locations, zaehler, ablesungen, tarife } = parsed.data.data;
+  const { locations, zaehler, register = [], ablesungen, tarife } = parsed.data.data;
 
   try {
     if (mode === "reset") {
       await prisma.$transaction([
         prisma.tarif.deleteMany(),
         prisma.ablesung.deleteMany(),
+        // Vor den Zaehlern loeschen und nach ihnen anlegen: Die Ablesungen
+        // zeigen auf die Register, die Register auf die Zaehler.
+        prisma.meterRegister.deleteMany(),
         prisma.zaehler.deleteMany(),
         prisma.location.deleteMany(),
         prisma.location.createMany({ data: locations.map(locationRow) }),
         prisma.zaehler.createMany({ data: zaehler.map(zaehlerRow) }),
+        prisma.meterRegister.createMany({ data: register.map(registerRow) }),
         prisma.ablesung.createMany({ data: ablesungen.map(ablesungRow) }),
         prisma.tarif.createMany({ data: tarife.map(tarifRow) }),
       ]);
     } else {
-      const [locIds, zIds, aIds, tIds] = await Promise.all([
+      const [locIds, zIds, rIds, aIds, tIds] = await Promise.all([
         prisma.location.findMany({ select: { id: true } }),
         prisma.zaehler.findMany({ select: { id: true } }),
+        prisma.meterRegister.findMany({ select: { id: true } }),
         prisma.ablesung.findMany({ select: { id: true } }),
         prisma.tarif.findMany({ select: { id: true } }),
       ]);
       const has = (rows: { id: string }[]) => new Set(rows.map((r) => r.id));
-      const [existLoc, existZ, existA, existT] = [has(locIds), has(zIds), has(aIds), has(tIds)];
+      const [existLoc, existZ, existR, existA, existT] = [
+        has(locIds),
+        has(zIds),
+        has(rIds),
+        has(aIds),
+        has(tIds),
+      ];
       const newLoc = locations.filter((l) => !existLoc.has(l.id)).map(locationRow);
       const newZ = zaehler.filter((z) => !existZ.has(z.id)).map(zaehlerRow);
+      const newR = register.filter((r) => !existR.has(r.id)).map(registerRow);
       const newA = ablesungen.filter((a) => !existA.has(a.id)).map(ablesungRow);
       const newT = tarife.filter((t) => !existT.has(t.id)).map(tarifRow);
       await prisma.$transaction([
         prisma.location.createMany({ data: newLoc }),
         prisma.zaehler.createMany({ data: newZ }),
+        prisma.meterRegister.createMany({ data: newR }),
         prisma.ablesung.createMany({ data: newA }),
         prisma.tarif.createMany({ data: newT }),
       ]);
@@ -179,7 +212,7 @@ export async function importMeter(jsonText: string, choice: LocationChoice): Pro
   if (!parsed.success) {
     return { success: false, message: `Kein gültiger Zähler-Export: ${describeBackupError(parsed.error)}` };
   }
-  const { zaehler, ablesungen, tarife } = parsed.data.data;
+  const { zaehler, register = [], ablesungen, tarife } = parsed.data.data;
 
   try {
     let locationId: string | null = null;
@@ -193,6 +226,12 @@ export async function importMeter(jsonText: string, choice: LocationChoice): Pro
     }
 
     const newZaehlerId = randomUUID();
+    // Der Import vergibt durchweg frische Ids, damit er neben bestehenden
+    // Datensaetzen bestehen kann. Fuer die Register heisst das: alte auf neue
+    // abbilden und die Ablesungen ueber diese Tabelle umhaengen. Uebernaehme man
+    // die Registerkennung unveraendert, zeigte sie auf ein Zaehlwerk der
+    // Quellinstallation — hier auf nichts.
+    const registerIdMap = new Map(register.map((r) => [r.id, randomUUID()]));
     await prisma.$transaction([
       prisma.zaehler.create({
         data: {
@@ -203,13 +242,31 @@ export async function importMeter(jsonText: string, choice: LocationChoice): Pro
           farbe: zaehler.farbe,
           icon: zaehler.icon,
           sortIndex: zaehler.sortIndex,
+          stellen: zaehler.stellen ?? null,
+          ableseIntervallTage: zaehler.ableseIntervallTage ?? undefined,
           locationId,
         },
+      }),
+      prisma.meterRegister.createMany({
+        data: register.map((r) => ({
+          id: registerIdMap.get(r.id)!,
+          zaehlerId: newZaehlerId,
+          obisCode: r.obisCode,
+          richtung: r.richtung,
+          tarif: r.tarif ?? null,
+          einheit: r.einheit,
+          label: r.label,
+          sortIndex: r.sortIndex,
+        })),
       }),
       prisma.ablesung.createMany({
         data: ablesungen.map((a) => ({
           id: randomUUID(),
           zaehlerId: newZaehlerId,
+          // Unbekannte Kennung wird zu null statt zu einem Fremdschluessel ins
+          // Leere: Der Stand gehoert dann zum Standardregister, so wie jeder
+          // Stand aus der Zeit vor den Registern.
+          registerId: a.registerId ? (registerIdMap.get(a.registerId) ?? null) : null,
           datum: new Date(a.datum),
           wert: a.wert,
           kosten: a.kosten ?? null,
