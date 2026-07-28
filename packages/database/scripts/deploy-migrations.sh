@@ -121,6 +121,79 @@ else
   echo "[migrate] keine bestehende Datenbank — nichts zu sichern"
 fi
 
+# ── Die Anwendung anhalten ─────────────────────────────────────────────────
+# Der eigentliche Fix, und er steht ABSICHTLICH hier und nicht nur in
+# deploy-swap.sh.
+#
+# Grund ist ein Henne-Ei-Problem: `update.sh` wird aus dem laufenden IMAGE
+# geladen (`COPY /repo/scripts ./scripts` im Dockerfile), nicht aus dem
+# Checkout. Eine Aenderung dort greift also erst beim UEBERNAECHSTEN Update —
+# und dorthin kommt man nicht, wenn das naechste scheitert. Dieses Skript
+# dagegen steckt im `db-migrate`-Image, das bei jedem Update frisch aus dem
+# neuen Stand gebaut wird. Es ist der einzige Ort, an dem eine Aenderung schon
+# beim naechsten Update wirkt.
+#
+# Was angehalten wird, haelt sonst die Datenbank: Prismas Schema-Engine
+# vertraegt neben sich keine offene Transaktion — auch keine lesende, auch im
+# WAL-Modus. Nachgemessen, siehe docs/migrations.md.
+#
+# Sauber rueckabwickelbar: Angehalten wird nur, was lief, und wieder gestartet
+# wird IMMER, wenn wir es selbst angehalten haben — auch nach einer geglueckten
+# Migration.
+#
+# Das kostet einen ueberfluessigen Start (der Deployer tauscht gleich darauf
+# ohnehin), spart aber den einen Fall, der wirklich weh taete: Bricht der
+# Aufrufer zwischen Migration und Tausch ab, bliebe die Instanz sonst unten. Die
+# alte Anwendung kurz auf dem neueren Schema laufen zu lassen ist unbedenklich —
+# das ist genau die Zusicherung, auf der auch der Rollback beruht (jede neue
+# Spalte ist optional oder hat einen Default, siehe docs/migrations.md).
+APP_SERVICE="${APP_SERVICE:-main-portal}"
+COMPOSE_FILE_NAME="${COMPOSE_FILE_NAME:-docker-compose.prod.yml}"
+REPO_DIR="${REPO_DIR:-/repo}"
+# Ueberschreibbar, damit der Anhalte-Pfad pruefbar ist statt nur behauptet.
+DOCKER_SOCK="${DOCKER_SOCK:-/var/run/docker.sock}"
+WE_STOPPED_IT=0
+
+compose() {
+  (cd "$REPO_DIR" 2>/dev/null && docker compose -f "$COMPOSE_FILE_NAME" "$@")
+}
+
+# Nur wenn wir ueberhaupt koennen. Ohne Socket oder ohne CLI — beim Testen, bei
+# einem Handstart — soll das Skript unveraendert weiterlaufen statt zu scheitern.
+app_kann_angehalten_werden() {
+  [ -S "$DOCKER_SOCK" ] || return 1
+  command -v docker >/dev/null 2>&1 || return 1
+  [ -f "$REPO_DIR/$COMPOSE_FILE_NAME" ] || return 1
+  return 0
+}
+
+app_wieder_hoch() {
+  [ "$WE_STOPPED_IT" = "1" ] || return 0
+  WE_STOPPED_IT=0
+  echo "[migrate] fahre $APP_SERVICE wieder hoch"
+  compose up -d --no-build "$APP_SERVICE" >/dev/null 2>&1 \
+    || echo "[migrate] WARNUNG: $APP_SERVICE kam nicht zurueck" >&2
+}
+
+# Scheitert alles Weitere — auch durch ein Signal —, darf die Anwendung nicht
+# unten bleiben.
+trap app_wieder_hoch EXIT HUP INT TERM
+
+if [ -f "$DB_PATH" ] && app_kann_angehalten_werden; then
+  if [ -n "$(compose ps -q "$APP_SERVICE" 2>/dev/null)" ]; then
+    echo "[migrate] halte $APP_SERVICE an — die Migration braucht die Datenbank allein"
+    if compose stop "$APP_SERVICE" >/dev/null 2>&1; then
+      WE_STOPPED_IT=1
+    else
+      echo "[migrate] WARNUNG: $APP_SERVICE liess sich nicht anhalten — versuche es trotzdem" >&2
+    fi
+  else
+    echo "[migrate] $APP_SERVICE laeuft nicht — nichts anzuhalten"
+  fi
+else
+  echo "[migrate] kein Zugriff auf Docker — migriere ohne die Anwendung anzuhalten"
+fi
+
 # ── Journal-Modus sicherstellen ────────────────────────────────────────────
 # Nach der Sicherung (es wird geschrieben) und vor allem anderen: Ohne WAL
 # sperrt jeder Leser der laufenden Anwendung gegen uns. Siehe ensure-wal.mjs.

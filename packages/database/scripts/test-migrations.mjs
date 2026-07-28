@@ -647,6 +647,113 @@ async function testWhatActuallyBlocksTheSchemaEngine() {
   check("offene Schreibtransaktion: Migration blockiert", (await versuch("write")) === false);
 }
 
+// ── Fall 8: die Anwendung anhalten ─────────────────────────────────────────
+// Der Fix sitzt bewusst HIER und nicht nur in deploy-swap.sh.
+//
+// `update.sh` wird aus dem laufenden Image geladen, nicht aus dem Checkout —
+// eine Aenderung dort greift also erst beim uebernaechsten Update, und dorthin
+// kommt man nicht, wenn das naechste scheitert. Dieses Skript steckt im
+// `db-migrate`-Image, das jedes Update frisch baut. Es ist der einzige Ort, an
+// dem eine Aenderung schon beim naechsten Update wirkt.
+//
+// Geprueft wird gegen ein nachgemachtes `docker` und einen echten Unix-Socket
+// (die Bedingung fragt mit `-S`, ein Platzhalter genuegte nicht).
+async function testStopsTheApp() {
+  console.log("\nAnwendung anhalten (Zugriff auf Docker vorhanden)");
+
+  const { createServer } = await import("node:net");
+  const { writeFileSync, chmodSync, mkdirSync, readFileSync, existsSync } = await import("node:fs");
+
+  await withTempDb(async (dbPath) => {
+    deploy(dbPath, { upTo: migrationNames()[1] });
+
+    const spielwiese = path.dirname(dbPath);
+    const sock = path.join(spielwiese, "docker.sock");
+    const server = createServer();
+    await new Promise((resolve) => server.listen(sock, resolve));
+
+    const repo = path.join(spielwiese, "repo");
+    mkdirSync(repo, { recursive: true });
+    writeFileSync(path.join(repo, "docker-compose.prod.yml"), "services: {}\n");
+
+    const bin = path.join(spielwiese, "bin");
+    mkdirSync(bin, { recursive: true });
+    const calls = path.join(spielwiese, "docker-calls.log");
+    writeFileSync(
+      path.join(bin, "docker"),
+      `#!/bin/sh
+printf '%s\\n' "$*" >> ${JSON.stringify(calls)}
+# `+"`compose ps -q` "+`meldet eine Container-Id: die Anwendung laeuft.
+case "$*" in *" ps -q "*) echo "container123" ;; esac
+exit 0
+`,
+    );
+    chmodSync(path.join(bin, "docker"), 0o755);
+
+    let ok = true;
+    let output = "";
+    try {
+      output = execFileSync("sh", ["scripts/deploy-migrations.sh"], {
+        cwd: PACKAGE_ROOT,
+        env: {
+          ...process.env,
+          PATH: `${bin}:${process.env.PATH}`,
+          DATABASE_URL: `file:${dbPath}`,
+          DOCKER_SOCK: sock,
+          REPO_DIR: repo,
+        },
+        encoding: "utf8",
+        stdio: "pipe",
+      });
+    } catch (error) {
+      ok = false;
+      output = `${error.stdout ?? ""}${error.stderr ?? ""}`;
+    } finally {
+      server.close();
+    }
+
+    const aufrufe = existsSync(calls) ? readFileSync(calls, "utf8") : "";
+    const stopIdx = aufrufe.indexOf("stop main-portal");
+    const upIdx = aufrufe.indexOf("up -d --no-build main-portal");
+
+    check("haelt die Anwendung an", stopIdx !== -1, aufrufe.replace(/\n/g, " | "));
+    check("sagt es auch im Protokoll", /halte main-portal an/.test(output), output.slice(-300));
+    check("Migration laeuft durch", ok, output.slice(-400));
+    // Danach wieder hoch — auch nach Erfolg. Bricht der Aufrufer zwischen
+    // Migration und Tausch ab, bliebe die Instanz sonst unten.
+    check("faehrt sie danach wieder hoch", upIdx > stopIdx, aufrufe.replace(/\n/g, " | "));
+
+    if (ok) {
+      const spalten = (await query(dbPath, "SELECT name FROM pragma_table_info('ablesungen')")).map(
+        (row) => row.name,
+      );
+      check("alle Migrationen sind angekommen", spalten.includes("geloeschtAm"));
+    }
+  });
+}
+
+// Ohne Socket und ohne CLI — beim Testen, bei einem Handstart — muss das Skript
+// unveraendert durchlaufen statt zu scheitern.
+async function testRunsWithoutDocker() {
+  console.log("\nKein Zugriff auf Docker");
+  await withTempDb(async (dbPath) => {
+    deploy(dbPath, { upTo: migrationNames()[1] });
+
+    const output = execFileSync("sh", ["scripts/deploy-migrations.sh"], {
+      cwd: PACKAGE_ROOT,
+      env: { ...process.env, DATABASE_URL: `file:${dbPath}`, DOCKER_SOCK: "/nicht/vorhanden" },
+      encoding: "utf8",
+      stdio: "pipe",
+    });
+
+    check("sagt, dass es ohne geht", /kein Zugriff auf Docker/.test(output), output.slice(-300));
+    const spalten = (await query(dbPath, "SELECT name FROM pragma_table_info('ablesungen')")).map(
+      (row) => row.name,
+    );
+    check("migriert trotzdem", spalten.includes("geloeschtAm"));
+  });
+}
+
 console.log("Migrationen gegen echte Datenbestaende pruefen");
 await testFreshDatabase();
 await testExistingData();
@@ -656,6 +763,8 @@ await testBaselineStampedOnce();
 await testWalSwitchOnQuietDatabase();
 await testLongReaderOnNonWalDatabase();
 await testWhatActuallyBlocksTheSchemaEngine();
+await testStopsTheApp();
+await testRunsWithoutDocker();
 
 console.log(`\n${checks - failures} von ${checks} Pruefungen bestanden.`);
 if (failures > 0) {
