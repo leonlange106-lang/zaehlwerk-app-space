@@ -10,6 +10,7 @@ import {
   prisma,
   type BackupAblesung,
   type BackupMeterRegister,
+  type BackupUmrechnungsfaktor,
   type BackupTarif,
   type BackupZaehler,
   type FullBackup,
@@ -74,6 +75,20 @@ function registerRow(r: BackupMeterRegister) {
   };
 }
 
+function faktorRow(f: BackupUmrechnungsfaktor) {
+  return {
+    id: f.id,
+    zaehlerId: f.zaehlerId,
+    gueltigAb: new Date(f.gueltigAb),
+    gueltigBis: toDate(f.gueltigBis),
+    brennwert: f.brennwert,
+    zustandszahl: f.zustandszahl,
+    quelle: f.quelle ?? null,
+    notiz: f.notiz ?? null,
+    createdAt: toDate(f.createdAt),
+  };
+}
+
 function ablesungRow(a: BackupAblesung) {
   return {
     id: a.id,
@@ -124,7 +139,14 @@ export async function restoreBackup(jsonText: string, mode: RestoreMode): Promis
   if (!parsed.success) {
     return { success: false, message: `Kein gültiges Vollbackup: ${describeBackupError(parsed.error)}` };
   }
-  const { locations, zaehler, register = [], ablesungen, tarife } = parsed.data.data;
+  const {
+    locations,
+    zaehler,
+    register = [],
+    umrechnungsfaktoren = [],
+    ablesungen,
+    tarife,
+  } = parsed.data.data;
 
   try {
     if (mode === "reset") {
@@ -134,39 +156,45 @@ export async function restoreBackup(jsonText: string, mode: RestoreMode): Promis
         // Vor den Zaehlern loeschen und nach ihnen anlegen: Die Ablesungen
         // zeigen auf die Register, die Register auf die Zaehler.
         prisma.meterRegister.deleteMany(),
+        prisma.umrechnungsfaktor.deleteMany(),
         prisma.zaehler.deleteMany(),
         prisma.location.deleteMany(),
         prisma.location.createMany({ data: locations.map(locationRow) }),
         prisma.zaehler.createMany({ data: zaehler.map(zaehlerRow) }),
         prisma.meterRegister.createMany({ data: register.map(registerRow) }),
+        prisma.umrechnungsfaktor.createMany({ data: umrechnungsfaktoren.map(faktorRow) }),
         prisma.ablesung.createMany({ data: ablesungen.map(ablesungRow) }),
         prisma.tarif.createMany({ data: tarife.map(tarifRow) }),
       ]);
     } else {
-      const [locIds, zIds, rIds, aIds, tIds] = await Promise.all([
+      const [locIds, zIds, rIds, fIds, aIds, tIds] = await Promise.all([
         prisma.location.findMany({ select: { id: true } }),
         prisma.zaehler.findMany({ select: { id: true } }),
         prisma.meterRegister.findMany({ select: { id: true } }),
+        prisma.umrechnungsfaktor.findMany({ select: { id: true } }),
         prisma.ablesung.findMany({ select: { id: true } }),
         prisma.tarif.findMany({ select: { id: true } }),
       ]);
       const has = (rows: { id: string }[]) => new Set(rows.map((r) => r.id));
-      const [existLoc, existZ, existR, existA, existT] = [
+      const [existLoc, existZ, existR, existF, existA, existT] = [
         has(locIds),
         has(zIds),
         has(rIds),
+        has(fIds),
         has(aIds),
         has(tIds),
       ];
       const newLoc = locations.filter((l) => !existLoc.has(l.id)).map(locationRow);
       const newZ = zaehler.filter((z) => !existZ.has(z.id)).map(zaehlerRow);
       const newR = register.filter((r) => !existR.has(r.id)).map(registerRow);
+      const newF = umrechnungsfaktoren.filter((f) => !existF.has(f.id)).map(faktorRow);
       const newA = ablesungen.filter((a) => !existA.has(a.id)).map(ablesungRow);
       const newT = tarife.filter((t) => !existT.has(t.id)).map(tarifRow);
       await prisma.$transaction([
         prisma.location.createMany({ data: newLoc }),
         prisma.zaehler.createMany({ data: newZ }),
         prisma.meterRegister.createMany({ data: newR }),
+        prisma.umrechnungsfaktor.createMany({ data: newF }),
         prisma.ablesung.createMany({ data: newA }),
         prisma.tarif.createMany({ data: newT }),
       ]);
@@ -212,7 +240,7 @@ export async function importMeter(jsonText: string, choice: LocationChoice): Pro
   if (!parsed.success) {
     return { success: false, message: `Kein gültiger Zähler-Export: ${describeBackupError(parsed.error)}` };
   }
-  const { zaehler, register = [], ablesungen, tarife } = parsed.data.data;
+  const { zaehler, register = [], umrechnungsfaktoren = [], ablesungen, tarife } = parsed.data.data;
 
   try {
     let locationId: string | null = null;
@@ -246,6 +274,18 @@ export async function importMeter(jsonText: string, choice: LocationChoice): Pro
           ableseIntervallTage: zaehler.ableseIntervallTage ?? undefined,
           locationId,
         },
+      }),
+      prisma.umrechnungsfaktor.createMany({
+        data: umrechnungsfaktoren.map((f) => ({
+          id: randomUUID(),
+          zaehlerId: newZaehlerId,
+          gueltigAb: new Date(f.gueltigAb),
+          gueltigBis: toDate(f.gueltigBis),
+          brennwert: f.brennwert,
+          zustandszahl: f.zustandszahl,
+          quelle: f.quelle ?? null,
+          notiz: f.notiz ?? null,
+        })),
       }),
       prisma.meterRegister.createMany({
         data: register.map((r) => ({

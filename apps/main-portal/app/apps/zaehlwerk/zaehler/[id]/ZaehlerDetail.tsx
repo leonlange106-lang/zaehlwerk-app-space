@@ -19,8 +19,10 @@ import {
   IconArrowBackUp,
   IconArrowLeft,
   IconChartLine,
+  IconFlame,
   IconCheck,
   IconGaugeFilled,
+  IconPencil,
   IconReceipt2,
   IconSum,
   IconTrash,
@@ -35,9 +37,7 @@ import {
   computeConsumptionStats,
   groupReadingsByRegister,
   hasMultipleRegisters,
-  gasM3ToKwh,
-  GAS_BRENNWERT,
-  GAS_ZUSTANDSZAHL,
+  convertGasToKwh,
   pickTariffForDate,
   type ConsumptionProjection,
 } from "@zaehlwerk/database/client";
@@ -45,6 +45,9 @@ import type { getZaehlerById, listLocations } from "@/app/lib/zaehler-actions";
 import {
   createAblesungAction,
   createTarifAction,
+  createUmrechnungsfaktorAction,
+  deleteUmrechnungsfaktorAction,
+  updateUmrechnungsfaktorAction,
   deleteTarifAction,
   deleteZaehlerAction,
   updateZaehlerAction,
@@ -56,6 +59,7 @@ import { MeterDataCard } from "./MeterDataCard";
 import { ReadingHistoryTable, type ReadingRow } from "./ReadingHistoryTable";
 import { ProjectionStats } from "@/app/apps/zaehlwerk/berichte/projection-ui";
 import { MetricTile } from "@/app/components/ui/MetricTile";
+import { ResponsiveDialog } from "@/app/components/ui/ResponsiveDialog";
 import classes from "./ZaehlerDetail.module.css";
 
 type ZaehlerWithHistory = NonNullable<Awaited<ReturnType<typeof getZaehlerById>>>;
@@ -135,15 +139,42 @@ export function ZaehlerDetail({
   const tips = getSmartHomeTips(zaehler.kategorie);
 
   const isGas = zaehler.kategorie === "GAS";
-  // Tarifbasierte Kosten je Intervall: Gas wird für die Abrechnung in kWh
+
+  // Tarifbasierte Kosten je Intervall. Gas wird für die Abrechnung in kWh
   // umgerechnet, Strom/Wasser bleiben in ihrer Einheit.
+  //
+  // Die Umrechnung läuft ÜBER DEN ZEITRAUM des Intervalls, nicht über einen
+  // festen Faktor: Der Brennwert ändert sich monatlich, und ein Intervall über
+  // einen Wechsel hinweg wird anteilig gerechnet. Fehlt für einen Teil des
+  // Zeitraums ein Faktor, kommt `null` zurück — dann gibt es hier KEINE
+  // Kostenzahl statt einer geratenen. Ein geschätzter Brennwert sähe aus wie
+  // ein abgelesener.
   function tariffCostFor(interval: (typeof intervals)[number]): number | null {
     if (interval.amount === null) return null;
     const tarif = pickTariffForDate(zaehler.tarife, interval.to);
     if (!tarif) return null;
-    const verbrauch = isGas ? gasM3ToKwh(interval.amount) : interval.amount;
-    return calculateTariffCost(tarif, verbrauch, interval.days);
+    if (!isGas) return calculateTariffCost(tarif, interval.amount, interval.days);
+
+    const converted = convertGasToKwh(
+      interval.amount,
+      interval.from,
+      interval.to,
+      zaehler.umrechnungsfaktoren,
+    );
+    if (converted.kwh === null) return null;
+    return calculateTariffCost(tarif, converted.kwh, interval.days);
   }
+
+  // Deckt die gepflegten Faktoren alle Intervalle ab? Nur dann darf die Seite
+  // Gaskosten ohne Vorbehalt zeigen.
+  const gasCoverageGap =
+    isGas &&
+    intervals.some(
+      (interval) =>
+        interval.amount !== null &&
+        !convertGasToKwh(interval.amount, interval.from, interval.to, zaehler.umrechnungsfaktoren)
+          .complete,
+    );
   const hasTarife = zaehler.tarife.length > 0;
   // Phone-only section switch — same contract as the meter list. Everything is
   // rendered from the first paint; below `sm` the CSS simply gives one pane a
@@ -306,6 +337,9 @@ export function ZaehlerDetail({
                   <ProjectionStats projection={projection} />
                 </Panel>
 
+                {/* Nur bei Gas: Strom und Wasser werden in ihrer eigenen
+                    Einheit abgerechnet, da gibt es nichts umzurechnen. */}
+                {isGas && <GasFaktorenCard zaehler={zaehler} coverageGap={gasCoverageGap} />}
                 <TarifeCard zaehler={zaehler} />
               </div>
             </div>
@@ -562,13 +596,7 @@ function TarifeCard({ zaehler }: { zaehler: ZaehlerWithHistory }) {
           Messwert durchgehen. Der PDF-Report weist ihn längst aus; die
           Oberfläche schwieg. Bewusst `text-dim` ohne Statusfarbe: eine Fußnote,
           keine Warnung. */}
-      {zaehler.kategorie === "GAS" && (
-        <p className="mb-4 text-xs text-dim">
-          Umrechnung m³ → kWh mit Brennwert {GAS_BRENNWERT.toLocaleString("de-DE")} und Zustandszahl{" "}
-          {GAS_ZUSTANDSZAHL.toLocaleString("de-DE")} — feste Annahme (Stand 2021), noch nicht je
-          Zähler und Abrechnungszeitraum gepflegt.
-        </p>
-      )}
+
       {zaehler.tarife.length === 0 ? (
         <p className="mb-4 text-sm text-dim">
           Noch kein Tarif hinterlegt. Ohne Tarif werden Kosten nur aus erfassten Beträgen angezeigt.
@@ -682,5 +710,282 @@ function TarifeCard({ zaehler }: { zaehler: ZaehlerWithHistory }) {
         </Button>
       </form>
     </Panel>
+  );
+}
+
+
+type FaktorRow = ZaehlerWithHistory["umrechnungsfaktoren"][number];
+
+/**
+ * Brennwert und Zustandszahl je Zeitraum.
+ *
+ * Beide stehen auf jeder Jahresrechnung und ändern sich — der Brennwert sogar
+ * monatlich. Bis ZW-02 rechnete Zählwerk mit zwei festen Zahlen von 2021; je
+ * weiter das zurückliegt, desto weiter liegt die Gasrechnung daneben, und das
+ * sind keine Rundungsfehler, sondern zweistellige Prozente.
+ */
+function GasFaktorenCard({
+  zaehler,
+  coverageGap,
+}: {
+  zaehler: ZaehlerWithHistory;
+  coverageGap: boolean;
+}) {
+  const router = useRouter();
+  const [createState, createAction, creating] = useActionState(
+    createUmrechnungsfaktorAction,
+    initialActionState,
+  );
+  const [deleteState, deleteAction] = useActionState(
+    deleteUmrechnungsfaktorAction,
+    initialActionState,
+  );
+  const [editFaktor, setEditFaktor] = useState<FaktorRow | null>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+  const today = new Date().toISOString().slice(0, 10);
+
+  useEffect(() => {
+    if (createState.success) formRef.current?.reset();
+  }, [createState.success]);
+
+  const faktorFormatter = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 4 });
+
+  return (
+    <Panel title="Gas-Umrechnung (m³ → kWh)" icon={<IconFlame size={17} stroke={1.7} />}>
+      <p className="mb-4 text-xs text-dim">
+        kWh = m³ × Brennwert × Zustandszahl. Beide Werte stehen auf deiner Jahresrechnung; der
+        Brennwert ändert sich monatlich. Ein Verbrauch über einen Faktorwechsel hinweg wird
+        anteilig nach Tagen gerechnet.
+      </p>
+
+      {/* Sagt es, statt still zu raten: Ohne Faktor gibt es an dieser Stelle
+          KEINE Kostenzahl. Ein geschätzter Brennwert sähe aus wie ein
+          abgelesener, und niemand merkte je, dass die Rechnung auf einer
+          Annahme beruht. */}
+      {coverageGap && (
+        <Alert tone="watch" icon={<IconAlertCircle size={16} />} className="mb-4">
+          Für einen Teil des Ableseverlaufs ist kein Umrechnungsfaktor gepflegt. Die
+          Tarifkosten dieser Zeiträume bleiben leer — sie werden bewusst nicht geschätzt.
+        </Alert>
+      )}
+
+      {zaehler.umrechnungsfaktoren.length === 0 ? (
+        <p className="mb-4 text-sm text-dim">
+          Noch kein Faktor hinterlegt. Ohne ihn lassen sich für Gas keine Tarifkosten berechnen.
+        </p>
+      ) : (
+        <div className="mb-5 flex flex-col gap-3">
+          {zaehler.umrechnungsfaktoren.map((faktor) => (
+            <div key={faktor.id} className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold">
+                  {faktorFormatter.format(faktor.brennwert)} kWh/m³ ×{" "}
+                  {faktorFormatter.format(faktor.zustandszahl)}{" "}
+                  <span className="text-dim">
+                    = {faktorFormatter.format(faktor.brennwert * faktor.zustandszahl)}
+                  </span>
+                </p>
+                <p className="mt-0.5 text-xs text-dim">
+                  ab {dateFormatter.format(faktor.gueltigAb)}
+                  {faktor.gueltigBis ? ` bis ${dateFormatter.format(faktor.gueltigBis)}` : ""}
+                  {faktor.quelle ? ` · ${faktor.quelle}` : ""}
+                </p>
+              </div>
+              <span className="flex flex-none gap-1">
+                <Tooltip label="Faktor bearbeiten">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setEditFaktor(faktor)}
+                    aria-label="Faktor bearbeiten"
+                  >
+                    <IconPencil size={16} />
+                  </Button>
+                </Tooltip>
+                <form action={deleteAction}>
+                  <input type="hidden" name="id" value={faktor.id} />
+                  <Tooltip label="Faktor löschen">
+                    <Button type="submit" variant="danger" size="sm" aria-label="Faktor löschen">
+                      <IconTrash size={16} />
+                    </Button>
+                  </Tooltip>
+                </form>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {deleteState.error && (
+        <Alert tone="risk" role="alert" icon={<IconAlertCircle size={16} />} className="mb-4">
+          {deleteState.error}
+        </Alert>
+      )}
+
+      <form action={createAction} ref={formRef} className="flex flex-col gap-3">
+        <input type="hidden" name="zaehlerId" value={zaehler.id} />
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Gültig ab" required>
+            {({ id }) => (
+              <TextInput id={id} name="gueltigAb" type="date" defaultValue={today} required />
+            )}
+          </Field>
+          <Field label="Gültig bis (optional)">
+            {({ id }) => <TextInput id={id} name="gueltigBis" type="date" />}
+          </Field>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Brennwert (kWh/m³)" required>
+            {({ id }) => (
+              <NumberInput
+                id={id}
+                name="brennwert"
+                placeholder="z. B. 10,312"
+                min={0}
+                step="0.0001"
+                required
+              />
+            )}
+          </Field>
+          <Field label="Zustandszahl" required>
+            {({ id }) => (
+              <NumberInput
+                id={id}
+                name="zustandszahl"
+                placeholder="z. B. 0,9622"
+                min={0}
+                step="0.0001"
+                required
+              />
+            )}
+          </Field>
+        </div>
+        <Field label="Quelle (optional)">
+          {({ id }) => (
+            <TextInput id={id} name="quelle" placeholder="z. B. Jahresrechnung 2026" />
+          )}
+        </Field>
+
+        {createState.error && (
+          <Alert tone="risk" role="alert" icon={<IconAlertCircle size={16} />}>
+            {createState.error}
+          </Alert>
+        )}
+        {createState.success && (
+          <Alert tone="ok" icon={<IconCheck size={16} />}>
+            Faktor gespeichert.
+          </Alert>
+        )}
+
+        <Button type="submit" variant="primary" full disabled={creating}>
+          {creating ? "Wird gespeichert…" : "Faktor hinzufügen"}
+        </Button>
+      </form>
+
+      <ResponsiveDialog
+        opened={editFaktor !== null}
+        onClose={() => setEditFaktor(null)}
+        title="Umrechnungsfaktor bearbeiten"
+      >
+        {editFaktor && (
+          <EditFaktorForm
+            faktor={editFaktor}
+            onDone={() => {
+              setEditFaktor(null);
+              router.refresh();
+            }}
+          />
+        )}
+      </ResponsiveDialog>
+    </Panel>
+  );
+}
+
+function EditFaktorForm({ faktor, onDone }: { faktor: FaktorRow; onDone: () => void }) {
+  const [state, formAction, pending] = useActionState(
+    updateUmrechnungsfaktorAction,
+    initialActionState,
+  );
+
+  useEffect(() => {
+    if (state.success) onDone();
+  }, [state.success, onDone]);
+
+  const isoDate = (value: Date | null) => (value ? value.toISOString().slice(0, 10) : "");
+
+  return (
+    <form action={formAction} key={faktor.id} className="flex flex-col gap-3">
+      <input type="hidden" name="id" value={faktor.id} />
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="Gültig ab" required>
+          {({ id }) => (
+            <TextInput
+              id={id}
+              name="gueltigAb"
+              type="date"
+              defaultValue={isoDate(faktor.gueltigAb)}
+              required
+            />
+          )}
+        </Field>
+        <Field label="Gültig bis (optional)">
+          {({ id }) => (
+            <TextInput
+              id={id}
+              name="gueltigBis"
+              type="date"
+              defaultValue={isoDate(faktor.gueltigBis)}
+            />
+          )}
+        </Field>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="Brennwert (kWh/m³)" required>
+          {({ id }) => (
+            <NumberInput
+              id={id}
+              name="brennwert"
+              defaultValue={faktor.brennwert}
+              min={0}
+              step="0.0001"
+              required
+            />
+          )}
+        </Field>
+        <Field label="Zustandszahl" required>
+          {({ id }) => (
+            <NumberInput
+              id={id}
+              name="zustandszahl"
+              defaultValue={faktor.zustandszahl}
+              min={0}
+              step="0.0001"
+              required
+            />
+          )}
+        </Field>
+      </div>
+      <Field label="Quelle (optional)">
+        {({ id }) => <TextInput id={id} name="quelle" defaultValue={faktor.quelle ?? ""} />}
+      </Field>
+      <Field label="Notiz (optional)">
+        {({ id }) => <TextInput id={id} name="notiz" defaultValue={faktor.notiz ?? ""} />}
+      </Field>
+
+      {state.error && (
+        <Alert tone="risk" role="alert" icon={<IconAlertCircle size={16} />}>
+          {state.error}
+        </Alert>
+      )}
+
+      <div className="mt-1 flex justify-end gap-2">
+        <Button type="button" onClick={onDone} disabled={pending}>
+          Abbrechen
+        </Button>
+        <Button type="submit" variant="primary" disabled={pending}>
+          {pending ? "Wird gespeichert…" : "Speichern"}
+        </Button>
+      </div>
+    </form>
   );
 }

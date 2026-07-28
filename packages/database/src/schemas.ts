@@ -270,3 +270,76 @@ export const vehicleInputSchema = z.object({
 });
 
 export type VehicleInputSchema = z.infer<typeof vehicleInputSchema>;
+
+
+// --- Gas-Umrechnungsfaktoren (ZW-02) ---------------------------------------
+
+const brennwertField = z.coerce.number().finite().positive().max(20);
+const zustandszahlField = z.coerce.number().finite().positive().max(2);
+
+/**
+ * Ein Umrechnungsfaktor für einen Zeitraum.
+ *
+ * Die Obergrenzen sind großzügig, aber vorhanden: Erdgas liegt beim Brennwert
+ * um 10 kWh/m³ und bei der Zustandszahl um 0,95. Wer 1031,2 statt 10,312
+ * tippt — ein verrutschtes Komma —, verzehnfacht seine Gasrechnung, und die
+ * Zahl sähe für sich genommen unauffällig aus.
+ */
+export const umrechnungsfaktorCreateSchema = z
+  .object({
+    zaehlerId: z.string().uuid(),
+    gueltigAb: z.coerce.date(),
+    gueltigBis: z.coerce.date().optional(),
+    brennwert: brennwertField,
+    zustandszahl: zustandszahlField,
+    quelle: z
+      .string()
+      .trim()
+      .max(120)
+      .optional()
+      .or(z.literal(""))
+      .transform((value) => (value ? value : undefined)),
+    notiz: z
+      .string()
+      .trim()
+      .max(500)
+      .optional()
+      .or(z.literal(""))
+      .transform((value) => (value ? value : undefined)),
+  })
+  .refine((data) => !data.gueltigBis || data.gueltigBis >= data.gueltigAb, {
+    path: ["gueltigBis"],
+    message: "„Gültig bis“ darf nicht vor „Gültig ab“ liegen.",
+  });
+
+export type UmrechnungsfaktorCreateInput = z.infer<typeof umrechnungsfaktorCreateSchema>;
+
+/** Wie beim Anlegen, aber per `id`. Der Zähler wechselt beim Bearbeiten nie. */
+export const umrechnungsfaktorUpdateSchema = z
+  .object({
+    id: z.string().uuid(),
+    gueltigAb: z.coerce.date(),
+    gueltigBis: z.coerce.date().optional(),
+    brennwert: brennwertField,
+    zustandszahl: zustandszahlField,
+    quelle: z
+      .string()
+      .trim()
+      .max(120)
+      .optional()
+      .or(z.literal(""))
+      .transform((value) => (value ? value : undefined)),
+    notiz: z
+      .string()
+      .trim()
+      .max(500)
+      .optional()
+      .or(z.literal(""))
+      .transform((value) => (value ? value : undefined)),
+  })
+  .refine((data) => !data.gueltigBis || data.gueltigBis >= data.gueltigAb, {
+    path: ["gueltigBis"],
+    message: "„Gültig bis“ darf nicht vor „Gültig ab“ liegen.",
+  });
+
+export type UmrechnungsfaktorUpdateInput = z.infer<typeof umrechnungsfaktorUpdateSchema>;

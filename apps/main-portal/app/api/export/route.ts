@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import {
   calculateConsumption,
   calculateTariffCost,
-  gasM3ToKwh,
+  convertGasToKwh,
   groupReadingsByRegister,
   pickTariffForDate,
   prisma,
@@ -75,6 +75,7 @@ export async function GET(request: NextRequest) {
       ablesungen: { orderBy: { datum: "asc" } },
       tarife: { orderBy: { gueltigAb: "asc" } },
       register: { orderBy: { sortIndex: "asc" } },
+      umrechnungsfaktoren: { orderBy: { gueltigAb: "asc" } },
     },
   });
 
@@ -135,10 +136,24 @@ export async function GET(request: NextRequest) {
       if (!kosten && !isFeedIn && interval && interval.amount !== null) {
         const tarif = pickTariffForDate(zaehler.tarife, interval.to);
         if (tarif) {
-          const verbrauchAbrechnung = isGas ? gasM3ToKwh(interval.amount) : interval.amount;
-          kosten = fmtNumber(
-            Math.round(calculateTariffCost(tarif, verbrauchAbrechnung, interval.days) * 100) / 100,
-          );
+          // Gas faktorweise: Der Brennwert aendert sich monatlich, und ein
+          // Intervall ueber einen Wechsel hinweg wird anteilig gerechnet.
+          // Fehlt ein Faktor, bleibt die Kostenspalte LEER — eine geratene Zahl
+          // in einer CSV faellt niemandem auf, weil sie weiterverarbeitet und
+          // nicht gelesen wird.
+          const verbrauchAbrechnung = isGas
+            ? convertGasToKwh(
+                interval.amount,
+                interval.from,
+                interval.to,
+                zaehler.umrechnungsfaktoren,
+              ).kwh
+            : interval.amount;
+          if (verbrauchAbrechnung !== null) {
+            kosten = fmtNumber(
+              Math.round(calculateTariffCost(tarif, verbrauchAbrechnung, interval.days) * 100) / 100,
+            );
+          }
         }
       }
 

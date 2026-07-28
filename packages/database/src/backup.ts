@@ -57,6 +57,27 @@ export const meterRegisterBackupSchema = z.object({
   createdAt: isoString.optional(),
 });
 
+/**
+ * Ein Gas-Umrechnungsfaktor.
+ *
+ * Dieselbe Lehre wie bei den Registern: Was das Backup nicht mittraegt, ist
+ * nach einem Restore fort. Ohne die Faktoren rechnete die Anlage wieder mit der
+ * festen Annahme von 2021 — oder, seit ZW-02, gar nicht mehr, weil ohne Faktor
+ * bewusst KEINE Kostenzahl entsteht. Beides faellt erst auf, wenn jemand die
+ * Gasrechnung nachrechnet.
+ */
+export const umrechnungsfaktorBackupSchema = z.object({
+  id: z.string(),
+  zaehlerId: z.string(),
+  gueltigAb: isoString,
+  gueltigBis: isoString.nullish(),
+  brennwert: z.number().finite(),
+  zustandszahl: z.number().finite(),
+  quelle: z.string().nullish(),
+  notiz: z.string().nullish(),
+  createdAt: isoString.optional(),
+});
+
 export const ablesungBackupSchema = z.object({
   id: z.string(),
   zaehlerId: z.string(),
@@ -103,6 +124,7 @@ export const fullBackupSchema = z.object({
     // Optional, damit aeltere Dateien weiterhin gelten. Fehlt die Liste, hatte
     // die Installation noch keine Register — dann ist nichts zu verlieren.
     register: z.array(meterRegisterBackupSchema).optional(),
+    umrechnungsfaktoren: z.array(umrechnungsfaktorBackupSchema).optional(),
     ablesungen: z.array(ablesungBackupSchema),
     tarife: z.array(tarifBackupSchema),
   }),
@@ -116,6 +138,7 @@ export const meterExportSchema = z.object({
   data: z.object({
     zaehler: zaehlerBackupSchema,
     register: z.array(meterRegisterBackupSchema).optional(),
+    umrechnungsfaktoren: z.array(umrechnungsfaktorBackupSchema).optional(),
     ablesungen: z.array(ablesungBackupSchema),
     tarife: z.array(tarifBackupSchema),
     location: locationBackupSchema.nullish(),
@@ -125,6 +148,7 @@ export type MeterExport = z.infer<typeof meterExportSchema>;
 
 export type BackupZaehler = z.infer<typeof zaehlerBackupSchema>;
 export type BackupMeterRegister = z.infer<typeof meterRegisterBackupSchema>;
+export type BackupUmrechnungsfaktor = z.infer<typeof umrechnungsfaktorBackupSchema>;
 export type BackupAblesung = z.infer<typeof ablesungBackupSchema>;
 export type BackupTarif = z.infer<typeof tarifBackupSchema>;
 export type BackupLocation = z.infer<typeof locationBackupSchema>;

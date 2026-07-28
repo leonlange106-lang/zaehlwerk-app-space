@@ -39,6 +39,9 @@ export default async function ZaehlerDetailPage({
     kategorie: zaehler.kategorie,
     einheit: zaehler.einheit,
     tarife: zaehler.tarife,
+    // Ohne die Faktoren blieben die hochgerechneten Gaskosten leer — richtig,
+    // aber unnoetig, denn hier sind sie ja geladen.
+    gasFaktoren: zaehler.umrechnungsfaktoren,
   });
 
   return (

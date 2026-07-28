@@ -22,12 +22,15 @@ export type SnapshotFile = {
 
 /** Build the full-backup envelope (identical shape to /api/backup/download). */
 export async function buildFullBackup() {
-  const [locations, zaehler, register, ablesungen, tarife] = await Promise.all([
+  const [locations, zaehler, register, umrechnungsfaktoren, ablesungen, tarife] = await Promise.all([
     prisma.location.findMany({ orderBy: { createdAt: "asc" } }),
     prisma.zaehler.findMany({ orderBy: { createdAt: "asc" } }),
     // Ohne die Register faellt ein Zweirichtungszaehler beim Einspielen wieder
     // in EINE Reihe zusammen — und die Zuordnung steht danach nirgends mehr.
     prisma.meterRegister.findMany({ orderBy: { createdAt: "asc" } }),
+    // Dieselbe Lehre: Was hier fehlt, ist nach einem Restore fort — und die
+    // Gaskosten rechnen sich danach anders, ohne dass es jemand bemerkt.
+    prisma.umrechnungsfaktor.findMany({ orderBy: { gueltigAb: "asc" } }),
     prisma.ablesung.findMany({ orderBy: { datum: "asc" } }),
     prisma.tarif.findMany({ orderBy: { gueltigAb: "asc" } }),
   ]);
@@ -37,7 +40,7 @@ export async function buildFullBackup() {
     kind: "full-backup" as const,
     schemaVersion: BACKUP_SCHEMA_VERSION,
     generatedAt: new Date().toISOString(),
-    data: { locations, zaehler, register, ablesungen, tarife },
+    data: { locations, zaehler, register, umrechnungsfaktoren, ablesungen, tarife },
   };
 }
 

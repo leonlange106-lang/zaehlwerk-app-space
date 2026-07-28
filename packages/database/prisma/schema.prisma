@@ -125,19 +125,19 @@ model Location {
 /// Referenzprojekt: überlebt Zählertausche, die Historie steckt in
 /// `Ablesung`, nicht hier.
 model Zaehler {
-  id                  String         @id @default(uuid())
+  id                  String              @id @default(uuid())
   name                String
   kategorie           EnergyCategory
   einheit             String
-  farbe               String         @default("#495a6c")
-  icon                String         @default("bolt")
-  aktiv               Boolean        @default(true)
-  sortIndex           Int            @default(0)
+  farbe               String              @default("#495a6c")
+  icon                String              @default("bolt")
+  aktiv               Boolean             @default(true)
+  sortIndex           Int                 @default(0)
   /// Erwarteter Ableseabstand in Tagen. **0 = aus**, wie bei den
   /// Aufbewahrungsgrenzen: eine Erinnerung, die niemand bestellt hat, ist eine
   /// Belästigung, und die Glocke verliert ihren Wert, wenn ständig etwas drin
   /// steht. Nur gesetzte Intervalle erzeugen eine Meldung.
-  ableseIntervallTage Int            @default(0)
+  ableseIntervallTage Int                 @default(0)
   /// Stellenzahl des Zaehlwerks, z. B. 6 fuer ein Geraet, das bei 999999
   /// ueberlaeuft. `null` = unbekannt.
   ///
@@ -148,12 +148,13 @@ model Zaehler {
   /// korrigiert.
   stellen             Int?
   locationId          String?
-  location            Location?      @relation(fields: [locationId], references: [id])
+  location            Location?           @relation(fields: [locationId], references: [id])
   ablesungen          Ablesung[]
   register            MeterRegister[]
   tarife              Tarif[]
-  createdAt           DateTime       @default(now())
-  updatedAt           DateTime       @updatedAt
+  umrechnungsfaktoren Umrechnungsfaktor[]
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
 
   @@index([locationId])
   // Deckt die Standardliste `where aktiv orderBy sortIndex` (listZaehler) ab.
@@ -206,9 +207,9 @@ model MeterRegister {
 }
 
 model Ablesung {
-  id               String   @id @default(uuid())
+  id               String         @id @default(uuid())
   zaehlerId        String
-  zaehler          Zaehler  @relation(fields: [zaehlerId], references: [id], onDelete: Cascade)
+  zaehler          Zaehler        @relation(fields: [zaehlerId], references: [id], onDelete: Cascade)
   /// Das Register, zu dem dieser Stand gehört.
   ///
   /// **Optional, nicht verpflichtend** — und das ist eine bewusste Entscheidung,
@@ -225,12 +226,12 @@ model Ablesung {
   /// Markiert die erste Ablesung nach einem Zählertausch. Der Verbrauch bis
   /// hierhin berechnet sich dann aus `startwertNeu` statt aus der vorherigen
   /// Ablesung (die gehörte zum alten physischen Zähler).
-  zaehlerGetauscht Boolean  @default(false)
+  zaehlerGetauscht Boolean        @default(false)
   startwertNeu     Float?
   notiz            String?
-  quelle           String   @default("manual")
-  istAbgerechnet   Boolean  @default(false)
-  createdAt        DateTime @default(now())
+  quelle           String         @default("manual")
+  istAbgerechnet   Boolean        @default(false)
+  createdAt        DateTime       @default(now())
 
   // Composite deckt die häufigste Query ab (`where zaehlerId orderBy datum`,
   // getZaehlerById/listZaehler) und dient als linkes Präfix auch für reine
@@ -411,4 +412,36 @@ model Vehicle {
 
   @@index([active])
   @@map("vehicles")
+}
+
+/// Brennwert und Zustandszahl fuer EINEN Zeitraum.
+///
+/// Gas wird in m3 gemessen und in kWh abgerechnet:
+/// `kWh = m3 x Brennwert x Zustandszahl`. Beide Zahlen stehen auf jeder
+/// Jahresrechnung und aendern sich — der Brennwert sogar monatlich.
+///
+/// Bis ZW-02 rechnete Zaehlwerk mit zwei festen Werten von 2021. Je weiter das
+/// zurueckliegt, desto weiter liegt die Kostenrechnung daneben, und an einer
+/// Gasrechnung ist das kein Rundungsfehler, sondern zweistellige Prozente.
+///
+/// Dieselbe Struktur wie `Tarif` — bewusst, denn es ist dieselbe Frage: "welcher
+/// Wert galt wann". Ein zweites Muster dafuer waere ein zweites zum Pflegen.
+model Umrechnungsfaktor {
+  id           String    @id @default(uuid())
+  zaehlerId    String
+  zaehler      Zaehler   @relation(fields: [zaehlerId], references: [id], onDelete: Cascade)
+  gueltigAb    DateTime
+  /// `null` = bis auf Weiteres. EINSCHLIESSLICH, wie bei `Tarif`.
+  gueltigBis   DateTime?
+  /// kWh je m3.
+  brennwert    Float
+  zustandszahl Float
+  /// Woher der Wert stammt, z. B. "Jahresrechnung 2026".
+  quelle       String?
+  notiz        String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([zaehlerId, gueltigAb])
+  @@map("umrechnungsfaktor")
 }
