@@ -198,7 +198,14 @@ test.describe("Settings groups", () => {
   test("the navigation menu carries the groups as its own level", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("button", { name: "Navigation öffnen" }).click();
-    await page.getByRole("menuitem", { name: "Plattform-Einstellungen" }).click();
+
+    // The row is a LINK to /settings, not a drill-in. Reaching the overview is
+    // the common case and used to cost two taps, so the groups moved onto the
+    // arrow at its right — which is the level this test is about. Clicking the
+    // label navigates away and closes the menu, and the level never renders.
+    await page
+      .getByRole("button", { name: "Plattform-Einstellungen: Bereiche anzeigen" })
+      .click();
 
     // Drilled in, not navigated — the menu stays open on its settings level.
     await expect(page.getByRole("menuitem", { name: "Alle Bereiche" })).toBeVisible();
