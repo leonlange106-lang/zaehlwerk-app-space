@@ -79,7 +79,7 @@ export function ZaehlerDetail({
   projection: ConsumptionProjection;
 }) {
   const ascendingReadings = [...zaehler.ablesungen].reverse();
-  const intervals = calculateConsumption(ascendingReadings);
+  const intervals = calculateConsumption(ascendingReadings, { stellen: zaehler.stellen });
   const stats = computeConsumptionStats(intervals);
   // toReadingId -> Intervall, das an dieser Ablesung endet. Der Verbrauch kann
   // `null` sein (unplausibel) — das rendert die Tabelle bewusst als solches.

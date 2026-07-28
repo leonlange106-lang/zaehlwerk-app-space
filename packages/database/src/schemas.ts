@@ -26,6 +26,19 @@ const ableseIntervallField = z.coerce
   .max(1825)
   .optional();
 
+/**
+ * Stellenzahl des Zaehlwerks. Leeres Feld = unbekannt, nicht 0.
+ *
+ * Der Unterschied ist wesentlich: 0 hiesse "laeuft bei 1 ueber". Ein leeres
+ * Feld heisst "wir wissen es nicht" — und dann wird ein negativer Verbrauch
+ * weiterhin als unplausibel markiert statt korrigiert. Vier bis zehn Stellen
+ * deckt jedes Haushaltsgeraet ab.
+ */
+const stellenField = z
+  .union([z.literal(""), z.coerce.number().int().min(4).max(10)])
+  .optional()
+  .transform((value) => (value === "" || value === undefined ? null : value));
+
 export const zaehlerCreateSchema = z.object({
   name: nameField,
   kategorie: z.enum(ENERGY_CATEGORIES),
@@ -34,6 +47,7 @@ export const zaehlerCreateSchema = z.object({
   farbe: z.string().trim().min(1).max(20).optional(),
   icon: z.string().trim().min(1).max(40).optional(),
   ableseIntervallTage: ableseIntervallField,
+  stellen: stellenField,
 });
 
 export type ZaehlerCreateInput = z.infer<typeof zaehlerCreateSchema>;
@@ -45,6 +59,7 @@ export const zaehlerUpdateSchema = z.object({
   einheit: einheitField,
   locationId: optionalLocationId,
   ableseIntervallTage: ableseIntervallField,
+  stellen: stellenField,
 });
 
 export type ZaehlerUpdateInput = z.infer<typeof zaehlerUpdateSchema>;

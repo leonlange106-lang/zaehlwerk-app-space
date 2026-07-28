@@ -84,7 +84,9 @@ export async function getConsumptionSummary() {
   const zaehlerList = await queryZaehler();
 
   return zaehlerList.map((zaehler) => {
-    const stats = computeConsumptionStats(calculateConsumption(zaehler.ablesungen));
+    const stats = computeConsumptionStats(
+      calculateConsumption(zaehler.ablesungen, { stellen: zaehler.stellen }),
+    );
 
     return {
       zaehlerId: zaehler.id,
@@ -154,6 +156,7 @@ export async function createZaehlerAction(
     // reminder". An empty string would fail `z.coerce.number()`, so the form's
     // untouched state must not reach it as "".
     ableseIntervallTage: formData.get("ableseIntervallTage") || undefined,
+    stellen: formData.get("stellen") ?? undefined,
   });
 
   if (!parsed.success) {
@@ -184,6 +187,7 @@ export async function updateZaehlerAction(
     einheit: formData.get("einheit"),
     locationId: formData.get("locationId"),
     ableseIntervallTage: formData.get("ableseIntervallTage") || undefined,
+    stellen: formData.get("stellen") ?? undefined,
   });
 
   if (!parsed.success) {

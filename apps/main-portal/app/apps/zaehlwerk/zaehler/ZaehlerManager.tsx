@@ -94,7 +94,7 @@ export function ZaehlerManager({
               </Panel>
             )}
             {zaehlerList.map((zaehler) => {
-              const intervals = calculateConsumption(zaehler.ablesungen);
+              const intervals = calculateConsumption(zaehler.ablesungen, { stellen: zaehler.stellen });
               const total = sumConsumption(intervals);
               const lastReading = zaehler.ablesungen.at(-1);
 
@@ -231,6 +231,23 @@ function CreateZaehlerForm({ locations }: { locations: LocationList }) {
               max={1825}
               step={1}
               defaultValue={0}
+            />
+          )}
+        </Field>
+        <Field
+          label="Stellen des Zählwerks"
+          description="Leer lassen, wenn unbekannt. Nur mit dieser Angabe kann ein Überlauf (999999 → 0) erkannt statt als Fehler verworfen werden."
+        >
+          {({ id, describedBy }) => (
+            <NumberInput
+              id={id}
+              aria-describedby={describedBy}
+              name="stellen"
+              data-testid="zaehler-stellen"
+              min={4}
+              max={10}
+              step={1}
+              defaultValue={undefined}
             />
           )}
         </Field>

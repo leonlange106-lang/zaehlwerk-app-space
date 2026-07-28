@@ -90,7 +90,7 @@ export async function GET(request: NextRequest) {
   const lines: string[] = [];
   for (const zaehler of zaehlerList) {
     const isGas = zaehler.kategorie === "GAS";
-    const intervals = calculateConsumption(zaehler.ablesungen);
+    const intervals = calculateConsumption(zaehler.ablesungen, { stellen: zaehler.stellen });
     const intervalByReadingId = new Map(intervals.map((interval) => [interval.toReadingId, interval]));
 
     for (const ablesung of zaehler.ablesungen) {
