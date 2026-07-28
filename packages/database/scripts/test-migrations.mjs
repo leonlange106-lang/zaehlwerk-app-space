@@ -27,7 +27,7 @@
  * Laufzeit stattfinden als die Anwendung.
  */
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { mkdtempSync, rmSync, readdirSync } from "node:fs";
 // Der generierte Client liegt neben dem Schema (`generator.output`), nicht
 // unter @prisma/client — der Standardpfad meldet sonst „did not initialize yet".
@@ -39,6 +39,8 @@ import { fileURLToPath } from "node:url";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = path.join(HERE, "..");
 const MIGRATIONS_DIR = path.join(PACKAGE_ROOT, "prisma", "migrations");
+// Dieselbe Baseline, die `deploy-migrations.sh` stempelt.
+const BASELINE = "0_init";
 
 let failures = 0;
 let checks = 0;
@@ -51,6 +53,31 @@ function check(label, condition, detail = "") {
     failures += 1;
     console.error(`  ✗ ${label}${detail ? `\n      ${detail}` : ""}`);
   }
+}
+
+/**
+ * Auf eine Zeile aus einem Kindprozess warten — der Handschlag statt eines
+ * geratenen `setTimeout`. Liefert false, wenn sie bis `timeoutMs` ausbleibt
+ * oder der Prozess vorher endet; der Aufrufer entscheidet, was das bedeutet.
+ */
+function waitForLine(child, needle, timeoutMs) {
+  return new Promise((resolve) => {
+    let buffer = "";
+    const finish = (value) => {
+      clearTimeout(timer);
+      child.stdout.off("data", onData);
+      child.off("exit", onExit);
+      resolve(value);
+    };
+    const onData = (chunk) => {
+      buffer += chunk;
+      if (buffer.includes(needle)) finish(true);
+    };
+    const onExit = () => finish(buffer.includes(needle));
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    child.stdout.on("data", onData);
+    child.on("exit", onExit);
+  });
 }
 
 /** Alle Migrationsordner in der Reihenfolge, in der Prisma sie anwendet. */
@@ -311,10 +338,137 @@ async function testIdempotence() {
   });
 }
 
+// ── Fall 4: Datenbank ist gesperrt ─────────────────────────────────────────
+// Die Migration laeuft, WAEHREND die alte Anwendung weiterlaeuft und schreibt.
+// Der Schema-Engine von Prisma kennt kein `busy_timeout` und gibt beim ersten
+// Zusammentreffen sofort auf — eine Ablesung im falschen Moment genuegte, um
+// ein Update zu Fall zu bringen. Genau das ist passiert.
+//
+// Dieser Fall prueft das SKRIPT, nicht die CLI: Nur `deploy-migrations.sh`
+// kennt die Wiederholung.
+async function testLockedDatabase() {
+  console.log("\nGesperrte Datenbank (laufende Anwendung schreibt)");
+  await withTempDb(async (dbPath) => {
+    deploy(dbPath, { upTo: migrationNames()[1] });
+
+    // Ein zweiter Prozess mit offener Schreibtransaktion — die Anwendung,
+    // die gerade eine Ablesung speichert.
+    //
+    // Zwei Details, ohne die dieser Fall still durchrutscht:
+    //
+    //   * Er MELDET sich, sobald der INSERT durch ist. Erst dann steht die
+    //     Schreibsperre wirklich. Vorher einfach ein paar Sekunden zu warten
+    //     hiess: mal gesperrt, mal nicht — und wenn nicht, bestand der Test,
+    //     ohne die Wiederholung je ausgeloest zu haben.
+    //   * Die Transaktion bekommt ein ausdrueckliches `timeout`. Prisma bricht
+    //     interaktive Transaktionen sonst nach 5s ab; die Sperre war dann weg,
+    //     bevor `migrate deploy` ueberhaupt an die Reihe kam.
+    //
+    // Gehalten wird HOLD_MS — lang genug fuer mehrere Wiederholungen, kurz
+    // genug, dass die Migration danach noch in ihr Budget passt.
+    const HOLD_MS = 12_000;
+    const holder = spawn(
+      process.execPath,
+      [
+        "-e",
+        `import("${path.join(PACKAGE_ROOT, "generated/client/index.js")}").then(async ({ PrismaClient }) => {
+           const db = new PrismaClient({ datasourceUrl: "file:${dbPath}" });
+           await db.$queryRawUnsafe("PRAGMA journal_mode = WAL");
+           await db.$transaction(async (tx) => {
+             await tx.$executeRawUnsafe("INSERT INTO locations (id,name,createdAt) VALUES ('lock','lock',0)");
+             console.log("LOCKED");
+             await new Promise((r) => setTimeout(r, ${HOLD_MS}));
+           }, { timeout: ${HOLD_MS + 10_000}, maxWait: 10_000 }).catch(() => {});
+           await db.$disconnect();
+           process.exit(0);
+         })`,
+      ],
+      { stdio: ["ignore", "pipe", "ignore"] },
+    );
+
+    const gesperrt = await waitForLine(holder, "LOCKED", 20_000);
+    check("Halter haelt die Schreibsperre", gesperrt, "Vorbedingung des Falls nicht hergestellt");
+
+    let ok = true;
+    let output = "";
+    try {
+      output = execFileSync("sh", ["scripts/deploy-migrations.sh"], {
+        cwd: PACKAGE_ROOT,
+        env: { ...process.env, DATABASE_URL: `file:${dbPath}`, LOCK_WAIT: "3" },
+        encoding: "utf8",
+        stdio: "pipe",
+      });
+    } catch (error) {
+      ok = false;
+      output = `${error.stdout ?? ""}${error.stderr ?? ""}`;
+    } finally {
+      holder.kill();
+    }
+
+    check("Skript gibt bei einer Sperre nicht sofort auf", /gesperrt — Versuch/.test(output),
+      "keine Wiederholung im Log — wartet das Skript wirklich?");
+    check("Migration laeuft nach dem Warten durch", ok, output.slice(-400));
+
+    if (ok) {
+      const spalten = (await query(dbPath, "SELECT name FROM pragma_table_info('ablesungen')")).map(
+        (row) => row.name,
+      );
+      check("alle Migrationen sind angekommen", spalten.includes("geloeschtAm"));
+    }
+  });
+}
+
+// ── Fall 5: Baseline wird nicht zweimal gestempelt ─────────────────────────
+// Der eigentliche Ausloeser: Das Skript stempelte bei JEDEM Update, obwohl die
+// Baseline nur einmal im Leben noetig ist. Jeder dieser Aufrufe nahm grundlos
+// einen Schreiblock — die haeufigste Gelegenheit fuer die Kollision oben.
+async function testBaselineStampedOnce() {
+  console.log("\nBaseline nur beim ersten Mal stempeln");
+  await withTempDb(async (dbPath) => {
+    // Der echte Ausgangszustand: alle Tabellen aus der Zeit vor Prisma Migrate,
+    // aber KEINE `_prisma_migrations`. Nur so laeuft der Stempel-Zweig wirklich
+    // an — mit `deploy()` waere die Baseline schon vermerkt und der Test
+    // pruefte den Fall gar nicht, den er beschreibt.
+    prismaCli([
+      "db",
+      "execute",
+      "--file",
+      path.join(MIGRATIONS_DIR, BASELINE, "migration.sql"),
+      "--url",
+      `file:${dbPath}`,
+    ]);
+
+    const run = () =>
+      execFileSync("sh", ["scripts/deploy-migrations.sh"], {
+        cwd: PACKAGE_ROOT,
+        env: { ...process.env, DATABASE_URL: `file:${dbPath}` },
+        encoding: "utf8",
+        stdio: "pipe",
+      });
+
+    const erster = run();
+    check(
+      "stempelt die fehlende Baseline beim ersten Lauf",
+      /wird einmalig gestempelt/.test(erster),
+      erster.slice(-300),
+    );
+
+    const zweiter = run();
+    check(
+      "erkennt die bereits vermerkte Baseline",
+      /Baseline ist bereits vermerkt/.test(zweiter),
+      zweiter.slice(-300),
+    );
+    check("stempelt nicht erneut", !/wird einmalig gestempelt/.test(zweiter));
+  });
+}
+
 console.log("Migrationen gegen echte Datenbestaende pruefen");
 await testFreshDatabase();
 await testExistingData();
 await testIdempotence();
+await testLockedDatabase();
+await testBaselineStampedOnce();
 
 console.log(`\n${checks - failures} von ${checks} Pruefungen bestanden.`);
 if (failures > 0) {

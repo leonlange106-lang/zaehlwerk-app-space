@@ -60,16 +60,57 @@ Das Issue-Template fragt beides ab (`Schemaänderung nötig?`,
    `<datenverzeichnis>/pre-migration/` kopiert, samt Journal-Dateien. Schlägt
    das fehl, bricht der Deploy ab, *bevor* geschrieben wird.
 2. **Zustand bestimmen.** Leere Datenbank oder bestehende Installation?
-3. **Baseline stempeln** (nur bei bestehender Installation). Instanzen aus der
-   `db push`-Zeit haben alle Tabellen, aber keine `_prisma_migrations`. Sie
-   werden einmalig mit `migrate resolve --applied 0_init` als „auf Baseline"
-   markiert — sonst versuchte Prisma, die Tabellen erneut anzulegen, und bräche
-   mitten im Deploy ab. Der Schritt ist idempotent.
+3. **Baseline stempeln** (nur bei bestehender Installation, und nur *einmal*).
+   Instanzen aus der `db push`-Zeit haben alle Tabellen, aber keine
+   `_prisma_migrations`. Sie werden einmalig mit
+   `migrate resolve --applied 0_init` als „auf Baseline" markiert — sonst
+   versuchte Prisma, die Tabellen erneut anzulegen, und bräche mitten im Deploy
+   ab. Ob der Stempel noch fehlt, beantwortet das **lesende** `migrate status`;
+   siehe „Warum erst fragen, dann schreiben" unten.
 4. **Anwenden.** `prisma migrate deploy` spielt die fehlenden Schritte ein.
 
 Die Migration ist eine **Vorbedingung** für den Container-Tausch. Schlägt sie
 fehl, läuft die alte Anwendung weiter und niemand landet auf einer halb
 migrierten Datenbank.
+
+### Gesperrte Datenbank
+
+Die Migration läuft, **während die alte Anwendung noch bedient** und die
+SQLite-Datei offen hält. Das ist Absicht (siehe Absatz oben), kostet aber
+Konkurrenz um den Schreiblock — und die beiden Seiten gehen damit
+unterschiedlich um:
+
+| | `busy_timeout` | bei einer Sperre |
+|---|---|---|
+| Anwendung (`sqlite-pragmas.ts`, seit OPS-02) | gesetzt | wartet |
+| Prisma Schema-Engine (`migrate resolve`/`deploy`) | **nicht** setzbar | bricht sofort ab |
+
+Dem Schema-Engine lässt sich kein `busy_timeout` mitgeben — weder über
+`socket_timeout` noch über `connection_limit` in der URL; beides wurde
+ausprobiert. Bleibt: es noch einmal versuchen. Das Skript wiederholt einen an
+einer Sperre gescheiterten Aufruf `LOCK_RETRIES` mal (Standard 10) im Abstand
+von `LOCK_WAIT` Sekunden (Standard 6). Schreibzugriffe dieser Anwendung dauern
+Millisekunden, ein Heimserver hat einen Benutzer — über eine Minute verteilt
+trifft man das Fenster.
+
+Wiederholt wird **nur** bei `database is locked`. Ein Syntaxfehler in einer
+Migration wird durchs Warten nicht besser, und ihn zehnmal zu versuchen
+verschleiert nur, was wirklich kaputt ist.
+
+### Warum erst fragen, dann schreiben
+
+Schritt 3 stempelte früher bei *jedem* Update, und der Fehlschlag („ist schon
+vermerkt") wurde hinterher als unbedenklich eingestuft. Das war zweimal falsch:
+Es nahm jedes Mal grundlos einen Schreiblock — die häufigste Gelegenheit für
+die Kollision oben —, und es unterschied „schon gestempelt" nicht von
+„gesperrt". Im zweiten Fall brach das Update ab, obwohl gar nichts zu tun
+gewesen wäre. Genau so ist ein Update auf 3.12.0-beta.4 gescheitert.
+
+`migrate status` ist lesend und beantwortet die Frage genau: Die Baseline steht
+nur dann als offen in der Liste, wenn sie wirklich noch fehlt.
+
+Beide Fälle sind in `packages/database/scripts/test-migrations.mjs` abgedeckt —
+mit einem echten zweiten Prozess, der eine Schreibtransaktion offen hält.
 
 ## Rollback
 
