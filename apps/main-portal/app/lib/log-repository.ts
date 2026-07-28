@@ -345,13 +345,71 @@ export async function findLogByContentHash(contentHash: string): Promise<LogSumm
 }
 
 /** All stored logs as summaries, chronologically by drive time (newest first). */
-export async function listLogs(): Promise<LogSummary[]> {
-  const rows = await prisma.logFile.findMany({
-    orderBy: [{ recordedAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
-    select: SUMMARY_SELECT,
-  });
+/**
+ * Obergrenze einer Seite.
+ *
+ * Nicht die uebliche 20 oder 50: Die Oberflaeche des Log Analyzers zeigt die
+ * Liste am Stueck und filtert im Browser. Eine kleine Seitengroesse haette
+ * bedeutet, gleichzeitig eine Blaetterlogik in die Oberflaeche zu bauen — das
+ * ist ein eigenes Vorhaben. 200 deckt jeden heutigen Bestand ab und zieht
+ * zugleich die Grenze, die vorher ganz fehlte.
+ */
+const LOGS_PAGE_SIZE = 200;
+const LOGS_MAX_PAGE_SIZE = 500;
+
+export interface ListLogsOptions {
+  /** Hoechstzahl der Zeilen. Standard `LOGS_PAGE_SIZE`, Deckel `LOGS_MAX_PAGE_SIZE`. */
+  limit?: number;
+  /** Zeilen, die uebersprungen werden. */
+  offset?: number;
+}
+
+export interface ListLogsResult {
+  logs: LogSummary[];
+  /** Gesamtzahl im Bestand — der Aufrufer soll wissen, was er NICHT sieht. */
+  total: number;
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+}
+
+/**
+ * Die Logliste, seitenweise.
+ *
+ * Vorher holte diese Abfrage JEDE Zeile — und `refreshStaleVerdicts` bewertete
+ * anschliessend jede davon neu, samt CSV. Bei ein paar Dutzend Logs faellt das
+ * nicht auf; bei ein paar Tausend ist es eine Anfrage, die den Server fuer
+ * Sekunden beschaeftigt und dabei jedes CSV durch den Speicher zieht. Die
+ * Grenze fehlte schlicht.
+ *
+ * `total` kommt mit: Eine abgeschnittene Liste ohne Angabe, wie viel fehlt,
+ * sieht aus wie der ganze Bestand.
+ */
+export async function listLogs(options: ListLogsOptions = {}): Promise<ListLogsResult> {
+  const limit = Math.min(Math.max(options.limit ?? LOGS_PAGE_SIZE, 1), LOGS_MAX_PAGE_SIZE);
+  const offset = Math.max(options.offset ?? 0, 0);
+
+  const [rows, total] = await Promise.all([
+    prisma.logFile.findMany({
+      orderBy: [{ recordedAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
+      select: SUMMARY_SELECT,
+      take: limit,
+      skip: offset,
+    }),
+    prisma.logFile.count(),
+  ]);
+
+  // Nur die Zeilen DIESER Seite neu bewerten. Genau hier lag der Aufwand: Die
+  // Neubewertung liest je Zeile das CSV.
   await refreshStaleVerdicts(rows);
-  return rows.map(toSummary);
+
+  return {
+    logs: rows.map(toSummary),
+    total,
+    limit,
+    offset,
+    hasMore: offset + rows.length < total,
+  };
 }
 
 /** One full log record (incl. CSV), or null. */
