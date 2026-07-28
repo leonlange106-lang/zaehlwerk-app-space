@@ -6,6 +6,8 @@ import {
   callerIdentity,
   checkLoginAttempt,
   checkTotpAttempt,
+  noteLoginSuccess,
+  noteTotpSuccess,
   peekTotpThrottle,
 } from "./login-throttle";
 import { __resetRateLimits } from "./rate-limit";
@@ -59,6 +61,50 @@ describe("Passwortschritt", () => {
     // eigenes vollmacht.
     for (let i = 0; i < LOGIN_MAX_ATTEMPTS + 1; i += 1) checkLoginAttempt("1.1.1.1", "angreifer@b.c");
     expect(checkLoginAttempt("2.2.2.2", "unbeteiligt@b.c").allowed).toBe(true);
+  });
+});
+
+describe("Erfolg setzt zurueck", () => {
+  it("bestraft nicht, wer sich oft richtig anmeldet", () => {
+    // Ohne das zaehlt die Bremse Erfolge wie Fehlversuche: zwei Geraete, ein
+    // Neustart, ein abgelaufenes Cookie — und die Anmeldung ist zu. Getroffen
+    // haette das ausschliesslich Nutzer mit dem richtigen Passwort.
+    for (let i = 0; i < LOGIN_MAX_ATTEMPTS * 4; i += 1) {
+      expect(checkLoginAttempt("1.1.1.1", "vielnutzer@b.c").allowed).toBe(true);
+      noteLoginSuccess("vielnutzer@b.c");
+    }
+  });
+
+  it("hilft dem Ratenden nicht — er kommt nie zum Zuruecksetzen", () => {
+    // Der Beweis, dass die Rueckstellung die Schranke nicht aufweicht: Sie
+    // setzt das richtige Passwort voraus. Wer raet, hat es nicht.
+    for (let i = 0; i < LOGIN_MAX_ATTEMPTS; i += 1) checkLoginAttempt("1.1.1.1", "opfer@b.c");
+    expect(checkLoginAttempt("1.1.1.1", "opfer@b.c").allowed).toBe(false);
+  });
+
+  it("laesst den ADRESSZAEHLER absichtlich stehen", () => {
+    // Wuerde ein Erfolg auch ihn leeren, koennte ein Angreifer mit EINEM
+    // gueltigen Konto ihn zwischen den Versuchen immer wieder freiraeumen und
+    // beliebig lange weiter Konten durchprobieren.
+    for (let i = 0; i < LOGIN_MAX_PER_IP; i += 1) {
+      checkLoginAttempt("9.9.9.9", `konto${i}@b.c`);
+      noteLoginSuccess(`konto${i}@b.c`);
+    }
+    expect(checkLoginAttempt("9.9.9.9", "noch-eins@b.c").allowed).toBe(false);
+  });
+
+  it("gilt genauso fuer den zweiten Faktor", () => {
+    for (let i = 0; i < TOTP_MAX_ATTEMPTS * 3; i += 1) {
+      expect(checkTotpAttempt("1.1.1.1", "user-3").allowed).toBe(true);
+      noteTotpSuccess("user-3");
+    }
+  });
+
+  it("trennt die Konten auch beim Zuruecksetzen", () => {
+    // Ein fremder Erfolg darf den eigenen Zaehler nicht leeren.
+    for (let i = 0; i < LOGIN_MAX_ATTEMPTS; i += 1) checkLoginAttempt("1.1.1.1", "opfer@b.c");
+    noteLoginSuccess("jemand-anderes@b.c");
+    expect(checkLoginAttempt("1.1.1.1", "opfer@b.c").allowed).toBe(false);
   });
 });
 

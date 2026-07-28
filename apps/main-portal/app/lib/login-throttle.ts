@@ -1,4 +1,22 @@
-import { rateLimit } from "./rate-limit";
+import { clearRateLimit, rateLimit } from "./rate-limit";
+
+/**
+ * Grenzwert aus der Umgebung, sonst die Vorgabe.
+ *
+ * Warum ueberhaupt einstellbar: Die richtige Zahl haengt davon ab, wie viele
+ * Menschen sich eine Adresse teilen. Ein Einzelhaushalt hinter einem Router
+ * braucht andere Werte als ein Buero hinter einem Cloudflare-Tunnel — und die
+ * E2E-Suite, die sich in wenigen Minuten hundertfach anmeldet, wieder andere.
+ * Ein fester Wert kann nicht allen dreien gerecht werden; er waere entweder zu
+ * eng (sperrt echte Nutzer aus) oder zu weit (bremst nichts).
+ *
+ * Unsinnige Werte werden ignoriert statt uebernommen: Eine vertippte 0 in einer
+ * Umgebungsvariablen darf die Anmeldung nicht komplett dichtmachen.
+ */
+function envLimit(name: string, fallback: number): number {
+  const raw = Number.parseInt(process.env[name] ?? "", 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : fallback;
+}
 
 // Bremse fuer die Anmeldung.
 //
@@ -14,7 +32,7 @@ import { rateLimit } from "./rate-limit";
  * zu erraten braucht Tausende Versuche, fuenf je Viertelstunde macht das
  * aussichtslos — unabhaengig davon, von wie vielen Adressen aus probiert wird.
  */
-export const LOGIN_MAX_ATTEMPTS = 5;
+export const LOGIN_MAX_ATTEMPTS = envLimit("LOGIN_RATE_LIMIT_PER_ACCOUNT", 5);
 export const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 
 /**
@@ -32,7 +50,7 @@ export const LOGIN_WINDOW_MS = 15 * 60 * 1000;
  * verhindern, dass EIN Host viele Konten durchprobiert. Dafuer reicht ein weites
  * Limit — wer 60 Konten je Viertelstunde antestet, faellt trotzdem auf.
  */
-export const LOGIN_MAX_PER_IP = 60;
+export const LOGIN_MAX_PER_IP = envLimit("LOGIN_RATE_LIMIT_PER_IP", 60);
 
 /**
  * Der zweite Faktor bekommt ein eigenes, engeres Limit.
@@ -43,11 +61,11 @@ export const LOGIN_MAX_PER_IP = 60;
  * Passwort an dieser Stelle bereits. Deshalb weniger Versuche als beim Passwort,
  * nicht mehr.
  */
-export const TOTP_MAX_ATTEMPTS = 10;
+export const TOTP_MAX_ATTEMPTS = envLimit("TOTP_RATE_LIMIT_PER_ACCOUNT", 10);
 export const TOTP_WINDOW_MS = 15 * 60 * 1000;
 
 /** Dieselbe Ueberlegung wie oben: Die Adresse traegt selten nur eine Person. */
-export const TOTP_MAX_PER_IP = 60;
+export const TOTP_MAX_PER_IP = envLimit("TOTP_RATE_LIMIT_PER_IP", 60);
 
 export interface ThrottleVerdict {
   allowed: boolean;
@@ -63,6 +81,11 @@ export interface ThrottleVerdict {
  * Konten durchprobieren und erlaubt es obendrein, ein fremdes Konto gezielt
  * auszusperren. Erst zusammen decken sie beide Richtungen ab.
  */
+/** Schluessel des Kontozaehlers. Eine Stelle, damit Zaehlen und Loeschen nicht auseinanderlaufen. */
+function subjectKey(scope: string, subject: string): string {
+  return `${scope}:id:${subject}`;
+}
+
 function checkPair(
   scope: string,
   ip: string,
@@ -73,7 +96,7 @@ function checkPair(
   peek = false,
 ): ThrottleVerdict {
   const byIp = rateLimit({ key: `${scope}:ip:${ip}`, limit: ipLimit, windowMs, peek });
-  const bySubject = rateLimit({ key: `${scope}:id:${subject}`, limit: subjectLimit, windowMs, peek });
+  const bySubject = rateLimit({ key: subjectKey(scope, subject), limit: subjectLimit, windowMs, peek });
   if (byIp.ok && bySubject.ok) return { allowed: true, retryAfter: 0 };
   return { allowed: false, retryAfter: Math.max(byIp.retryAfter, bySubject.retryAfter) };
 }
@@ -86,6 +109,29 @@ export function checkLoginAttempt(ip: string, email: string): ThrottleVerdict {
 /** Zweiter Faktor. `userId`, denn an dieser Stelle steht das Konto bereits fest. */
 export function checkTotpAttempt(ip: string, userId: string): ThrottleVerdict {
   return checkPair("totp", ip, userId, TOTP_MAX_ATTEMPTS, TOTP_MAX_PER_IP, TOTP_WINDOW_MS);
+}
+
+/**
+ * Nach geglueckter Anmeldung: Kontozaehler auf null.
+ *
+ * Ohne das zaehlt die Bremse Erfolge wie Fehlversuche, und wer sich fuenfmal in
+ * einer Viertelstunde anmeldet — zwei Geraete, ein Neustart, ein abgelaufenes
+ * Cookie — sperrt sich selbst aus. Das trifft ausschliesslich echte Nutzer:
+ * Wer raet, kommt hier nie vorbei, denn Zuruecksetzen setzt das richtige
+ * Passwort voraus.
+ *
+ * Der ADRESSZAEHLER bleibt bewusst stehen. Er soll verhindern, dass EIN Host
+ * viele Konten durchprobiert — wer ein einziges gueltiges Konto besitzt, koennte
+ * ihn sonst zwischen den Versuchen immer wieder freiraeumen und beliebig lange
+ * weiter raten.
+ */
+export function noteLoginSuccess(email: string): void {
+  clearRateLimit(subjectKey("login", email));
+}
+
+/** Dasselbe fuer den zweiten Faktor, adressiert ueber die Benutzer-ID. */
+export function noteTotpSuccess(userId: string): void {
+  clearRateLimit(subjectKey("totp", userId));
 }
 
 /**

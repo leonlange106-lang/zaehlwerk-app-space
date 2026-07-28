@@ -9,7 +9,12 @@ import { getSessionUser } from "./auth-helpers";
 import { totpDriftSeconds, verifyTotp } from "./totp";
 import type { ActionState } from "./action-state";
 import { AUDIT_ACTIONS, recordAuditEvent } from "./audit";
-import { callerIdentity, checkLoginAttempt, peekTotpThrottle } from "./login-throttle";
+import {
+  callerIdentity,
+  checkLoginAttempt,
+  noteLoginSuccess,
+  peekTotpThrottle,
+} from "./login-throttle";
 
 const BCRYPT_ROUNDS = 12;
 
@@ -71,6 +76,10 @@ export async function beginLoginAction(email: string, password: string): Promise
     void recordAuditEvent(AUDIT_ACTIONS.loginFailed, normalized, `IP ${caller}`);
     return { ok: false };
   }
+
+  // Das Passwort stimmt — Kontozaehler zuruecksetzen, auch wenn gleich noch der
+  // zweite Faktor folgt. Bewiesen ist bewiesen; der zweite Faktor zaehlt eigens.
+  noteLoginSuccess(normalized);
 
   if (user.twoFactorEnabled) {
     const token = signChallenge({ sub: user.id }, CHALLENGE_TTL_SECONDS);

@@ -7,7 +7,13 @@ import { CHALLENGE_COOKIE } from "./app/lib/auth-constants";
 import { decryptSecret, verifyChallenge } from "./app/lib/crypto";
 import { verifyTotp } from "./app/lib/totp";
 import { AUDIT_ACTIONS, recordAuditEvent } from "./app/lib/audit";
-import { callerIdentity, checkTotpAttempt } from "./app/lib/login-throttle";
+import {
+  callerIdentity,
+  checkLoginAttempt,
+  checkTotpAttempt,
+  noteLoginSuccess,
+  noteTotpSuccess,
+} from "./app/lib/login-throttle";
 
 // Full (Node-runtime) Auth.js config. Uses the shared edge-safe base and adds
 // the Credentials provider, whose authorize() reaches Prisma + bcrypt — which
@@ -73,6 +79,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             return null;
           }
 
+          noteTotpSuccess(user.id);
+
           return {
             id: user.id,
             email: user.email,
@@ -106,9 +114,28 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const password = String(credentials?.password ?? "");
         if (!email || !password) return null;
 
+        // Bremse auch HIER, nicht nur in beginLoginAction.
+        //
+        // Die Oberflaeche fragt erst dort an und kommt nur bei richtigem Passwort
+        // hierher — ein Skript aber muss diesen Weg nicht gehen. Es kann direkt
+        // gegen `POST /api/auth/callback/credentials` schiessen und laesst die
+        // vorgelagerte Pruefung dabei einfach aus. Waere die Bremse nur dort,
+        // stuende die Tuer, die sie schliessen soll, daneben weiter offen.
+        //
+        // Doppelt zaehlt das im Normalfall nicht: Der geglueckte Versuch in
+        // beginLoginAction hat den Kontozaehler schon geleert, und ein
+        // gescheiterter kommt hier gar nicht erst an.
+        const caller = callerIdentity(request?.headers ?? new Headers());
+        if (!checkLoginAttempt(caller, email).allowed) {
+          void recordAuditEvent(AUDIT_ACTIONS.loginBlocked, email, `IP ${caller}`);
+          return null;
+        }
+
         const user = await prisma.user.findUnique({ where: { email } });
         if (!user) return null;
         if (!(await bcrypt.compare(password, user.passwordHash))) return null;
+
+        noteLoginSuccess(email);
 
         // If 2FA is enabled, the password alone must NOT create a session — the
         // client is expected to complete the second factor at /login/2fa.

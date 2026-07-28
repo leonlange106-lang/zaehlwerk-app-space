@@ -95,6 +95,17 @@ export function clientIdentifier(request: Request): string {
   return request.headers.get("x-real-ip")?.trim() || "unknown";
 }
 
+/**
+ * Zaehler eines Schluessels verwerfen.
+ *
+ * Gedacht fuer den Erfolgsfall: Wer sich richtig anmeldet, soll nicht am
+ * Kontingent der Fehlversuche haengen bleiben. Ein Angreifer, der raet, kommt
+ * hier nie an — er hat das Passwort ja nicht.
+ */
+export function clearRateLimit(key: string): void {
+  buckets.delete(key);
+}
+
 /** Test-only: clear all buckets between cases. */
 export function __resetRateLimits(): void {
   buckets.clear();

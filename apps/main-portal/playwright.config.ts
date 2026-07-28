@@ -59,6 +59,19 @@ export default defineConfig({
       DATABASE_URL,
       AUTH_SECRET: "e2e-secret-do-not-use-in-production-0123456789",
       AUTH_TRUST_HOST: "true",
+      // Das ADRESS-Limit der Anmeldebremse hochgesetzt — und nur dieses.
+      //
+      // Die Suite meldet sich in wenigen Minuten hundertfach an, alles von einer
+      // Adresse. Der Vorgabewert (60 je Viertelstunde) ist fuer einen Haushalt
+      // gedacht, nicht fuer das hier; mit ihm bricht die Suite mitten im Lauf ab,
+      // und zwar mit Zeitueberschreitungen beim Anmelden, die wie ein Fehler in
+      // der Oberflaeche aussehen.
+      //
+      // Die KONTO-Limits bleiben absichtlich auf ihren Vorgabewerten: Sie sind
+      // die eigentliche Schranke gegen Passwortraten, und die soll die Suite
+      // durchlaufen wie eine echte Installation.
+      LOGIN_RATE_LIMIT_PER_IP: "100000",
+      TOTP_RATE_LIMIT_PER_IP: "100000",
     },
   },
 });
