@@ -77,6 +77,21 @@ RUN --mount=type=cache,id=zw-next-cache,target=/repo/apps/main-portal/.next/cach
     pnpm build \
  && rm -rf apps/main-portal/.next/standalone/apps/main-portal/.next/cache
 
+# ---- migrator: der builder plus Docker-CLI
+#
+# Nur dafuer da, die Migration auszufuehren (Compose-Dienst `db-migrate`).
+#
+# Warum die CLI dort hinein muss: Prismas Schema-Engine vertraegt neben sich
+# keine offene Transaktion — auch keine LESENDE, auch im WAL-Modus. Gemessen,
+# siehe docs/migrations.md. Eine laufende Anwendung hat staendig welche, also
+# muss die Migration die Anwendung anhalten koennen.
+#
+# Warum eine eigene Stufe statt eines `apk add` im builder: Der builder baut
+# auch die Anwendung. Ein Paket, das nur die Migration braucht, gehoert nicht
+# in jeden App-Build.
+FROM builder AS migrator
+RUN apk add --no-cache docker-cli docker-cli-compose
+
 # ---- runner: minimal production image
 #
 # Runs as root, deliberately: the update-trigger endpoint needs `git` and the

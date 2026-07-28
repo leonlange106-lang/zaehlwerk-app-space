@@ -158,12 +158,28 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      target: builder
-    image: zaehlwerk-builder:latest
+      target: migrator
+    image: zaehlwerk-migrator:latest
     environment:
       DATABASE_URL: file:/data/zaehlwerk.db
+      # Damit ein `docker compose stop main-portal` von hier aus dasselbe
+      # Projekt trifft wie ein Aufruf vom Host.
+      COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-zaehlwerk}
+      COMPOSE_FILE_NAME: ${COMPOSE_FILE_NAME:-docker-compose.prod.yml}
     volumes:
       - zaehlwerk-db:/data
+      # Die Migration muss die Anwendung anhalten koennen, sonst laeuft sie
+      # gegen deren offene Transaktionen — auch LESENDE blockieren Prismas
+      # Schema-Engine, auch im WAL-Modus (gemessen, siehe docs/migrations.md).
+      # Vier Updates sind daran gescheitert.
+      #
+      # Zur Tragweite: main-portal haelt diesen Socket bereits, dieser Dienst
+      # wird aus derselben Quelle gebaut, laeuft im selben Projekt und wird
+      # durch dieselbe Admin-Handlung gestartet. Keine neue Angriffsflaeche,
+      # aber es ist und bleibt Root auf dem Host — siehe DEPLOYMENT.md.
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Compose braucht die Datei, gegen die es `stop` ausfuehrt.
+      - .:/repo
     command: ["sh", "-c", "cd packages/database && pnpm db:deploy"]
 
   # TLS-Terminierung. Erst hinter HTTPS laeuft das Session-Cookie nicht mehr im

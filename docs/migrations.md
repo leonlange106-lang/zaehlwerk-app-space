@@ -140,6 +140,49 @@ wenn Prisma sich ändert:
 - `scripts/test-deploy-swap.mjs` prüft die Reihenfolge Anhalten → Migrieren →
   Hochfahren und den Weg zurück, gegen ein nachgemachtes `docker`.
 
+### Warum das Anhalten AUCH in `deploy-migrations.sh` steht
+
+Doppelt, und mit Absicht. Der Grund ist ein Henne-Ei-Problem:
+
+`scripts/update.sh` wird aus dem **laufenden Image** geladen
+(`COPY --from=builder /repo/scripts ./scripts` im Dockerfile,
+`path.resolve(cwd, "..", "..", "scripts", "update.sh")` in `update-run.ts`) —
+nicht aus dem Checkout. Eine Änderung dort greift also erst beim
+*übernächsten* Update. Und dorthin kommt man nicht, wenn das nächste scheitert.
+
+Genau das ist passiert: 3.12.0-beta.7 brachte das Anhalten in `update.sh` und
+`deploy-swap.sh` mit — und das Update lief trotzdem in den alten Ablauf, weil
+das alte `update.sh` aus dem installierten Image kam.
+
+`packages/database/scripts/deploy-migrations.sh` dagegen steckt im
+`db-migrate`-Image, das bei **jedem** Update frisch aus dem neuen Stand gebaut
+wird. Es ist der einzige Ort, an dem eine Änderung schon beim nächsten Update
+wirkt.
+
+Dafür braucht der Dienst Docker: eigene Dockerfile-Stufe `migrator`
+(`builder` + `docker-cli`) und der Socket in `docker-compose.prod.yml`. Zur
+Tragweite: `main-portal` hält denselben Socket bereits, der Dienst wird aus
+derselben Quelle gebaut, läuft im selben Projekt und wird durch dieselbe
+Admin-Handlung gestartet — keine neue Angriffsfläche, aber weiterhin Root auf
+dem Host (siehe DEPLOYMENT.md).
+
+Die Regeln dort sind eng gefasst:
+
+- Angehalten wird **nur, was läuft** (`compose ps -q`). Im neuen Ablauf hat der
+  Deployer die Anwendung schon angehalten — dann passiert hier nichts.
+- Wieder hochgefahren wird **immer**, wenn dieses Skript selbst angehalten hat —
+  auch nach einer geglückten Migration, und auch per Trap bei einem Signal. Das
+  kostet einen überflüssigen Start (der Deployer tauscht gleich darauf ohnehin),
+  spart aber den Fall, der wirklich weh täte: Bricht der Aufrufer zwischen
+  Migration und Tausch ab, bliebe die Instanz sonst unten.
+- **Ohne Socket oder ohne CLI** läuft das Skript unverändert weiter und sagt es
+  (`kein Zugriff auf Docker`). Sonst wären Tests und Handstarts unmöglich.
+
+Sobald eine Instanz einmal auf einem Stand mit dem neuen `update.sh` ist, hält
+der Deployer die Anwendung ohnehin schon an, und dieser Teil wird zur
+wirkungslosen Rückversicherung. Er bleibt trotzdem: Er ist die einzige Stelle,
+die eine Instanz aus genau dieser Klemme wieder herausholt.
+
 ### Journal-Modus
 
 `PRAGMA journal_mode` wirft nicht, wenn der Wechsel abgelehnt wird — es
