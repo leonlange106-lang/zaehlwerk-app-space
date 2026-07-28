@@ -9,12 +9,29 @@ export const dynamic = "force-dynamic";
 // Server-persisted datalogs. GET lists summaries; POST accepts one or many logs
 // (bulk upload) as { files: [{ name, csv, source?, sourceUrl? }] }.
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const denied = await denyUnlessAppAccess(APP_ID);
   if (denied) return denied;
 
-  const logs = await listLogs();
-  return NextResponse.json({ logs }, { headers: { "Cache-Control": "no-store" } });
+  const params = request.nextUrl.searchParams;
+  const toInt = (value: string | null): number | undefined => {
+    const parsed = Number.parseInt(value ?? "", 10);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  };
+
+  const page = await listLogs({
+    limit: toInt(params.get("limit")),
+    offset: toInt(params.get("offset")),
+  });
+
+  // `logs` bleibt an seinem Platz — die Oberflaeche liest genau dieses Feld.
+  // Die Seitenangaben kommen daneben, damit ein Aufrufer weiss, was er NICHT
+  // sieht: Eine abgeschnittene Liste ohne diese Angabe sieht aus wie der ganze
+  // Bestand.
+  return NextResponse.json(
+    { logs: page.logs, total: page.total, limit: page.limit, offset: page.offset, hasMore: page.hasMore },
+    { headers: { "Cache-Control": "no-store" } },
+  );
 }
 
 // Stored datalogs carry VINs and vehicle data — readable only by users who were
