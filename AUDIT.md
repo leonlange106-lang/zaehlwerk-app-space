@@ -1,5 +1,13 @@
 # AUDIT.md — Full-Stack Architecture Audit & Migration Strategy
 
+> **Stand der Gültigkeit:** § 1–5 beschreiben den Zustand vom 25.07.2026 und
+> sind in Teilen überholt — insbesondere ist **Mantine vollständig entfernt**
+> (die App nutzt Radix + Tailwind v4), und die dort genannten Bündelgrößen
+> stammen von vor der Recharts-Auslagerung. Aktuell sind **§ 9** (umgesetzte
+> Maßnahmen) und **§ 10** (offene Punkte). Ein Dokument, das zur Hälfte etwas
+> anderes behauptet als der Code, ist schlechter als eines mit einem
+> Verfallsdatum — daher dieser Hinweis statt einer stillen Korrektur.
+
 **Datum:** 2026-07-25 · **Commit:** `341c640` · **Version:** 2.0.0
 **Scope:** `apps/main-portal` (Next.js 16 / Mantine v7), `packages/database`, `packages/updater`
 
