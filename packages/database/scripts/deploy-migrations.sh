@@ -35,18 +35,36 @@ PRISMA="${PRISMA:-pnpm exec prisma}"
 # offen haelt — das ist Absicht: Scheitert sie, bedient der alte Container
 # unveraendert weiter, und niemand landet auf einer halb migrierten Datenbank.
 #
-# Der Preis dafuer ist Konkurrenz um den Schreiblock. Die Anwendung setzt seit
+# Der Preis dafuer ist Konkurrenz um die Sperre. Die Anwendung setzt seit
 # OPS-02 ein `busy_timeout` und wartet deshalb geduldig; der Schema-Engine von
-# Prisma tut das NICHT und gibt beim ersten Zusammentreffen sofort auf. Genau
-# diese Unwucht hat ein Update zum Absturz gebracht: eine Ablesung, die im
-# falschen Moment gespeichert wurde, genuegte.
+# Prisma tut das NICHT und gibt beim ersten Zusammentreffen sofort auf.
 #
 # `busy_timeout` laesst sich dem Schema-Engine nicht mitgeben — weder ueber
 # `socket_timeout` noch ueber `connection_limit` in der URL; beides wurde
 # ausprobiert und aendert nichts. Bleibt: es noch einmal versuchen. Schreibende
 # Zugriffe dieser Anwendung dauern Millisekunden, ein Heimserver hat einen
 # Benutzer — ueber eine Minute verteilt trifft man das Fenster.
-LOCK_RETRIES="${LOCK_RETRIES:-10}"
+#
+# ABER: Das gilt nur gegen kurze Schreibzugriffe. Eine LANG OFFENE Transaktion
+# sperrt ohne WAL die ganze Datei ueber ihre volle Laufzeit — auch eine
+# lesende. Dann gibt es kein Fenster mehr, und haeufigeres Nachfragen findet
+# keines: Jeder Versuch wird abgewiesen, bis das Budget alle ist. Genau so ist
+# ein Update gescheitert; der lange Leser war das automatische Backup
+# (`VACUUM INTO` haelt die Quelle ueber die ganze Kopie).
+#
+# Dagegen wirken drei Dinge, jedes an seiner Stelle:
+#
+#   * `ensure-wal.mjs` unten stellt auf WAL um — dort stoeren Leser gar nicht
+#     mehr. Das ist die eigentliche Abhilfe, aber sie greift nur, wenn die
+#     Datenbank im Moment des Wechsels frei ist: SQLite gibt bei einem
+#     Moduswechsel sofort SQLITE_BUSY zurueck, ohne den Busy-Handler zu fragen.
+#     Ein `busy_timeout` hilft hier also NICHT — nachgemessen.
+#   * Die Anwendung verschiebt Backup und Wartung, solange ein Deploy laeuft
+#     (`deployInProgress`). Damit entsteht der lange Leser erst gar nicht.
+#   * Und falls doch: das Budget hier.
+#
+# 30 x 6s = drei Minuten. Vorher war es eine, und die reichte nicht.
+LOCK_RETRIES="${LOCK_RETRIES:-30}"
 LOCK_WAIT="${LOCK_WAIT:-6}"
 
 retry_on_lock() {
@@ -101,6 +119,15 @@ if [ -f "$DB_PATH" ]; then
   echo "[migrate] Sicherung: $BACKUP_DIR/$(basename "$DB_PATH").$STAMP"
 else
   echo "[migrate] keine bestehende Datenbank — nichts zu sichern"
+fi
+
+# ── Journal-Modus sicherstellen ────────────────────────────────────────────
+# Nach der Sicherung (es wird geschrieben) und vor allem anderen: Ohne WAL
+# sperrt jeder Leser der laufenden Anwendung gegen uns. Siehe ensure-wal.mjs.
+# Das Skript endet immer mit 0 — eine Datenbank ohne WAL migriert langsamer,
+# aber sie migriert, und der Deploy soll daran nicht scheitern.
+if [ -f "$DB_PATH" ]; then
+  node "$(dirname "$0")/ensure-wal.mjs" || true
 fi
 
 # ── Zustand bestimmen ──────────────────────────────────────────────────────

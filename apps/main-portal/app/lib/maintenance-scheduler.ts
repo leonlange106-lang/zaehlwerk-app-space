@@ -18,6 +18,15 @@ async function runDueMaintenance(): Promise<void> {
   const { getLogRetentionPolicy } = await import("./settings");
   const { runMaintenance } = await import("./maintenance");
   const { recordAuditEvent, AUDIT_ACTIONS } = await import("./audit");
+  const { deployInProgress } = await import("./update-run");
+
+  // Nicht waehrend eines Deploys — aus demselben Grund wie beim Backup, nur
+  // schaerfer: VACUUM schreibt die ganze Datenbank neu und haelt dabei die
+  // EXKLUSIVE Sperre. Trifft die Migration darauf, hat sie keine Chance.
+  if (await deployInProgress()) {
+    console.info("[maintenance-scheduler] Deploy laeuft — Wartung wird verschoben");
+    return;
+  }
 
   const { lastRunAt } = await getLogRetentionPolicy();
   const last = lastRunAt ? new Date(lastRunAt).getTime() : 0;
