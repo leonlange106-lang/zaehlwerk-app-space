@@ -249,6 +249,22 @@ fi
 # build`) so it uses BuildKit — the Dockerfile's cache mounts require it, and
 # `docker build` in this container has no buildx plugin (would fall back to the
 # legacy builder and fail on `--mount`).
+#
+# VORHER das laufende Image festhalten. Der Build ueberschreibt gleich das Tag
+# `:latest`, und ohne einen zweiten Namen waere das alte Image danach nur noch
+# ein namenloser Layer-Haufen. Der Deployer braucht es aber: Scheitert die
+# Migration, faehrt er die ALTE Version wieder hoch, und dafuer muss sie
+# ansprechbar sein. Beim allerersten Deploy gibt es noch nichts zu taggen —
+# kein Fehler, nur nichts zu tun.
+PREV_IMAGE="${PREV_IMAGE:-zaehlwerk-main-portal:previous}"
+if docker image inspect "$IMAGE_TAG" >/dev/null 2>&1; then
+  docker tag "$IMAGE_TAG" "$PREV_IMAGE" \
+    && echo "[update] laufendes Image gesichert als $PREV_IMAGE" \
+    || echo "[update] WARNUNG: $IMAGE_TAG liess sich nicht sichern" >&2
+else
+  echo "[update] kein bestehendes $IMAGE_TAG — nichts zu sichern"
+fi
+
 echo "[update] building new image"
 write_status building true false "Neue Version wird gebaut" "" "$GIT_SHA"
 GIT_SHA="$GIT_SHA" docker compose -f "$COMPOSE_FILE" build main-portal \
@@ -282,14 +298,50 @@ GIT_SHA="$GIT_SHA" docker compose -f "$COMPOSE_FILE" build main-portal \
 # on a table with rows need a default anyway, so this is rare rather than
 # impossible; the UI says so before the button is pressed, and the answer is to
 # restore a backup rather than to migrate backwards.
+#
+# HIER WIRD NICHT MEHR MIGRIERT — nur noch das Image dafuer gebaut.
+#
+# Drei Updates sind an dieser Stelle gescheitert, zuletzt ueber drei Minuten
+# durchgehend gesperrt. Die Ursache ist keine unglueckliche Ueberschneidung,
+# sondern strukturell. Gemessen, auf einer Datenbank im WAL-Modus:
+#
+#   Anwendung nur verbunden, keine Transaktion  -> migrate deploy laeuft
+#   Anwendung mit offener LESEtransaktion       -> gesperrt
+#   Anwendung mit offener Schreibtransaktion    -> gesperrt
+#
+# Auch eine lesende. „Im WAL-Modus stoeren Leser nicht" gilt fuer gewoehnliche
+# Schreibvorgaenge, fuer den Schema-Engine von Prisma nicht. Und offene
+# Transaktionen hat eine laufende Anwendung staendig — das automatische Backup
+# kopiert mit `VACUUM INTO` und liest dabei minutenlang am Stueck.
+#
+# Solange die alte Anwendung laeuft, ist die Migration also auf Glueck
+# angewiesen. Kein Wiederholungsbudget behebt das; es verlaengert nur das
+# Warten. Deshalb migriert jetzt der Deployer, NACHDEM er die Anwendung
+# angehalten hat — siehe scripts/deploy-swap.sh.
+#
+# Was hier bleibt: das Bauen des Migrations-Images. Das dauert (Layer-Export),
+# und es soll dauern, WAEHREND die alte Anwendung noch bedient. Der Deployer
+# startet den Container dann nur noch, und das Fenster ohne Anwendung bleibt
+# kurz.
+#
+# EIN ROLLBACK MIGRIERT NICHT, unveraendert. Eine Migration ist
+# vorwaertsgerichtet: Das Schema der neueren Version bleibt stehen, wenn man auf
+# eine aeltere Anwendung zurueckgeht. Rueckwaerts zu migrieren hiesse, genau die
+# Spalten zu entfernen, in die die neuere Version bereits geschrieben hat.
 if [ "$UPDATE_MODE" = "rollback" ]; then
   echo "[update] rollback: skipping migrations (forward-only; older schema would drop columns)"
   write_status migrating true false "Datenbank bleibt unverändert (Rollback)" "" "$GIT_SHA"
+  NEEDS_MIGRATION=0
 else
-  echo "[update] migrating database (prisma migrate deploy via compose)"
-  write_status migrating true false "Datenbank wird migriert" "" "$GIT_SHA"
-  GIT_SHA="$GIT_SHA" docker compose -f "$COMPOSE_FILE" run --rm --build db-migrate \
-    || fail "DB-Migration fehlgeschlagen – Details im Log" "$GIT_SHA"
+  echo "[update] building migration image (migration runs in the deployer)"
+  write_status migrating true false "Migration wird vorbereitet" "" "$GIT_SHA"
+  # `--profile tools`, weil db-migrate hinter genau diesem Profil liegt. `run`
+  # aktiviert einen genannten Dienst von sich aus, `build` verlaesst sich nicht
+  # darauf — ohne das Flag hiesse es womoeglich "no such service", und zwar
+  # ausgerechnet auf der Instanz und nicht hier.
+  GIT_SHA="$GIT_SHA" docker compose -f "$COMPOSE_FILE" --profile tools build db-migrate \
+    || fail "Migrations-Image konnte nicht gebaut werden – Details im Log" "$GIT_SHA"
+  NEEDS_MIGRATION=1
 fi
 
 # 4) Hand the swap to a detached deployer ------------------------------------
@@ -328,6 +380,10 @@ docker run -d --rm --name zaehlwerk-deployer \
   -e UPDATE_LABEL="$UPDATE_LABEL" \
   -e UPDATE_CHANNEL="$UPDATE_CHANNEL" \
   -e DEPLOY_HISTORY_FILE="$DEPLOY_HISTORY_FILE" \
+  -e NEEDS_MIGRATION="$NEEDS_MIGRATION" \
+  -e IMAGE_TAG="$IMAGE_TAG" \
+  -e PREV_IMAGE="$PREV_IMAGE" \
+  -e PREV_HEAD="$PREV_HEAD" \
   "$IMAGE_TAG" \
   "${HOST_REPO}/scripts/deploy-swap.sh" \
   || fail "Deployer konnte nicht gestartet werden – Details im Log" "$GIT_SHA"

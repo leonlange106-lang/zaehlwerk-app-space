@@ -578,6 +578,75 @@ async function testLongReaderOnNonWalDatabase() {
   });
 }
 
+// ── Fall 7: was den Schema-Engine wirklich blockiert ───────────────────────
+// Der teuerste Irrtum dieses Projekts, als Messung festgehalten.
+//
+// Drei Updates sind an einer gesperrten Datenbank gescheitert, und drei
+// Erklaerungsversuche lagen daneben — zuletzt der WAL-Modus, der bei der
+// betroffenen Instanz laengst aktiv war. „Im WAL-Modus stoeren Leser nicht"
+// gilt fuer gewoehnliche Schreibvorgaenge. Fuer den Schema-Engine von Prisma
+// gilt es NICHT: Er vertraegt neben sich ueberhaupt keine offene Transaktion.
+//
+// Eine laufende Anwendung hat staendig welche. Daraus folgt die Architektur:
+// Der Deployer haelt die Anwendung an, bevor er migriert (deploy-swap.sh).
+// Dieser Fall belegt die Praemisse — faellt er eines Tages um, weil Prisma sich
+// aendert, darf man die Auszeit wieder abschaffen.
+async function testWhatActuallyBlocksTheSchemaEngine() {
+  console.log("\nWas den Schema-Engine blockiert (WAL aktiv)");
+
+  async function versuch(modus) {
+    return withTempDb(async (dbPath) => {
+      deploy(dbPath, { upTo: migrationNames()[1] });
+      await query(dbPath, "PRAGMA journal_mode = WAL");
+
+      const halter = spawn(
+        process.execPath,
+        [
+          "-e",
+          `import("${path.join(PACKAGE_ROOT, "generated/client/index.js")}").then(async ({ PrismaClient }) => {
+             const db = new PrismaClient({ datasourceUrl: "file:${dbPath}" });
+             await db.$queryRawUnsafe("PRAGMA busy_timeout = 5000");
+             const halten = () => new Promise((r) => setTimeout(r, 25000));
+             if ("${modus}" === "idle") {
+               await db.$queryRawUnsafe("SELECT 1");
+               console.log("HOLDING");
+               await halten();
+             } else {
+               await db.$transaction(async (tx) => {
+                 if ("${modus}" === "write") {
+                   await tx.$executeRawUnsafe("INSERT INTO locations (id,name,createdAt) VALUES ('h','h',0)");
+                 } else {
+                   await tx.$queryRawUnsafe("SELECT COUNT(*) AS c FROM zaehler");
+                 }
+                 console.log("HOLDING");
+                 await halten();
+               }, { timeout: 40000, maxWait: 10000 }).catch(() => {});
+             }
+             await db.$disconnect();
+             process.exit(0);
+           })`,
+        ],
+        { stdio: ["ignore", "pipe", "ignore"] },
+      );
+
+      const steht = await waitForLine(halter, "HOLDING", 20_000);
+      try {
+        if (!steht) return null;
+        prismaCli(["migrate", "deploy"], { DATABASE_URL: `file:${dbPath}` });
+        return true;
+      } catch {
+        return false;
+      } finally {
+        halter.kill();
+      }
+    });
+  }
+
+  check("nur verbunden (keine Transaktion): Migration laeuft", (await versuch("idle")) === true);
+  check("offene LESEtransaktion: Migration blockiert", (await versuch("read")) === false);
+  check("offene Schreibtransaktion: Migration blockiert", (await versuch("write")) === false);
+}
+
 console.log("Migrationen gegen echte Datenbestaende pruefen");
 await testFreshDatabase();
 await testExistingData();
@@ -586,6 +655,7 @@ await testLockedDatabase();
 await testBaselineStampedOnce();
 await testWalSwitchOnQuietDatabase();
 await testLongReaderOnNonWalDatabase();
+await testWhatActuallyBlocksTheSchemaEngine();
 
 console.log(`\n${checks - failures} von ${checks} Pruefungen bestanden.`);
 if (failures > 0) {

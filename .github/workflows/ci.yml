@@ -48,6 +48,12 @@ jobs:
       # Zwei davon sind in diesem Projekt schon passiert und wurden von Hand
       # gefunden — genau das nimmt dieser Schritt ab.
       - run: pnpm --filter @zaehlwerk/database test:migrations
+      # deploy-swap.sh haelt die Anwendung an, migriert und faehrt wieder hoch.
+      # Biegt es dabei falsch ab, steht die Instanz ohne Anwendung da. Geprueft
+      # wird gegen ein nachgemachtes `docker`: die Reihenfolge der Schritte und
+      # der Weg zurueck, wenn die Migration scheitert. Drei Updates sind an
+      # diesem Ablauf gescheitert, bevor es diesen Schritt gab.
+      - run: node scripts/test-deploy-swap.mjs
 
   build:
     name: Production-Build

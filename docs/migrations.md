@@ -53,8 +53,13 @@ Das Issue-Template fragt beides ab (`Schemaänderung nötig?`,
 
 ## Was beim Deploy passiert
 
-`scripts/update.sh` ruft Schritt 3 über den Compose-Dienst `db-migrate` auf, der
-`packages/database/scripts/deploy-migrations.sh` ausführt:
+Der Deploy läuft in zwei Prozessen. `scripts/update.sh` baut, solange die alte
+Anwendung bedient; `scripts/deploy-swap.sh` (abgekoppelter Container) hält an,
+migriert und fährt hoch — warum in dieser Reihenfolge, steht unter „Gesperrte
+Datenbank" weiter unten.
+
+Die Migration selbst führt der Compose-Dienst `db-migrate` aus, der
+`packages/database/scripts/deploy-migrations.sh` startet:
 
 1. **Sicherung.** Die Datenbankdatei wird mit Zeitstempel nach
    `<datenverzeichnis>/pre-migration/` kopiert, samt Journal-Dateien. Schlägt
@@ -69,59 +74,84 @@ Das Issue-Template fragt beides ab (`Schemaänderung nötig?`,
    siehe „Warum erst fragen, dann schreiben" unten.
 4. **Anwenden.** `prisma migrate deploy` spielt die fehlenden Schritte ein.
 
-Die Migration ist eine **Vorbedingung** für den Container-Tausch. Schlägt sie
-fehl, läuft die alte Anwendung weiter und niemand landet auf einer halb
-migrierten Datenbank.
+Die Migration bleibt eine **Vorbedingung** für den Tausch: Schlägt sie fehl,
+kommt die neue Version nicht hoch. Der Deployer holt dann die alte zurück.
 
-### Gesperrte Datenbank
+### Gesperrte Datenbank — und warum die Anwendung dafür anhält
 
-Die Migration läuft, **während die alte Anwendung noch bedient** und die
-SQLite-Datei offen hält. Das ist Absicht (siehe Absatz oben), kostet aber
-Konkurrenz um den Schreiblock — und die beiden Seiten gehen damit
-unterschiedlich um:
+Bis 3.12.0-beta.6 lief die Migration **neben der laufenden Anwendung**, damit
+ein Fehlschlag folgenlos bleibt. Drei Updates sind daran gescheitert. Die
+Ursache ist keine unglückliche Überschneidung, sondern strukturell. Gemessen,
+auf einer Datenbank **im WAL-Modus**:
 
-| | `busy_timeout` | bei einer Sperre |
-|---|---|---|
-| Anwendung (`sqlite-pragmas.ts`, seit OPS-02) | gesetzt | wartet |
-| Prisma Schema-Engine (`migrate resolve`/`deploy`) | **nicht** setzbar | bricht sofort ab |
+| Zustand der laufenden Anwendung | `prisma migrate deploy` |
+|---|---|
+| nur verbunden, keine Transaktion | läuft |
+| offene **Lese**transaktion | **gesperrt** |
+| offene Schreibtransaktion | **gesperrt** |
 
-Dem Schema-Engine lässt sich kein `busy_timeout` mitgeben — weder über
-`socket_timeout` noch über `connection_limit` in der URL; beides wurde
-ausprobiert. Bleibt: es noch einmal versuchen. Das Skript wiederholt einen an
-einer Sperre gescheiterten Aufruf `LOCK_RETRIES` mal (Standard 30) im Abstand
-von `LOCK_WAIT` Sekunden (Standard 6). Wiederholt wird **nur** bei
-`database is locked` — ein Syntaxfehler in einer Migration wird durchs Warten
-nicht besser.
+Auch eine lesende. „Im WAL-Modus blockieren Leser keine Schreiber" gilt für
+gewöhnliche Schreibvorgänge — für Prismas Schema-Engine nicht. Und offene
+Transaktionen hat eine laufende Anwendung ständig: Das automatische Backup
+kopiert mit `VACUUM INTO` und liest dabei minutenlang am Stück.
 
-#### Der Fall, gegen den Wiederholen allein nicht hilft
+Daraus folgt: **Solange die alte Anwendung läuft, ist die Migration auf Glück
+angewiesen.** Kein Wiederholungsbudget behebt das, es verlängert nur das Warten
+— zuletzt 30 Versuche über drei Minuten, alle abgewiesen.
 
-Kurze Schreibzugriffe geben die Sperre sofort wieder frei; über drei Minuten
-verteilt trifft man das Fenster. Eine **lang offene Transaktion** hat aber gar
-kein Fenster: Ohne WAL sperrt sie die ganze Datei über ihre volle Laufzeit —
-auch eine *lesende*. Jeder Versuch wird dann abgewiesen, bis das Budget alle
-ist. Genau so ist ein Update auf 3.12.0-beta.5 gescheitert; der lange Leser war
-das automatische Backup, denn `VACUUM INTO` liest die Quelle während der
-gesamten Kopie.
+Deshalb migriert seit OPS-03 der **Deployer**, nachdem er die Anwendung
+angehalten hat:
 
-Drei Dinge wirken dagegen, jedes an seiner Stelle:
+```
+update.sh    checkout → Image bauen → Migrations-Image bauen → Übergabe
+             (die alte Anwendung bedient die ganze Zeit weiter)
 
-1. **`ensure-wal.mjs`** stellt vor der Migration auf WAL um — dort stören Leser
-   Schreiber überhaupt nicht mehr. Das ist die eigentliche Abhilfe, greift aber
-   nur auf einer im Moment freien Datenbank: SQLite gibt bei einem Moduswechsel
-   sofort `SQLITE_BUSY` zurück, **ohne den Busy-Handler zu fragen**. Ein
-   `busy_timeout` ändert daran nichts — nachgemessen. Scheitert der Wechsel,
-   bricht der Deploy nicht ab; er wartet dann eben.
-2. **Die Anwendung verschiebt Backup und Wartung**, solange ein Deploy läuft
-   (`deployInProgress()` in `update-run.ts`). So entsteht der lange Leser gar
-   nicht erst. Ein aufgeschobenes Backup kostet nichts — der Deploy sichert die
-   Datei ohnehin selbst, und der nächste stündliche Weckruf holt es nach.
-3. **Das Retry-Budget** für alles, was trotzdem durchrutscht.
+deploy-swap  main-portal ANHALTEN → migrieren → neue Version hoch
+             scheitert die Migration → alte Version zurück
+```
 
-Warum die Datei überhaupt ohne WAL sein kann, obwohl OPS-02 es setzt:
+Der Preis ist eine **kurze Auszeit** statt gar keiner. Der lange Teil (der
+Layer-Export des Migrations-Images, Minuten) bleibt in `update.sh`, wo die alte
+Anwendung noch bedient; der Deployer startet den Container nur noch.
+
+Die Zusicherung aus #108 bleibt erhalten, nur anders eingelöst: Scheitert die
+Migration, fährt der Deployer die **alte** Version wieder hoch — altes Image
+(`zaehlwerk-main-portal:previous`, in `update.sh` vor dem Build getaggt) und
+alter Arbeitsbaum. Niemand landet auf einer halb migrierten Datenbank, und
+niemand landet mit der neuen Anwendung auf einer unmigrierten.
+
+Ein **Rollback** hält nichts an: Er migriert ohnehin nicht, die Auszeit wäre
+grundlos.
+
+Der Abbrechen-Knopf gilt deshalb nur noch bis einschließlich `building`
+(`CANCELLABLE_STAGES`). Ab der Übergabe gibt es keinen Prozess mehr, den er
+beenden könnte — und den Deployer mitten im Ablauf zu töten hinterließe die
+Instanz ohne Anwendung.
+
+**Das Wiederholungsbudget bleibt** (`LOCK_RETRIES`, Standard 30, `LOCK_WAIT` 6s)
+und wiederholt weiterhin nur bei `database is locked`. Es ist jetzt aber die
+Rückfallebene, nicht der Plan: Nach dem Anhalten sollte gar nichts mehr
+konkurrieren.
+
+Beide Prämissen sind als Test festgehalten, damit man sie zurücknehmen kann,
+wenn Prisma sich ändert:
+
+- `packages/database/scripts/test-migrations.mjs` misst die Tabelle oben.
+- `scripts/test-deploy-swap.mjs` prüft die Reihenfolge Anhalten → Migrieren →
+  Hochfahren und den Weg zurück, gegen ein nachgemachtes `docker`.
+
+### Journal-Modus
+
 `PRAGMA journal_mode` wirft nicht, wenn der Wechsel abgelehnt wird — es
-*antwortet* mit dem Modus, der danach gilt. Diese Antwort wurde nie angesehen,
-also meldete der Start WAL, ohne dass etwas geschehen war. Seit OPS-03 wird sie
-geprüft, und `busy_timeout` steht in der Liste **vor** `journal_mode`.
+*antwortet* mit dem Modus, der danach gilt. Diese Antwort wurde bis OPS-03 nie
+angesehen, also meldete der Start WAL, ohne dass etwas geschehen war. Seit
+OPS-03 wird sie geprüft, und `busy_timeout` steht in der Liste **vor**
+`journal_mode` — sonst läuft ausgerechnet die eine Anweisung, die eine Sperre
+braucht, ohne Geduld.
+
+WAL bleibt trotzdem richtig (bessere Nebenläufigkeit im Normalbetrieb). Es war
+nur nicht die Ursache der gescheiterten Updates: Die betroffene Instanz war
+bereits auf WAL.
 
 ### Warum erst fragen, dann schreiben
 

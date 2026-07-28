@@ -56,13 +56,23 @@ export const STAGE_INDEX: Record<string, number> = {
 /**
  * Stages an update may still be stopped in.
  *
- * Up to and including the migration, the OLD container is still serving and
- * nothing has been swapped — aborting costs a wasted build and nothing else.
- * From `restarting` on, the detached deployer is recreating containers, and
- * killing it there would leave the stack half-swapped: exactly the state the
- * whole detached-deployer design exists to avoid.
+ * Solange gebaut wird, bedient der ALTE Container unverändert weiter und nichts
+ * ist getauscht — ein Abbruch kostet einen verworfenen Build und sonst nichts.
+ *
+ * `migrating` gehörte hier einmal dazu und tut es seit OPS-03 nicht mehr. Die
+ * Migration läuft nicht mehr in `update.sh`, sondern im abgekoppelten Deployer,
+ * der dafür die Anwendung anhält. Zwei Gründe, warum ein Abbruch dort nicht
+ * mehr geht:
+ *
+ *   * Es gibt keinen Prozess mehr zum Abbrechen — `cancelDeployRun` kennt nur
+ *     die PID aus `update.sh`, und die ist zu diesem Zeitpunkt beendet.
+ *   * Selbst wenn: Den Deployer mitten in Anhalten → Migrieren → Hochfahren zu
+ *     töten hinterließe die Instanz ohne laufende Anwendung. Genau dagegen
+ *     existiert der abgekoppelte Deployer.
+ *
+ * Einen Knopf anzubieten, der nichts bewirkt, ist schlechter als keiner.
  */
-export const CANCELLABLE_STAGES = new Set(["started", "pulling", "building", "migrating"]);
+export const CANCELLABLE_STAGES = new Set(["started", "pulling", "building"]);
 
 export function isCancellable(state: Pick<UpdateState, "status" | "stage">): boolean {
   return state.status === "RUNNING" && CANCELLABLE_STAGES.has(state.stage);
