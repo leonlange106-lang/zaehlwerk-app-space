@@ -8,6 +8,7 @@ import {
   ablesungUpdateSchema,
   computeConsumptionStats,
   calculateConsumption,
+  consumptionReadings,
   prisma,
   projectAnnualConsumption,
   tarifCreateSchema,
@@ -41,6 +42,9 @@ const queryZaehler = cache(async () =>
     include: {
       location: true,
       ablesungen: { orderBy: { datum: "asc" } },
+      // Ohne die Register liefe jede Verbrauchsrechnung ueber die gemischte
+      // Reihe eines Zweirichtungszaehlers — Bezug und Einspeisung ineinander.
+      register: { orderBy: { sortIndex: "asc" } },
     },
   }),
 );
@@ -84,8 +88,12 @@ export async function getConsumptionSummary() {
   const zaehlerList = await queryZaehler();
 
   return zaehlerList.map((zaehler) => {
+    // Nur der Bezug. Eingespeiste Kilowattstunden sind kein Verbrauch, und in
+    // derselben Reihe gerechnet ergaeben sie keine Nettobilanz, sondern eine
+    // Folge von Spruengen in beide Richtungen.
+    const readings = consumptionReadings(zaehler.register, zaehler.ablesungen);
     const stats = computeConsumptionStats(
-      calculateConsumption(zaehler.ablesungen, { stellen: zaehler.stellen }),
+      calculateConsumption(readings, { stellen: zaehler.stellen }),
     );
 
     return {
@@ -97,7 +105,7 @@ export async function getConsumptionSummary() {
       icon: zaehler.icon,
       totalConsumption: stats.total,
       avgPerDay: stats.avgPerDay,
-      readingCount: zaehler.ablesungen.length,
+      readingCount: readings.length,
       hasImplausibleData: stats.hasImplausibleIntervals,
     };
   });
@@ -124,6 +132,7 @@ export async function getProjectionSummary(): Promise<ProjectionSummaryEntry[]> 
     include: {
       ablesungen: { orderBy: { datum: "asc" } },
       tarife: { orderBy: { gueltigAb: "asc" } },
+      register: { orderBy: { sortIndex: "asc" } },
     },
   });
 
@@ -134,7 +143,8 @@ export async function getProjectionSummary(): Promise<ProjectionSummaryEntry[]> 
     einheit: zaehler.einheit,
     farbe: zaehler.farbe,
     projection: projectAnnualConsumption({
-      readings: zaehler.ablesungen,
+      // Siehe getConsumptionSummary: hochgerechnet wird der Bezug.
+      readings: consumptionReadings(zaehler.register, zaehler.ablesungen),
       kategorie: zaehler.kategorie,
       einheit: zaehler.einheit,
       tarife: zaehler.tarife,

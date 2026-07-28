@@ -16,6 +16,7 @@ import {
 } from "@/app/components/ui/primitives";
 import {
   IconAlertCircle,
+  IconArrowBackUp,
   IconArrowLeft,
   IconChartLine,
   IconCheck,
@@ -30,7 +31,10 @@ import {
   ENERGY_CATEGORY_LABELS,
   calculateConsumption,
   calculateTariffCost,
+  combineRegisterStats,
   computeConsumptionStats,
+  groupReadingsByRegister,
+  hasMultipleRegisters,
   gasM3ToKwh,
   GAS_BRENNWERT,
   GAS_ZUSTANDSZAHL,
@@ -79,11 +83,55 @@ export function ZaehlerDetail({
   projection: ConsumptionProjection;
 }) {
   const ascendingReadings = [...zaehler.ablesungen].reverse();
-  const intervals = calculateConsumption(ascendingReadings, { stellen: zaehler.stellen });
-  const stats = computeConsumptionStats(intervals);
+
+  // JE REGISTER rechnen, nicht über die ganze Liste.
+  //
+  // Ein Zweirichtungszähler führt zwei Zählwerke, die beide für sich hochzählen
+  // und abwechselnd in dieselbe Tabelle melden. Über die gemischte Liste
+  // gerechnet folgt auf einen Bezugsstand von 45 000 ein Einspeisestand von
+  // 1 200 — negatives Delta —, und die nächste Zeile springt um 43 800 zurück.
+  // Kein einziges Intervall wäre richtig.
+  //
+  // Ohne Register bleibt es bei der einen Reihe: der gewöhnliche Zähler und
+  // jeder Bestand aus der Zeit vor den Registern.
+  const groups =
+    zaehler.register.length === 0
+      ? [{ register: null, readings: ascendingReadings }]
+      : groupReadingsByRegister(zaehler.register, ascendingReadings);
+  const series = groups.map((group) => ({
+    register: group.register,
+    intervals: calculateConsumption(group.readings, { stellen: zaehler.stellen }),
+  }));
+
+  const isFeedIn = (register: { richtung: string } | null) =>
+    register?.richtung === "EINSPEISUNG";
+
+  // Verbrauch ist Bezug. Eingespeiste Kilowattstunden sind kein Verbrauch, und
+  // sie mitzuzählen kehrte die Aussage der Kachel um.
+  const consumptionSeries = series.filter((entry) => !isFeedIn(entry.register));
+  const feedInSeries = series.filter((entry) => isFeedIn(entry.register));
+
+  const intervals = consumptionSeries.flatMap((entry) => entry.intervals);
+  const stats =
+    combineRegisterStats(consumptionSeries.map((entry) => computeConsumptionStats(entry.intervals))) ??
+    computeConsumptionStats([]);
+  const feedInStats = combineRegisterStats(
+    feedInSeries.map((entry) => computeConsumptionStats(entry.intervals)),
+  );
+
   // toReadingId -> Intervall, das an dieser Ablesung endet. Der Verbrauch kann
   // `null` sein (unplausibel) — das rendert die Tabelle bewusst als solches.
-  const intervalByReadingId = new Map(intervals.map((interval) => [interval.toReadingId, interval]));
+  // Über ALLE Reihen, damit auch Einspeisezeilen ihre Zahl zeigen.
+  const intervalByReadingId = new Map(
+    series.flatMap((entry) => entry.intervals).map((interval) => [interval.toReadingId, interval]),
+  );
+  // Welche Ablesung gehört zu welchem Register — für die Spalte in der Tabelle
+  // und dafür, dass ein Einspeisestand keine Bezugskosten angerechnet bekommt.
+  // Direkt aus der Gruppierung, die diese Frage bereits beantwortet hat.
+  const registerByReadingId = new Map(
+    groups.flatMap((group) => group.readings.map((reading) => [reading.id, group.register] as const)),
+  );
+  const showRegisterColumn = hasMultipleRegisters(zaehler.register);
   const tips = getSmartHomeTips(zaehler.kategorie);
 
   const isGas = zaehler.kategorie === "GAS";
@@ -106,7 +154,12 @@ export function ZaehlerDetail({
   // here so the (potentially virtualized) history table stays a pure view.
   const readingRows: ReadingRow[] = zaehler.ablesungen.map((ablesung) => {
     const interval = intervalByReadingId.get(ablesung.id);
-    const tariffCost = interval ? tariffCostFor(interval) : null;
+    const register = registerByReadingId.get(ablesung.id) ?? null;
+    // Ein Einspeisestand bekommt KEINE Bezugskosten angerechnet. Der Tarif in
+    // `zaehler.tarife` ist der Arbeitspreis, den man fürs Beziehen zahlt;
+    // eingespeiste Kilowattstunden bringen eine Vergütung ein, und die beiden
+    // Beträge gegeneinander zu verrechnen wäre schlicht eine andere Rechnung.
+    const tariffCost = interval && !isFeedIn(register) ? tariffCostFor(interval) : null;
     const consumption: ReadingRow["consumption"] = !interval
       ? { kind: "none" }
       : interval.amount === null
@@ -116,6 +169,9 @@ export function ZaehlerDetail({
       id: ablesung.id,
       datum: dateFormatter.format(ablesung.datum),
       wert: `${numberFormatter.format(ablesung.wert)} ${zaehler.einheit}`,
+      // Nur bei mehr als einer Reihe. Ein gewöhnlicher Zähler soll keine Spalte
+      // bekommen, die für ihn immer dasselbe Wort enthält.
+      register: showRegisterColumn ? (register?.label ?? "Bezug") : null,
       getauscht: ablesung.zaehlerGetauscht,
       consumption,
       kosten: ablesung.kosten != null ? `${numberFormatter.format(ablesung.kosten)} €` : "–",
@@ -176,28 +232,43 @@ export function ZaehlerDetail({
           data-active={pane === "verlauf" ? "true" : "false"}
         >
           <Panel title="Verlauf">
-            {intervals.length > 0 && (
+            {(intervals.length > 0 || feedInStats) && (
               <div className={classes.detailStats}>
-                <MetricTile
-                  label="Verbrauch gesamt"
-                  value={`${numberFormatter.format(stats.total)} ${zaehler.einheit}`}
-                  hint={`${intervals.length} Intervalle`}
-                  icon={<IconSum size={18} stroke={1.7} />}
-                />
-                <MetricTile
-                  label="Ø pro Tag"
-                  value={
-                    stats.avgPerDay !== null
-                      ? `${perDayFormatter.format(stats.avgPerDay)} ${zaehler.einheit}`
-                      : "–"
-                  }
-                  hint="über den gesamten Zeitraum"
-                  icon={<IconTrendingUp size={18} stroke={1.7} />}
-                />
+                {intervals.length > 0 && (
+                  <>
+                    <MetricTile
+                      label="Verbrauch gesamt"
+                      value={`${numberFormatter.format(stats.total)} ${zaehler.einheit}`}
+                      hint={`${intervals.length} Intervalle`}
+                      icon={<IconSum size={18} stroke={1.7} />}
+                    />
+                    <MetricTile
+                      label="Ø pro Tag"
+                      value={
+                        stats.avgPerDay !== null
+                          ? `${perDayFormatter.format(stats.avgPerDay)} ${zaehler.einheit}`
+                          : "–"
+                      }
+                      hint="über den gesamten Zeitraum"
+                      icon={<IconTrendingUp size={18} stroke={1.7} />}
+                    />
+                  </>
+                )}
+                {/* Eigene Kachel statt einer Zahl in „Verbrauch gesamt": Was
+                    eingespeist wurde, ist kein Verbrauch. Beides in eine Summe
+                    zu werfen hiesse, zwei verschiedene Dinge zu addieren. */}
+                {feedInStats && (
+                  <MetricTile
+                    label="Einspeisung gesamt"
+                    value={`${numberFormatter.format(feedInStats.total)} ${zaehler.einheit}`}
+                    hint={`${feedInStats.intervalCount} Intervalle`}
+                    icon={<IconArrowBackUp size={18} stroke={1.7} />}
+                  />
+                )}
               </div>
             )}
 
-            {stats.hasImplausibleIntervals && (
+            {(stats.hasImplausibleIntervals || feedInStats?.hasImplausibleIntervals) && (
               <Alert tone="watch" icon={<IconAlertCircle size={16} />} className="mb-4">
                 Mindestens ein Intervall ist unplausibel (negativer Verbrauch) und fließt nicht in
                 die Summe ein. Bitte betroffene Ablesungen prüfen.
