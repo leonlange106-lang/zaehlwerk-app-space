@@ -10,6 +10,19 @@ import { Button } from "../components/ui/Button";
 import { Field, PasswordInput, TextInput } from "../components/ui/Field";
 import { Alert } from "../components/ui/primitives";
 
+/**
+ * Text der Sperrmeldung.
+ *
+ * Sagt, wie lange — sonst bleibt nur „irgendwann später", und wer nicht weiß,
+ * wann, probiert es sofort wieder und dreht den Zähler dabei weiter.
+ */
+function lockoutMessage(retryAfter: number | undefined): string {
+  const seconds = typeof retryAfter === "number" && retryAfter > 0 ? retryAfter : 0;
+  if (seconds === 0) return "Zu viele Anmeldeversuche. Bitte später erneut versuchen.";
+  const minutes = Math.ceil(seconds / 60);
+  return `Zu viele Anmeldeversuche. Bitte in ${minutes} Minute${minutes === 1 ? "" : "n"} erneut versuchen.`;
+}
+
 export function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -28,6 +41,18 @@ export function LoginForm() {
     try {
       // Step 1: verify credentials without issuing a session yet.
       const precheck = await beginLoginAction(email, password);
+      // Die Sperre wird von „falsch getippt" UNTERSCHIEDEN — und zwar hier,
+      // sonst steht die Unterscheidung nur im Kommentar der Server-Action und
+      // niemand sieht sie je. Wer richtig tippt und trotzdem abgewiesen wird,
+      // tippt es noch zehnmal und dreht den Zähler dabei weiter.
+      //
+      // Verraten wird damit nichts: Die Sperre greift für existierende wie für
+      // nicht existierende Konten gleich.
+      if (precheck.lockedOut) {
+        setError(lockoutMessage(precheck.retryAfter));
+        setPending(false);
+        return;
+      }
       if (!precheck.ok) {
         setError("E-Mail oder Passwort ist falsch.");
         setPending(false);
