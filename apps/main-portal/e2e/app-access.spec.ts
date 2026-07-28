@@ -30,3 +30,35 @@ test.describe("App access control (restricted user)", () => {
     await expect(menu.getByRole("menuitem", { name: "Plattform-Einstellungen" })).toBeVisible();
   });
 });
+
+// The edge guard (`proxy.ts`) decides who reaches an API route at all. It is
+// deliberately tested from OUTSIDE, over HTTP: the ingestion route's unit tests
+// call POST() directly and therefore never cross the guard — which is exactly
+// how the guard came to reject every unattended ingest with a 401 while all four
+// of those tests stayed green.
+//
+// Unauthenticated on purpose: an ingestion client is a device, not a browser.
+test.describe("Edge guard: automated ingestion", () => {
+  test.use({ storageState: { cookies: [], origins: [] } });
+
+  test("an ingestion key reaches the route instead of being turned away", async ({ request }) => {
+    const response = await request.post("/api/v1/logs/ingest", {
+      headers: { "X-API-Key": "zw_ing_definitely-not-a-real-key", "Content-Type": "text/csv" },
+      data: "irrelevant",
+    });
+
+    // Still 401 — the key is bogus. The point is WHICH 401: the guard answers
+    // {"error":"Unauthorized"}, the route answers with its own German message.
+    // Getting the route's proves the request was allowed through to be judged.
+    expect(response.status()).toBe(401);
+    expect(await response.json()).toMatchObject({ success: false });
+  });
+
+  test("the same key opens nothing else", async ({ request }) => {
+    const response = await request.get("/api/v1/meters", {
+      headers: { "X-API-Key": "zw_ing_definitely-not-a-real-key" },
+    });
+    expect(response.status()).toBe(401);
+    expect(await response.json()).toMatchObject({ error: "Unauthorized" });
+  });
+});
