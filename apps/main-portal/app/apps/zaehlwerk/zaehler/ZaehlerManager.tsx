@@ -20,6 +20,7 @@ import {
   ENERGY_CATEGORIES,
   ENERGY_CATEGORY_LABELS,
   calculateConsumption,
+  consumptionReadings,
   sumConsumption,
 } from "@zaehlwerk/database/client";
 import type { listLocations, listZaehler } from "@/app/lib/zaehler-actions";
@@ -94,9 +95,16 @@ export function ZaehlerManager({
               </Panel>
             )}
             {zaehlerList.map((zaehler) => {
-              const intervals = calculateConsumption(zaehler.ablesungen, { stellen: zaehler.stellen });
+              // Nur der Bezug — und zwar auch fuer „letzter Stand".
+              //
+              // Bei einem Zweirichtungszaehler ist die juengste Ablesung ueberhaupt
+              // haeufig ein Einspeisestand. Den als letzten Zaehlerstand der Kachel
+              // zu zeigen waere schlicht die falsche Zahl: Sie steht neben einer
+              // Verbrauchssumme und wird als deren Endstand gelesen.
+              const readings = consumptionReadings(zaehler.register, zaehler.ablesungen);
+              const intervals = calculateConsumption(readings, { stellen: zaehler.stellen });
               const total = sumConsumption(intervals);
-              const lastReading = zaehler.ablesungen.at(-1);
+              const lastReading = readings.at(-1);
 
               return (
                 <Link

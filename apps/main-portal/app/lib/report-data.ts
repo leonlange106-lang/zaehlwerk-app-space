@@ -1,4 +1,4 @@
-import { prisma } from "@zaehlwerk/database";
+import { consumptionReadings, prisma } from "@zaehlwerk/database";
 import { buildYearlyReport, type ReportZaehlerInput, type YearlyReportData } from "@/src/components/pdf/report-model";
 
 export interface ReportOptions {
@@ -23,12 +23,25 @@ export async function getYearlyReportData(options: ReportOptions = {}): Promise<
     include: {
       ablesungen: { orderBy: { datum: "asc" } },
       tarife: { orderBy: { gueltigAb: "asc" } },
+      register: { orderBy: { sortIndex: "asc" } },
     },
   });
 
+  // Die Einspeisung bleibt draußen — hier, an der Grenze, nicht im Berichtsmodell.
+  //
+  // Die Jahresübersicht ist ein Raster aus Verbrauch, Tagen und Kosten je Sparte;
+  // eine Spalte für Eingespeistes gibt es darin nicht. Ließe man die Stände
+  // trotzdem durch, liefen sie in dieselbe Reihe wie der Bezug: Jedes zweite
+  // Intervall käme negativ heraus, das darauffolgende spränge über den ganzen
+  // Zählerstand, und der Basiswert für den Jahresanfang wäre womöglich ein
+  // Einspeisestand. In einem PDF, das jemand zur Abrechnung nimmt, sind das
+  // teure Zahlen.
   const prepared: ReportZaehlerInput[] = zaehlerList.map((zaehler) => ({
     ...zaehler,
-    ablesungen: filterReadingsForYear(zaehler.ablesungen, options.year),
+    ablesungen: filterReadingsForYear(
+      consumptionReadings(zaehler.register, zaehler.ablesungen),
+      options.year,
+    ),
   }));
 
   return buildYearlyReport(prepared);

@@ -29,6 +29,14 @@ export type ReadingRow = {
   id: string;
   datum: string;
   wert: string;
+  /**
+   * Anzeigename des Registers, oder `null`, wenn der Zaehler nur eines fuehrt.
+   *
+   * Der Elternteil entscheidet das, nicht diese Tabelle: Ein gewoehnlicher
+   * Zaehler soll keine Spalte bekommen, in der in jeder Zeile dasselbe Wort
+   * steht.
+   */
+  register: string | null;
   getauscht: boolean;
   consumption:
     | { kind: "none" }
@@ -71,15 +79,22 @@ type RowActions = {
 function RowCells({
   row,
   hasTarife,
+  showRegister,
   actions,
 }: {
   row: ReadingRow;
   hasTarife: boolean;
+  showRegister: boolean;
   actions: RowActions;
 }) {
   return (
     <>
       <Td className="whitespace-nowrap">{row.datum}</Td>
+      {showRegister && (
+        <Td className="whitespace-nowrap">
+          <Badge>{row.register ?? "Bezug"}</Badge>
+        </Td>
+      )}
       <Td className="readout whitespace-nowrap">
         {row.wert}
         {row.getauscht && <Badge className="ml-2">Zähler getauscht</Badge>}
@@ -131,10 +146,11 @@ function RowCells({
   );
 }
 
-function HeaderRow({ hasTarife }: { hasTarife: boolean }) {
+function HeaderRow({ hasTarife, showRegister }: { hasTarife: boolean; showRegister: boolean }) {
   return (
     <tr>
       <Th>Datum</Th>
+      {showRegister && <Th>Register</Th>}
       <Th>Zählerstand</Th>
       <Th>Verbrauch</Th>
       <Th>Kosten</Th>
@@ -179,30 +195,50 @@ export function ReadingHistoryTable({
 
   const actions: RowActions = { onEdit: setEditRow, onDelete, deleting };
 
+  // Einmal hier ableiten statt als weiteres Flag durchzureichen: Der Elternteil
+  // hat die Entscheidung bereits getroffen, indem er `register` gesetzt oder auf
+  // null gelassen hat.
+  const showRegister = rows.some((row) => row.register !== null);
+
   return (
     <>
       {/* Phone first, and first in the DOM: at < 600px this is the branch that
           has a box, so "the first edit button on the page" is the visible one. */}
-      <ReadingCardList rows={rows} hasTarife={hasTarife} actions={actions} />
+      <ReadingCardList
+        rows={rows}
+        hasTarife={hasTarife}
+        showRegister={showRegister}
+        actions={actions}
+      />
 
       <div className={cardClasses.tableView}>
         {rows.length <= VIRTUALIZE_THRESHOLD ? (
           <TableScroll>
             <Table style={{ minWidth: MIN_TABLE_WIDTH }}>
               <thead>
-                <HeaderRow hasTarife={hasTarife} />
+                <HeaderRow hasTarife={hasTarife} showRegister={showRegister} />
               </thead>
               <tbody>
                 {rows.map((row) => (
                   <tr key={row.id}>
-                    <RowCells row={row} hasTarife={hasTarife} actions={actions} />
+                    <RowCells
+                      row={row}
+                      hasTarife={hasTarife}
+                      showRegister={showRegister}
+                      actions={actions}
+                    />
                   </tr>
                 ))}
               </tbody>
             </Table>
           </TableScroll>
         ) : (
-          <VirtualizedReadingTable rows={rows} hasTarife={hasTarife} actions={actions} />
+          <VirtualizedReadingTable
+            rows={rows}
+            hasTarife={hasTarife}
+            showRegister={showRegister}
+            actions={actions}
+          />
         )}
       </div>
 
@@ -237,10 +273,12 @@ export function ReadingHistoryTable({
 function ReadingCardList({
   rows,
   hasTarife,
+  showRegister,
   actions,
 }: {
   rows: ReadingRow[];
   hasTarife: boolean;
+  showRegister: boolean;
   actions: RowActions;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -269,7 +307,10 @@ function ReadingCardList({
                 <div className={cardClasses.date}>{row.datum}</div>
                 <div className={cardClasses.value}>{row.wert}</div>
               </div>
-              {row.getauscht && <Badge>Zähler getauscht</Badge>}
+              <span className="flex flex-wrap justify-end gap-1">
+                {showRegister && <Badge>{row.register ?? "Bezug"}</Badge>}
+                {row.getauscht && <Badge>Zähler getauscht</Badge>}
+              </span>
             </div>
 
             <div className={cardClasses.actions}>
@@ -446,10 +487,12 @@ function EditReadingForm({
 function VirtualizedReadingTable({
   rows,
   hasTarife,
+  showRegister,
   actions,
 }: {
   rows: ReadingRow[];
   hasTarife: boolean;
+  showRegister: boolean;
   actions: RowActions;
 }) {
   const parentRef = useRef<HTMLDivElement>(null);
@@ -468,7 +511,7 @@ function VirtualizedReadingTable({
   const paddingTop = virtualRows.length > 0 ? virtualRows[0]!.start : 0;
   const paddingBottom =
     virtualRows.length > 0 ? totalSize - virtualRows[virtualRows.length - 1]!.end : 0;
-  const colSpan = hasTarife ? 7 : 6;
+  const colSpan = 6 + (hasTarife ? 1 : 0) + (showRegister ? 1 : 0);
 
   // Single scroll container handles both axes: vertical for windowing, and
   // horizontal so the wide table never overflows the phone viewport.
@@ -482,7 +525,7 @@ function VirtualizedReadingTable({
     >
       <Table style={{ minWidth: MIN_TABLE_WIDTH }}>
         <thead className="sticky top-0 z-10 bg-surface">
-          <HeaderRow hasTarife={hasTarife} />
+          <HeaderRow hasTarife={hasTarife} showRegister={showRegister} />
         </thead>
         <tbody>
           {paddingTop > 0 && (
@@ -494,7 +537,12 @@ function VirtualizedReadingTable({
             const row = rows[virtualRow.index]!;
             return (
               <tr key={row.id} data-index={virtualRow.index} ref={virtualizer.measureElement}>
-                <RowCells row={row} hasTarife={hasTarife} actions={actions} />
+                <RowCells
+                  row={row}
+                  hasTarife={hasTarife}
+                  showRegister={showRegister}
+                  actions={actions}
+                />
               </tr>
             );
           })}

@@ -1,6 +1,6 @@
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
-import { projectAnnualConsumption } from "@zaehlwerk/database/shared";
+import { consumptionReadings, projectAnnualConsumption } from "@zaehlwerk/database/shared";
 import { getZaehlerById, listLocations } from "@/app/lib/zaehler-actions";
 import { listActiveApiTokens } from "@/app/lib/api-token-actions";
 import { ZaehlerDetail } from "./ZaehlerDetail";
@@ -28,8 +28,14 @@ export default async function ZaehlerDetailPage({
   const proto = headerList.get("x-forwarded-proto") ?? "https";
   const origin = `${proto}://${host}`;
 
+  // Nur der Bezug geht in die Hochrechnung.
+  //
+  // Eingespeiste Kilowattstunden sind kein Verbrauch. In dieselbe Reihe geworfen
+  // ergeben sie keine Nettobilanz, sondern eine Folge von Sprüngen in beide
+  // Richtungen — und eine Jahressumme samt Kosten daraus zu schätzen wäre grob
+  // falsch, ohne dass man es der Zahl ansähe.
   const projection = projectAnnualConsumption({
-    readings: zaehler.ablesungen,
+    readings: consumptionReadings(zaehler.register, zaehler.ablesungen),
     kategorie: zaehler.kategorie,
     einheit: zaehler.einheit,
     tarife: zaehler.tarife,

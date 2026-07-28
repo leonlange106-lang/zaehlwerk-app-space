@@ -16,3 +16,5 @@ export * from "./consumption";
 export * from "./gas";
 export * from "./tariff";
 export * from "./projection";
+export * from "./obis";
+export * from "./registers";

@@ -3,6 +3,7 @@ import {
   calculateConsumption,
   calculateTariffCost,
   gasM3ToKwh,
+  groupReadingsByRegister,
   pickTariffForDate,
   prisma,
 } from "@zaehlwerk/database";
@@ -73,6 +74,7 @@ export async function GET(request: NextRequest) {
     include: {
       ablesungen: { orderBy: { datum: "asc" } },
       tarife: { orderBy: { gueltigAb: "asc" } },
+      register: { orderBy: { sortIndex: "asc" } },
     },
   });
 
@@ -80,6 +82,7 @@ export async function GET(request: NextRequest) {
     "Zaehler",
     "Kategorie",
     "Datum",
+    "Register",
     "Zaehlerstand",
     "Einheit",
     "Verbrauch",
@@ -90,8 +93,26 @@ export async function GET(request: NextRequest) {
   const lines: string[] = [];
   for (const zaehler of zaehlerList) {
     const isGas = zaehler.kategorie === "GAS";
-    const intervals = calculateConsumption(zaehler.ablesungen, { stellen: zaehler.stellen });
-    const intervalByReadingId = new Map(intervals.map((interval) => [interval.toReadingId, interval]));
+
+    // JE REGISTER rechnen. Ein Zweirichtungszaehler meldet Bezug und Einspeisung
+    // abwechselnd in dieselbe Reihe; ueber die gemischte Liste gerechnet ergaebe
+    // jedes zweite Intervall einen negativen Verbrauch und das darauffolgende
+    // einen Sprung ueber den ganzen Zaehlerstand. In einer CSV faellt das
+    // niemandem auf — sie wird weiterverarbeitet, nicht gelesen.
+    const groups =
+      zaehler.register.length === 0
+        ? [{ register: null, readings: zaehler.ablesungen }]
+        : groupReadingsByRegister(zaehler.register, zaehler.ablesungen);
+    const intervalByReadingId = new Map(
+      groups
+        .flatMap((group) => calculateConsumption(group.readings, { stellen: zaehler.stellen }))
+        .map((interval) => [interval.toReadingId, interval]),
+    );
+    const registerByReadingId = new Map(
+      groups.flatMap((group) =>
+        group.readings.map((reading) => [reading.id, group.register] as const),
+      ),
+    );
 
     for (const ablesung of zaehler.ablesungen) {
       // Datumsfilter erst bei der Ausgabe anwenden — der Verbrauch wird aus der
@@ -101,12 +122,17 @@ export async function GET(request: NextRequest) {
       if (toInclusive && ablesung.datum > toInclusive) continue;
 
       const interval = intervalByReadingId.get(ablesung.id) ?? null;
+      const register = registerByReadingId.get(ablesung.id) ?? null;
+      const isFeedIn = register?.richtung === "EINSPEISUNG";
       const verbrauch =
         !interval ? "" : interval.amount === null ? "unplausibel" : fmtNumber(interval.amount);
 
       // Kosten: erfasster Betrag hat Vorrang, sonst tarifbasiert berechnet.
       let kosten: string = ablesung.kosten != null ? fmtNumber(ablesung.kosten) : "";
-      if (!kosten && interval && interval.amount !== null) {
+      // Kein Bezugstarif auf eine Einspeisung. Der Arbeitspreis ist das, was
+      // man fuers Beziehen zahlt; eingespeiste Kilowattstunden bringen eine
+      // Verguetung ein, und das ist eine andere Rechnung.
+      if (!kosten && !isFeedIn && interval && interval.amount !== null) {
         const tarif = pickTariffForDate(zaehler.tarife, interval.to);
         if (tarif) {
           const verbrauchAbrechnung = isGas ? gasM3ToKwh(interval.amount) : interval.amount;
@@ -121,6 +147,7 @@ export async function GET(request: NextRequest) {
           zaehler.name,
           zaehler.kategorie,
           fmtDate(ablesung.datum),
+          register?.label ?? "Bezug",
           fmtNumber(ablesung.wert),
           zaehler.einheit,
           verbrauch,
