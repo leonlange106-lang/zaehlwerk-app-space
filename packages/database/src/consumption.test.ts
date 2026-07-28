@@ -181,3 +181,61 @@ describe("computeConsumptionStats", () => {
     expect(stats.minPerDay).toBeNull();
   });
 });
+
+// Zaehlerueberlauf: Ein 6-stelliges Werk springt von 999999 auf 0. Ohne
+// Behandlung faellt das Intervall als "unplausibel" aus jeder Summe heraus —
+// der Verbrauch eines ganzen Zeitraums verschwindet stillschweigend.
+describe("calculateConsumption — Ueberlauf", () => {
+  const r = (id: string, tag: number, wert: number) => ({
+    id,
+    datum: new Date(Date.UTC(2026, 0, tag)),
+    wert,
+    zaehlerGetauscht: false,
+    startwertNeu: null,
+  });
+
+  it("faellt ohne bekannte Stellenzahl auf 'unplausibel' zurueck", () => {
+    // Aus den Ablesungen allein laesst sich die Stellenzahl nicht ableiten. Sie
+    // zu raten hiesse, Verbrauch zu erfinden, der nie stattgefunden hat.
+    const [interval] = calculateConsumption([r("a", 1, 999_950), r("b", 2, 30)]);
+    expect(interval.amount).toBeNull();
+    expect(interval.rollover).toBe(false);
+  });
+
+  it("rechnet ueber den Ueberlauf hinweg, wenn die Stellenzahl bekannt ist", () => {
+    const [interval] = calculateConsumption([r("a", 1, 999_950), r("b", 2, 30)], {
+      stellen: 6,
+    });
+    // 999950 → 999999 (49) → 0 → 30  ⇒  80
+    expect(interval.amount).toBe(80);
+    expect(interval.rollover).toBe(true);
+  });
+
+  it("korrigiert NICHT, wenn der Ausgangswert weit unter dem Anschlag lag", () => {
+    // Der eigentliche Schutz: Ohne diese Bedingung wuerde jede Fehleingabe zu
+    // einem erfundenen Verbrauch von fast einem ganzen Zaehlerumfang.
+    const [interval] = calculateConsumption([r("a", 1, 5_000), r("b", 2, 4_000)], {
+      stellen: 6,
+    });
+    expect(interval.amount).toBeNull();
+    expect(interval.rollover).toBe(false);
+  });
+
+  it("laesst gewoehnliche Intervalle unberuehrt", () => {
+    const [interval] = calculateConsumption([r("a", 1, 1_000), r("b", 2, 1_050)], {
+      stellen: 6,
+    });
+    expect(interval.amount).toBe(50);
+    expect(interval.rollover).toBe(false);
+  });
+
+  it("zaehlt einen korrigierten Ueberlauf in die Summe", () => {
+    // Der Sinn der ganzen Uebung: Vorher fiel dieser Zeitraum aus jeder
+    // Auswertung heraus, weil `null` uebersprungen wird.
+    const intervals = calculateConsumption(
+      [r("a", 1, 999_950), r("b", 2, 30), r("c", 3, 60)],
+      { stellen: 6 },
+    );
+    expect(sumConsumption(intervals)).toBe(110);
+  });
+});

@@ -138,6 +138,15 @@ model Zaehler {
   /// Belästigung, und die Glocke verliert ihren Wert, wenn ständig etwas drin
   /// steht. Nur gesetzte Intervalle erzeugen eine Meldung.
   ableseIntervallTage Int            @default(0)
+  /// Stellenzahl des Zaehlwerks, z. B. 6 fuer ein Geraet, das bei 999999
+  /// ueberlaeuft. `null` = unbekannt.
+  ///
+  /// Optional, und das ist die richtige Vorgabe: Aus den Ablesungen allein
+  /// laesst sich die Stellenzahl nicht ableiten, und ein falsch geratener
+  /// Ueberlauf erfindet Verbrauch, den es nie gab. Ohne Angabe bleibt ein
+  /// negatives Delta wie bisher "unplausibel" — sichtbar statt stillschweigend
+  /// korrigiert.
+  stellen             Int?
   locationId          String?
   location            Location?      @relation(fields: [locationId], references: [id])
   ablesungen          Ablesung[]
