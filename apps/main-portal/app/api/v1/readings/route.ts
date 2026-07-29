@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import {
   apiReadingCreateSchema,
-  calculateConsumption,
+  checkReadingPlausibility,
   DEFAULT_OBIS_CODE,
   describeObisCode,
   knownObisCodes,
@@ -28,9 +28,6 @@ export const dynamic = "force-dynamic";
 const RATE_LIMIT = 120;
 const RATE_WINDOW_MS = 60_000;
 
-// Synthetische Id für den noch nicht gespeicherten Stand, damit
-// calculateConsumption ihn wie eine echte Ablesung behandeln kann.
-const PENDING_ID = "__pending__";
 
 /**
  * Smart-Home-/Webhook-Endpunkt zur automatischen Zählerstands-Erfassung
@@ -162,12 +159,12 @@ export async function POST(request: NextRequest) {
         : { ...NOT_DELETED, registerId: register.id },
     select: { id: true, datum: true, wert: true, zaehlerGetauscht: true, startwertNeu: true },
   });
-  const intervals = calculateConsumption([
-    ...existing,
-    { id: PENDING_ID, datum, wert: value, zaehlerGetauscht, startwertNeu: startwertNeu ?? null },
-  ]);
-  const newInterval = intervals.find((interval) => interval.toReadingId === PENDING_ID) ?? null;
-  const isImplausible = newInterval !== null && newInterval.amount === null;
+  const { implausible: isImplausible, interval: newInterval } = checkReadingPlausibility(existing, {
+    datum,
+    wert: value,
+    zaehlerGetauscht,
+    startwertNeu: startwertNeu ?? null,
+  });
 
   if (isImplausible && !allowImplausible) {
     return unprocessableProblem(

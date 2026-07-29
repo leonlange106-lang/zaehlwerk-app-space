@@ -59,7 +59,7 @@ import {
   updateTarifAction,
   updateZaehlerAction,
 } from "@/app/lib/zaehler-actions";
-import { initialActionState } from "@/app/lib/action-state";
+import { initialActionState, type ActionConfirmation } from "@/app/lib/action-state";
 import { getSmartHomeTips } from "./smart-home-tips";
 import { SmartHomeCard, type SmartHomeTokenOption } from "./SmartHomeCard";
 import { MeterDataCard } from "./MeterDataCard";
@@ -67,6 +67,7 @@ import { ReadingHistoryTable, type ReadingRow } from "./ReadingHistoryTable";
 import { ProjectionStats } from "@/app/apps/zaehlwerk/berichte/projection-ui";
 import { MetricTile } from "@/app/components/ui/MetricTile";
 import { ResponsiveDialog } from "@/app/components/ui/ResponsiveDialog";
+import { ConfirmActionDialog } from "@/app/components/ui/ConfirmActionDialog";
 import classes from "./ZaehlerDetail.module.css";
 
 type ZaehlerWithHistory = NonNullable<Awaited<ReturnType<typeof getZaehlerById>>>;
@@ -381,12 +382,40 @@ function CreateReadingCard({ zaehler }: { zaehler: ZaehlerWithHistory }) {
   const [state, formAction, pending] = useActionState(createAblesungAction, initialActionState);
   const formRef = useRef<HTMLFormElement>(null);
   const today = new Date().toISOString().slice(0, 10);
+  // Die bewusste Freigabe gilt fuer GENAU EIN Absenden — sie steckt deshalb im
+  // DOM und nicht im React-Zustand: Das `form.reset()` nach dem Speichern setzt
+  // sie von selbst zurueck. Bliebe sie stehen, liefe die naechste Ablesung
+  // ungeprueft durch und die Rueckfrage haette sich selbst abgeschafft.
+  const allowRef = useRef<HTMLInputElement>(null);
+
+  // Weggeklickte Rueckfrage: Der Zustand aus `useActionState` laesst sich nicht
+  // loeschen, also merken wir uns, WELCHE Rueckfrage verworfen wurde. Jede neue
+  // Antwort der Action ist ein neues Objekt, der Referenzvergleich greift also
+  // — und es braucht keinen Effect, der den Merker zuruecksetzt (der waere
+  // genau die kaskadierende Render-Schleife, die der Linter verbietet).
+  const [dismissed, setDismissed] = useState<ActionConfirmation | undefined>(undefined);
+  const confirmation = state.confirm === dismissed ? undefined : state.confirm;
 
   useEffect(() => {
     if (state.success) {
       formRef.current?.reset();
     }
   }, [state.success]);
+
+  const submitAnyway = () => {
+    if (allowRef.current) allowRef.current.value = "on";
+    formRef.current?.requestSubmit();
+  };
+
+  const enterMeterSwap = () => {
+    const form = formRef.current;
+    if (!form) return;
+    const checkbox = form.elements.namedItem("zaehlerGetauscht");
+    if (checkbox instanceof HTMLInputElement) checkbox.checked = true;
+    setDismissed(state.confirm);
+    const startwert = form.elements.namedItem("startwertNeu");
+    if (startwert instanceof HTMLInputElement) startwert.focus();
+  };
 
   return (
     <Panel
@@ -396,6 +425,7 @@ function CreateReadingCard({ zaehler }: { zaehler: ZaehlerWithHistory }) {
     >
       <form action={formAction} ref={formRef} className="flex flex-col gap-4">
         <input type="hidden" name="zaehlerId" value={zaehler.id} />
+        <input type="hidden" name="allowImplausible" ref={allowRef} defaultValue="" />
         <Field label="Ablesedatum" required>
           {({ id }) => (
             <TextInput id={id} name="datum" type="date" defaultValue={today} required />
@@ -444,6 +474,18 @@ function CreateReadingCard({ zaehler }: { zaehler: ZaehlerWithHistory }) {
           {pending ? "Wird gespeichert…" : "Ablesung speichern"}
         </Button>
       </form>
+
+      <ConfirmActionDialog
+        confirmation={confirmation}
+        onCancel={() => setDismissed(state.confirm)}
+        onProceed={submitAnyway}
+        data-testid="implausible-reading-dialog"
+        alternative={{
+          label: "Zählertausch eintragen",
+          onSelect: enterMeterSwap,
+          hint: "Bei einem Tausch gehört in „Zählerstand“ der Endstand des alten Geräts und in „Startwert neuer Zähler“, wo das Ersatzgerät beginnt.",
+        }}
+      />
     </Panel>
   );
 }

@@ -4,6 +4,7 @@ import { useActionState, useEffect, useRef, useState, useTransition } from "reac
 import { useRouter } from "next/navigation";
 import { Badge } from "@/app/components/ui/Badge";
 import { Button } from "@/app/components/ui/Button";
+import { ConfirmActionDialog } from "@/app/components/ui/ConfirmActionDialog";
 import { Checkbox as UiCheckbox } from "@/app/components/ui/primitives";
 import { Field, NumberInput, TextInput } from "@/app/components/ui/Field";
 import { Tooltip } from "@/app/components/ui/Tooltip";
@@ -17,7 +18,7 @@ import {
 } from "@tabler/icons-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { deleteAblesungAction, updateAblesungAction } from "@/app/lib/zaehler-actions";
-import { initialActionState } from "@/app/lib/action-state";
+import { initialActionState, type ActionConfirmation } from "@/app/lib/action-state";
 import { ResponsiveDialog } from "@/app/components/ui/ResponsiveDialog";
 import cardClasses from "./ReadingHistoryTable.module.css";
 
@@ -403,15 +404,34 @@ function EditReadingForm({
 }) {
   const [state, formAction, pending] = useActionState(updateAblesungAction, initialActionState);
   const [getauscht, setGetauscht] = useState(row.raw.getauscht);
+  const formRef = useRef<HTMLFormElement>(null);
+  // Nur fuer dieses eine Absenden, im DOM statt im Zustand — siehe
+  // CreateReadingCard.
+  const allowRef = useRef<HTMLInputElement>(null);
+  const [dismissed, setDismissed] = useState<ActionConfirmation | undefined>(undefined);
+  const confirmation = state.confirm === dismissed ? undefined : state.confirm;
 
   useEffect(() => {
     if (state.success) onDone();
   }, [state.success, onDone]);
 
+  const submitAnyway = () => {
+    if (allowRef.current) allowRef.current.value = "on";
+    formRef.current?.requestSubmit();
+  };
+
+  const enterMeterSwap = () => {
+    // Hier ist der Haken kontrolliert (`getauscht`), also ueber den Zustand —
+    // ein direkter DOM-Zugriff wuerde beim naechsten Render ueberschrieben.
+    setGetauscht(true);
+    setDismissed(state.confirm);
+  };
+
   return (
-    <form action={formAction} key={row.id} className="flex flex-col gap-4">
+    <form action={formAction} ref={formRef} key={row.id} className="flex flex-col gap-4">
       <input type="hidden" name="id" value={row.id} />
       <input type="hidden" name="zaehlerId" value={zaehlerId} />
+      <input type="hidden" name="allowImplausible" ref={allowRef} defaultValue="" />
       <Field label="Ablesedatum" required>
         {({ id }) => (
           <TextInput id={id} name="datum" type="date" defaultValue={row.raw.datum} required />
@@ -480,6 +500,18 @@ function EditReadingForm({
           {pending ? "Wird gespeichert…" : "Speichern"}
         </Button>
       </div>
+
+      <ConfirmActionDialog
+        confirmation={confirmation}
+        onCancel={() => setDismissed(state.confirm)}
+        onProceed={submitAnyway}
+        data-testid="implausible-reading-dialog"
+        alternative={{
+          label: "Zählertausch eintragen",
+          onSelect: enterMeterSwap,
+          hint: "Bei einem Tausch gehört in „Zählerstand“ der Endstand des alten Geräts und in „Startwert neuer Zähler“, wo das Ersatzgerät beginnt.",
+        }}
+      />
     </form>
   );
 }
