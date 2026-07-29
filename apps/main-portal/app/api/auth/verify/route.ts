@@ -25,7 +25,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * Wohin der Browser zurückgeschickt wird.
+ * Wohin der Browser zurückgeschickt wird — der Ursprung des ANFRAGENDEN
+ * Dienstes.
  *
  * NICHT aus `request.url` bauen: Der Proxy spricht den Dienst über den
  * Container-Namen an, die Anfrage kommt hier also als `http://main-portal:3000/…`
@@ -33,11 +34,38 @@ export const dynamic = "force-dynamic";
  * die es für ihn nicht gibt. Der öffentliche Name steht in den
  * `X-Forwarded-*`-Headern, die Caddy ohnehin setzt.
  */
-function publicOrigin(request: NextRequest): string {
+function requestOrigin(request: NextRequest): string {
   const proto = request.headers.get("x-forwarded-proto");
   const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
   if (proto && host) return `${proto}://${host}`;
   return new URL(request.url).origin;
+}
+
+/**
+ * Wo die ANMELDESEITE steht — nicht zwingend dort, wo die Anfrage herkam.
+ *
+ * Solange nur diese Anwendung hinter der Prüfstelle liegt, sind beide gleich.
+ * Sobald ein ZWEITER Dienst dazukommt (etwa das Portal), stimmt das nicht mehr:
+ * Ein nicht angemeldeter Aufruf dort würde sonst auf
+ * `https://<zweiter-dienst>/login` geschickt — eine Seite, die es dort nicht
+ * gibt. Der Besucher landet in einem 404 statt an der Anmeldung.
+ *
+ * `ZW_LOGIN_ORIGIN` benennt deshalb ausdrücklich, wo angemeldet wird. Ohne die
+ * Variable bleibt das Verhalten exakt wie bisher — der Ursprung der Anfrage.
+ * Das ist Absicht: Eine Instanz mit nur einem Dienst soll nichts konfigurieren
+ * müssen.
+ */
+function loginOrigin(request: NextRequest): string {
+  const configured = process.env.ZW_LOGIN_ORIGIN?.trim();
+  if (!configured) return requestOrigin(request);
+  try {
+    // Nur der Ursprung zählt; ein versehentlicher Pfad in der Variable würde
+    // sonst in die Weiterleitung geraten.
+    return new URL(configured).origin;
+  } catch {
+    console.warn("[verify] ZW_LOGIN_ORIGIN ist keine gültige URL, ignoriert:", configured);
+    return requestOrigin(request);
+  }
 }
 
 /**
@@ -93,7 +121,7 @@ export async function GET(request: NextRequest) {
       res.headers.set("Cache-Control", noStore["Cache-Control"]);
       return res;
     }
-    const login = new URL("/login", publicOrigin(request));
+    const login = new URL("/login", loginOrigin(request));
     login.searchParams.set("callbackUrl", uri);
     return NextResponse.redirect(login, { status: 302, headers: noStore });
   }
@@ -114,7 +142,7 @@ export async function GET(request: NextRequest) {
     // Faktor — und das Einrichtungsfenster rendert das Root-Layout anstelle des
     // Inhalts. Eine Weiterleitung auf /login sähe wie ein abgelaufener Login aus
     // und schickte den Nutzer in eine Runde, die nichts ändert.
-    return NextResponse.redirect(new URL("/", publicOrigin(request)), {
+    return NextResponse.redirect(new URL("/", loginOrigin(request)), {
       status: 302,
       headers: noStore,
     });

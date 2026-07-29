@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
 // Prüfstelle für Forward-Auth. Gemockt sind nur die Sitzung und die
@@ -80,6 +80,56 @@ describe("GET /api/auth/verify — angemeldet", () => {
 
     expect(res.status).toBe(403);
     expect(res.headers.get("content-type")).toContain("application/problem+json");
+  });
+});
+
+describe("GET /api/auth/verify — ZW_LOGIN_ORIGIN (zweiter Dienst)", () => {
+  // Der Fall, der mit nur EINEM Dienst nicht auftreten kann: Fragt ein zweiter
+  // Dienst (das Portal) an, darf die Weiterleitung nicht auf DESSEN Host
+  // zeigen — dort gibt es kein /login, der Besucher landet im 404.
+  beforeEach(() => {
+    getSessionUser.mockResolvedValue(null);
+    delete process.env.ZW_LOGIN_ORIGIN;
+  });
+  afterEach(() => {
+    delete process.env.ZW_LOGIN_ORIGIN;
+  });
+
+  it("schickt zur konfigurierten Anmeldung statt zum anfragenden Dienst", async () => {
+    process.env.ZW_LOGIN_ORIGIN = "https://zaehlwerk.local";
+    const res = await GET(
+      new NextRequest("http://portal:3010/api/auth/verify", {
+        headers: {
+          "x-forwarded-uri": "/admin",
+          "x-forwarded-proto": "https",
+          "x-forwarded-host": "portal.local",
+          "sec-fetch-mode": "navigate",
+        },
+      }),
+    );
+
+    const location = new URL(res.headers.get("location") ?? "");
+    expect(location.host).toBe("zaehlwerk.local");
+    // Das Ziel bleibt erhalten: nach der Anmeldung zurueck zum Portal-Pfad.
+    expect(location.searchParams.get("callbackUrl")).toBe("/admin");
+  });
+
+  it("bleibt ohne die Variable beim anfragenden Dienst", async () => {
+    // Eine Instanz mit nur einem Dienst soll nichts konfigurieren muessen.
+    const res = await GET(forwarded("/", { "sec-fetch-mode": "navigate" }));
+    expect(new URL(res.headers.get("location") ?? "").host).toBe("zaehlwerk.local");
+  });
+
+  it("ignoriert einen unbrauchbaren Wert, statt die Anmeldung zu zerstoeren", async () => {
+    process.env.ZW_LOGIN_ORIGIN = "kein-url";
+    const res = await GET(forwarded("/", { "sec-fetch-mode": "navigate" }));
+    expect(new URL(res.headers.get("location") ?? "").host).toBe("zaehlwerk.local");
+  });
+
+  it("nimmt nur den Ursprung, nicht einen mitgegebenen Pfad", async () => {
+    process.env.ZW_LOGIN_ORIGIN = "https://zaehlwerk.local/irgendwo";
+    const res = await GET(forwarded("/", { "sec-fetch-mode": "navigate" }));
+    expect(new URL(res.headers.get("location") ?? "").pathname).toBe("/login");
   });
 });
 
