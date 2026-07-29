@@ -6,9 +6,12 @@ import {
   Prisma,
   ablesungCreateSchema,
   ablesungUpdateSchema,
+  checkReadingPlausibility,
   computeConsumptionStats,
   calculateConsumption,
   consumptionReadings,
+  DEFAULT_OBIS_CODE,
+  describeImplausibleReading,
   NOT_DELETED,
   ONLY_DELETED,
   findOverlappingGasFactor,
@@ -380,6 +383,57 @@ export async function deleteTarifAction(
   return { success: true };
 }
 
+/** Feldname, mit dem die Oberfläche eine Plausibilitäts-Rückfrage übergeht. */
+const ALLOW_IMPLAUSIBLE_FIELD = "allowImplausible";
+
+/**
+ * Prüft einen Stand aus dem FORMULAR gegen die vorhandene Reihe.
+ *
+ * Das Formular kennt keine Register — es schreibt in die Standardreihe. Die
+ * Vergleichsreihe ist deshalb dieselbe, die `POST /api/v1/readings` für den
+ * Standard-OBIS-Code bildet: Stände ohne Registerbezug (die eine ältere
+ * Anwendung nach einem Rollback wieder schreibt) gehören dazu.
+ *
+ * Gibt `null` zurück, wenn gespeichert werden darf, sonst die Rückfrage.
+ */
+async function implausibilityConfirmation(
+  zaehlerId: string,
+  candidate: { datum: Date; wert: number; zaehlerGetauscht: boolean; startwertNeu: number | null },
+  options: { excludeReadingId?: string } = {},
+): Promise<ActionState["confirm"] | null> {
+  const zaehler = await prisma.zaehler.findUnique({
+    where: { id: zaehlerId },
+    select: { einheit: true },
+  });
+  if (!zaehler) return null; // Der Fremdschlüsselfehler ist die bessere Meldung.
+
+  const existing = await prisma.ablesung.findMany({
+    where: {
+      ...NOT_DELETED,
+      zaehlerId,
+      OR: [{ registerId: null }, { register: { obisCode: DEFAULT_OBIS_CODE } }],
+    },
+    select: { id: true, datum: true, wert: true, zaehlerGetauscht: true, startwertNeu: true },
+  });
+
+  const { implausible, interval } = checkReadingPlausibility(existing, candidate, options);
+  if (!implausible) return null;
+
+  // Den Vorwert für die Meldung aus derselben Reihe holen, gegen die gerechnet
+  // wurde — sonst nennt die Rückfrage eine Zahl, die nirgends steht.
+  const previous = interval?.fromReadingId
+    ? (existing.find((reading) => reading.id === interval.fromReadingId) ?? null)
+    : null;
+
+  return {
+    token: ALLOW_IMPLAUSIBLE_FIELD,
+    title: "Stand liegt unter dem letzten",
+    message: previous
+      ? describeImplausibleReading(previous.wert, candidate.wert, zaehler.einheit)
+      : "Der Verbrauch seit der vorherigen Ablesung wäre negativ — der neue Stand liegt unter dem letzten.",
+  };
+}
+
 export async function createAblesungAction(
   _prevState: ActionState,
   formData: FormData,
@@ -401,6 +455,16 @@ export async function createAblesungAction(
 
   if (!parsed.success) {
     return invalidInput(parsed.error);
+  }
+
+  if (formData.get(ALLOW_IMPLAUSIBLE_FIELD) !== "on") {
+    const confirm = await implausibilityConfirmation(parsed.data.zaehlerId, {
+      datum: parsed.data.datum,
+      wert: parsed.data.wert,
+      zaehlerGetauscht: parsed.data.zaehlerGetauscht,
+      startwertNeu: parsed.data.startwertNeu ?? null,
+    });
+    if (confirm) return { success: false, confirm };
   }
 
   try {
@@ -453,9 +517,29 @@ export async function updateAblesungAction(
   // korrigierte Ablesung sah aus wie eine, die schon immer so dastand.
   const vorher = await prisma.ablesung.findUnique({
     where: { id },
-    select: { wert: true, datum: true, kosten: true, notiz: true },
+    // `zaehlerId` kommt aus der DATENBANK, nicht aus dem Formular: Das Feld dort
+    // dient nur der Revalidierung und wäre für die Prüfung eine vom Client
+    // gesetzte Angabe darüber, gegen welche Reihe gerechnet wird.
+    select: { wert: true, datum: true, kosten: true, notiz: true, zaehlerId: true },
   });
   if (!vorher) return { success: false, error: "Diese Ablesung existiert nicht mehr." };
+
+  // Beim Bearbeiten gilt dieselbe Prüfung wie beim Anlegen — sonst wäre die
+  // Lücke nur verschoben: Stand plausibel anlegen, danach nach unten
+  // korrigieren.
+  if (formData.get(ALLOW_IMPLAUSIBLE_FIELD) !== "on") {
+    const confirm = await implausibilityConfirmation(
+      vorher.zaehlerId,
+      {
+        datum: data.datum,
+        wert: data.wert,
+        zaehlerGetauscht: data.zaehlerGetauscht,
+        startwertNeu: data.startwertNeu ?? null,
+      },
+      { excludeReadingId: id },
+    );
+    if (confirm) return { success: false, confirm };
+  }
 
   try {
     await prisma.$transaction([
